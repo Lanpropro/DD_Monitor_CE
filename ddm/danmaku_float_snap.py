@@ -29,24 +29,48 @@ def touching_windows(window, frames):
 
 
 def snapped_position(frame, work_area, neighbors, distance=12, *, companions=()):
+    members = (frame, *companions)
+    neighbors = tuple(neighbors)
     bounds = frame
-    for member in companions:
+    for member in members[1:]:
         bounds = bounds.united(member)
-    horizontal = [(work_area.left() - bounds.left(), Qt.LeftEdge),
-                  (work_area.right() - bounds.right(), Qt.RightEdge)]
-    vertical = [(work_area.top() - bounds.top(), Qt.TopEdge),
-                (work_area.bottom() - bounds.bottom(), Qt.BottomEdge)]
-    for member in (frame, *companions):
+    min_x, max_x = work_area.left() - bounds.left(), work_area.right() - bounds.right()
+    min_y, max_y = work_area.top() - bounds.top(), work_area.bottom() - bounds.bottom()
+    horizontal = [(min_x, Qt.LeftEdge, None), (max_x, Qt.RightEdge, None)]
+    vertical = [(min_y, Qt.TopEdge, None), (max_y, Qt.BottomEdge, None)]
+    for member in members:
         for other in neighbors:
             x, y = _edge_offsets(member, other)
-            horizontal.extend(x)
-            vertical.extend(y)
+            pair = (member, other)
+            horizontal.extend((delta, edge, pair) for delta, edge in x)
+            vertical.extend((delta, edge, pair) for delta, edge in y)
 
-    def closest(candidates, start, stop, lower, upper):
-        return min(((delta, edge) for delta, edge in candidates
-                    if abs(delta) <= distance and lower <= start + delta and stop + delta <= upper),
-                   key=lambda match: abs(match[0]), default=(0, Qt.Edge(0)))
+    def closest(candidates, lower, upper):
+        return min((match for match in candidates if lower <= match[0] <= upper),
+                   key=lambda match: (abs(match[0]), match[2] is None), default=(0, Qt.Edge(0), None))
 
-    dx, x_edge = closest(horizontal, bounds.left(), bounds.right(), work_area.left(), work_area.right())
-    dy, y_edge = closest(vertical, bounds.top(), bounds.bottom(), work_area.top(), work_area.bottom())
+    def clears_neighbors(x, y):
+        for member in members:
+            moved = member.translated(x, y)
+            if any(moved.intersects(other) for other in neighbors):
+                return False
+        return True
+
+    dx, x_edge, side_pair = closest(horizontal, max(min_x, -distance), min(max_x, distance))
+    dy, y_edge, stack_pair = closest(vertical, max(min_y, -distance), min(max_y, distance))
+    # Align along the shared side, using the contact window even when a group is moving.
+    if side_pair is not None and stack_pair is None:
+        member, other = side_pair
+        aligned = ((other.top() - member.top(), Qt.TopEdge, None),
+                   (other.bottom() - member.bottom(), Qt.BottomEdge, None))
+        shift, edge, _ = closest((match for match in aligned if clears_neighbors(dx, match[0])), min_y, max_y)
+        if edge:
+            dy, y_edge = shift, edge
+    elif stack_pair is not None and side_pair is None:
+        member, other = stack_pair
+        aligned = ((other.left() - member.left(), Qt.LeftEdge, None),
+                   (other.right() - member.right(), Qt.RightEdge, None))
+        shift, edge, _ = closest((match for match in aligned if clears_neighbors(match[0], dy)), min_x, max_x)
+        if edge:
+            dx, x_edge = shift, edge
     return frame.topLeft() + QPoint(dx, dy), x_edge | y_edge

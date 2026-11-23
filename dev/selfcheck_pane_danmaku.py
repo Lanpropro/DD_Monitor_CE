@@ -487,11 +487,35 @@ class PaneDanmakuTests(unittest.TestCase):
         area = QRect(-1200, -600, 1200, 570)
         other = QRect(-800, -450, 260, 230)
         frame = QRect(-531, -420, 240, 200)
-        self.assertEqual(snapped_position(frame, area, [other]), (QPoint(-540, -420), Qt.LeftEdge))
+        self.assertEqual(snapped_position(frame, area, [other]),
+                         (QPoint(-540, -420), Qt.LeftEdge | Qt.BottomEdge))
         self.assertEqual(snapped_position(frame.translated(0, 215), area, [other]),
                          (QPoint(-531, -205), Qt.Edge(0)))
         corner = QRect(-1194, -595, 240, 200)
         self.assertEqual(snapped_position(corner, area, []), (area.topLeft(), Qt.LeftEdge | Qt.TopEdge))
+
+        peer = QRect(-800, -400, 240, 160)
+        with self.subTest(alignment='same row'):
+            self.assertEqual(snapped_position(QRect(-553, -368, 240, 160), area, [peer]),
+                             (QPoint(-560, -400), Qt.LeftEdge | Qt.TopEdge))
+        with self.subTest(alignment='same column'):
+            self.assertEqual(snapped_position(QRect(-772, -233, 240, 160), area, [peer]),
+                             (QPoint(-800, -240), Qt.TopEdge | Qt.LeftEdge))
+        with self.subTest(alignment='moving a connected group'):
+            companion = QRect(-553, -368, 240, 160)
+            lead = companion.translated(companion.width(), 0)
+            self.assertEqual(snapped_position(lead, area, [peer], companions=[companion]),
+                             (QPoint(-320, -400), Qt.LeftEdge | Qt.TopEdge))
+        with self.subTest(alignment='avoid overlapping another window'):
+            obstacle = QRect(-500, -435, 100, 50)
+            self.assertEqual(snapped_position(QRect(-553, -368, 240, 160), area, [peer, obstacle]),
+                             (QPoint(-560, -368), Qt.LeftEdge))
+        with self.subTest(alignment='keep the group within the screen'):
+            screen_peer = QRect(-800, -595, 240, 150)
+            frame = QRect(-553, -556, 240, 240)
+            above = frame.translated(0, -20).adjusted(0, 0, 0, -220)
+            self.assertEqual(snapped_position(frame, area, [screen_peer], companions=[above]),
+                             (QPoint(-560, -556), Qt.LeftEdge))
 
         window = self.wall_window()
         panes = window.wall.pane_danmaku
@@ -521,6 +545,19 @@ class PaneDanmakuTests(unittest.TestCase):
             floating.move(corner.topLeft())
             floating._finish_move()
             self.assertEqual(floating.pos(), corner.topLeft())
+
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(window.wall.tiles[1])
+        _, neighbor = panes.floating_windows()
+        neighbor.setGeometry(peer)
+        floating.setGeometry(QRect(-520, -350, 240, 160))
+        with patch.object(QApplication, 'screenAt', return_value=Mock(availableGeometry=lambda: area)), \
+                patch.object(floating.windowHandle(), 'startSystemMove', return_value=True):
+            self.assertTrue(floating.start_move(floating.pos()))
+            floating.move(-553, -368)
+            floating._finish_move()
+        self.assertEqual(floating.pos(), QPoint(-560, -400))
+        self.assertEqual(neighbor.geometry(), peer)
 
     def test_delete_closes_only_the_selected_float_tab_and_respects_editing_and_remapping(self):
         host = self.wall_window()
