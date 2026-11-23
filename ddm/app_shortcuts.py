@@ -1,8 +1,9 @@
 """Main window app shortcuts; window remains the only state and Qt lifetime owner."""
 import sys
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QShortcut, QWindow
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
+from . import window_fullscreen
 from .playback_controls import VolumeButton
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
@@ -16,6 +17,7 @@ class AppShortcuts(QObject):
     def __init__(self, host):
         super().__init__(host)
         self.host = host
+        self._fullscreen_toggle_finished = None
 
     def refresh_shortcuts(self) -> None:
         host = self.host
@@ -60,6 +62,8 @@ class AppShortcuts(QObject):
         host._sync_input_shortcuts()
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.ShortcutOverride and isinstance(watched, QWindow):
+            return self._discard_queued_fullscreen_toggle(watched, event)
         if event.type() != QEvent.Wheel:
             return False
         host = self.host
@@ -104,6 +108,27 @@ class AppShortcuts(QObject):
         tile.set_volume(tile.volume + (step if delta > 0 else -step))
         if in_pip:
             pip_window.audio_feedback.display(tile)
+        event.accept()
+        return True
+
+    def _discard_queued_fullscreen_toggle(self, receiver, event):
+        finished = self._fullscreen_toggle_finished
+        if finished is None or event.isAutoRepeat() or not event.nativeVirtualKey():
+            return False
+        host = self.host
+        shortcut = QKeySequence(host.shortcuts.get('focus', ''))
+        if shortcut.count() != 1 or shortcut[0] != event.keyCombination():
+            return False
+        now = window_fullscreen.keyboard_tick_ms()
+        age = window_fullscreen.key_message_age_ms(event.timestamp(), now)
+        if age is None or now - age >= finished:
+            return False
+        if receiver is not host.windowHandle() and not any(
+                receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
+                for tile in host.wall.tiles):
+            return False
+        # The native message was already pending when the previous toggle
+        # returned. A fresh press after that point can toggle again immediately.
         event.accept()
         return True
 
@@ -161,8 +186,11 @@ class AppShortcuts(QObject):
                 host._exit_fullscreen()
             else:
                 tile = host._tile_under_cursor()
-                if tile is not None and tile.room.get("room_id"):
-                    host._on_fullscreen(tile)
+                if tile is None or not tile.room.get("room_id"):
+                    return True
+                host._on_fullscreen(tile)
+            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+                self._fullscreen_toggle_finished = window_fullscreen.keyboard_tick_ms()
         elif pressed and pressed == shortcuts.get("mute"):
             host._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("audio_cycle"):

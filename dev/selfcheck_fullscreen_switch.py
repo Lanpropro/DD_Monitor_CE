@@ -8,6 +8,7 @@ from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtGui import QKeyEvent, QWindow
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -186,6 +187,37 @@ def check_window_capture(window):
         window._exit_fullscreen()
         window.players.pop(tile, None)
     print('PASS: capture fullscreen keeps the video under one HWND and restores normal/maximized geometry')
+
+
+def check_queued_fullscreen_key(window):
+    window.showNormal()
+    QTest.qWait(60)
+    tile = window.wall.tiles[0]
+
+    def key_event(key, virtual_key, timestamp):
+        event = QKeyEvent(QEvent.ShortcutOverride, key, Qt.NoModifier, 1, virtual_key, 0)
+        event.setTimestamp(timestamp)
+        event.ignore()
+        return event
+
+    def consumed(receiver, key, virtual_key, timestamp):
+        event = key_event(key, virtual_key, timestamp)
+        QCoreApplication.sendEvent(receiver, event)
+        return event.isAccepted()
+
+    with patch.object(window_fullscreen, 'keyboard_tick_ms', return_value=1200), \
+            patch.object(window, '_tile_under_cursor', return_value=tile):
+        assert window._handle_shortcut(window.shortcuts['focus'])
+        handle = window.windowHandle()
+        assert consumed(handle, Qt.Key_F, 0x46, 1100), 'F queued during a toggle was replayed'
+        assert not consumed(handle, Qt.Key_Escape, 0x1b, 1100), 'Escape must remain available'
+        assert not consumed(QWindow(), Qt.Key_F, 0x46, 1100), 'Another window is outside this shortcut'
+    with patch.object(window_fullscreen, 'keyboard_tick_ms', return_value=1300):
+        assert not consumed(handle, Qt.Key_F, 0x46, 1280), 'A new F must still toggle fullscreen'
+        assert not consumed(handle, Qt.Key_F, 0, 1100), 'Synthetic inputs have no native timestamp'
+        assert window._handle_shortcut(window.shortcuts['focus'])
+    assert not window.isFullScreen()
+    print('PASS: stale native fullscreen keys are consumed and fresh keys and Escape remain available')
 
 
 def main():
@@ -374,6 +406,7 @@ def main():
                     widget.removeEventFilter(chat_handoff)
             with patch.object(presentation, 'enter', enter):
                 check_window_capture(window)
+                check_queued_fullscreen_key(window)
             window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;

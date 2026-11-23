@@ -1,6 +1,5 @@
 """Bounded fullscreen evidence; never poll mpv properties on the GUI thread."""
 import cProfile
-import ctypes
 import functools
 import sys
 import threading
@@ -11,14 +10,13 @@ from PySide6.QtGui import QCursor, QKeySequence, QWindow
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit, QWidget
 
 from .responsiveness import Probe, profile_functions
+from . import window_fullscreen
 
 
 def _key_queue_ms(timestamp):
-    if sys.platform != 'win32' or not timestamp:
+    if sys.platform != 'win32':
         return None
-    # Qt's Windows key mapper passes the 32-bit MSG.time tick to QKeyEvent.
-    delay = (ctypes.windll.kernel32.GetTickCount() - timestamp) & 0xffffffff
-    return delay if delay < 0x80000000 else None
+    return window_fullscreen.key_message_age_ms(timestamp, window_fullscreen.keyboard_tick_ms())
 
 
 class FullscreenCapture(QObject):

@@ -14,6 +14,18 @@ from . import theme
 _FRAME_SWITCH_FLAGS = 0x0020 | 0x0004 | 0x0100
 
 
+def keyboard_tick_ms() -> int:
+    tick_count = ctypes.windll.kernel32.GetTickCount64
+    tick_count.restype = ctypes.c_uint64
+    return tick_count()
+
+
+def key_message_age_ms(timestamp: int, now: int) -> int | None:
+    # The Qt Windows key mapper uses the 32-bit MSG.time tick for key events.
+    delay = (now - timestamp) & 0xffffffff
+    return delay if timestamp and delay < 0x80000000 else None
+
+
 class _MonitorInfo(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
                 ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
