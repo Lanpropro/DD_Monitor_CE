@@ -48,7 +48,7 @@ class StreamerDefaultsPage(QWidget):
         self.scroll.setWidget(content)
         layout = QVBoxLayout(content)
         layout.addLayout(page_header(
-            '主播监控', '按主播设置画质、音量和自动录制。开启后，主播未上墙也会后台录制。'
+            '主播监控', '按主播设置画质、音量、开播提醒和自动录制。开启自动录制后，主播未上墙也会后台录制。'
             '\n同平台的直播间也可能提供不同的画质档位，合并卡片只显示共有档位。'))
         add_section = SettingsSection('添加主播')
         layout.addWidget(add_section)

@@ -15,7 +15,8 @@ def room_defaults(settings, room_id):
     row = saved.get(str(room_id)) if isinstance(saved, dict) else None
     if not isinstance(row, dict):
         return {}
-    values = {key: True for key in ('auto_record', 'windows_recording_notice') if row.get(key) is True}
+    values = {key: True for key in ('auto_record', 'windows_recording_notice', 'windows_live_notice')
+              if row.get(key) is True}
     mode = row.get('auto_record_mode')
     if mode in ('normal', 'clip'):
         values['auto_record_mode'] = mode
@@ -41,7 +42,8 @@ def streamer_profile_group(row):
         label = value['label'] if isinstance(value, dict) else QUALITY_LABELS.get(value, '继承')
         qualities.append(label.strip().casefold() if key in row else None)
     return (*qualities, row.get('volume'), bool(row.get('auto_record')),
-            bool(row.get('windows_recording_notice')), row.get('auto_record_mode'))
+            bool(row.get('windows_recording_notice')), bool(row.get('windows_live_notice')),
+            row.get('auto_record_mode'))
 
 
 def source_quality_option(options):

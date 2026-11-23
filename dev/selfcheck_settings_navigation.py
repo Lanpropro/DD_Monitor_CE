@@ -204,6 +204,7 @@ class SettingsNavigationTests(unittest.TestCase):
         page = dialog.stack.currentWidget()
         group = ('1001', '1002')
         for field, change in (
+                ('windows_live_notice', lambda card: card.live_notice.setCurrentIndex(1)),
                 ('windows_recording_notice', lambda card: card.windows_notice.click()),
                 ('auto_record_mode', lambda card: card.auto_record_mode.setCurrentIndex(
                     card.auto_record_mode.findData('normal')))):
@@ -241,6 +242,9 @@ class SettingsNavigationTests(unittest.TestCase):
                 switch.click()
             self.assertTrue(card.windows_notice.isEnabled())
             self.assertTrue(card.windows_notice_hint.isHidden())
+            self.assertIsNone(card.live_notice.currentData())
+            card.live_notice.setCurrentIndex(1)
+            APP.processEvents()
             card.windows_notice.click()
             APP.processEvents()
             self.assertFalse(card.windows_notice_summary.isHidden())
@@ -250,10 +254,15 @@ class SettingsNavigationTests(unittest.TestCase):
             self.assertFalse(card.windows_notice_hint.isHidden())
             self.assertFalse(card.windows_notice_summary.isEnabled())
             self.assertTrue(card.windows_notice.isChecked())
-            self.assertTrue(dialog.settings()['streamer_defaults']['1001']['windows_recording_notice'])
+            saved = dialog.settings()['streamer_defaults']['1001']
+            self.assertTrue(saved['windows_recording_notice'])
+            self.assertIs(saved['windows_live_notice'], True)
             switch.click()
             self.assertTrue(card.windows_notice.isEnabled())
             self.assertTrue(card.windows_notice.isChecked())
+            self.assertIs(card.live_notice.currentData(), True)
+            card.live_notice.setCurrentIndex(0)
+            self.assertNotIn('windows_live_notice', dialog.settings()['streamer_defaults']['1001'])
 
     def test_streamer_quality_stays_editable_without_common_platform_tiers(self):
         rooms = {'1001': '主播甲', '1002': '主播乙'}

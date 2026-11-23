@@ -188,6 +188,14 @@ class StreamerProfileCard(QFrame):
         self.status.setWordWrap(True)
         playback_form.addRow(self.status)
 
+        self.live_notice = SelectControl()
+        self.live_notice.setAccessibleName('开播提醒方式')
+        self.live_notice.addItem('跟随通知设置', None)
+        self.live_notice.addItem('额外发送 Windows 通知', True)
+        self.live_notice.currentIndexChanged.connect(lambda _index: page.edit(
+            'windows_live_notice', dict.fromkeys(self.editing_rooms, self.live_notice.currentData())))
+        capture_form.addRow('开播提醒方式', self.live_notice)
+
         self.auto_record = ToggleSwitch('开播时自动录制')
         self.auto_record.setToolTip('自动录制须开启「设置 → 录制」中的录制功能。')
         self.auto_record.toggled.connect(lambda enabled: page.edit(
@@ -203,11 +211,11 @@ class StreamerProfileCard(QFrame):
             self.auto_record_mode.currentIndexChanged.connect(lambda _index: page.edit(
                 'auto_record_mode', dict.fromkeys(self.editing_rooms, self.auto_record_mode.currentData())))
             capture_form.addRow('自动录制方式', self.auto_record_mode)
-        self.windows_notice = ToggleSwitch('使用 Windows 通知')
+        self.windows_notice = ToggleSwitch('自动录制状态通知')
         self.windows_notice.toggled.connect(lambda enabled: page.edit(
             'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
-        capture_form.addRow('使用 Windows 通知', self.windows_notice)
-        self.windows_notice_hint = QLabel('请先在「设置 → 通知」开启 Windows 通知。', objectName='SettingsHint')
+        capture_form.addRow('自动录制状态通知', self.windows_notice)
+        self.windows_notice_hint = QLabel('在「设置 → 通知」开启 Windows 通知后生效。', objectName='SettingsHint')
         self.windows_notice_hint.setWordWrap(True)
         capture_form.addRow(self.windows_notice_hint)
         self._loading = False
@@ -273,31 +281,40 @@ class StreamerProfileCard(QFrame):
         values = self.page.entries[first]
         auto_record = bool(values.get('auto_record'))
         windows_notice = bool(values.get('windows_recording_notice'))
+        live_notice = bool(values.get('windows_live_notice'))
         windows_available = self.page.windows_notice_available
         mode = values.get('auto_record_mode')
         with QSignalBlocker(self.auto_record):
             self.auto_record.setChecked(auto_record)
         with QSignalBlocker(self.windows_notice):
             self.windows_notice.setChecked(windows_notice)
+        with QSignalBlocker(self.live_notice):
+            self.live_notice.setCurrentIndex(int(live_notice))
+        live_hint = ('选中的主播开播时额外发到 Windows，应用内提醒仍跟随通知设置。'
+                     if windows_available else self.windows_notice_hint.text())
+        self.live_notice.setToolTip(live_hint)
+        self.live_notice.setAccessibleDescription(live_hint)
         self.windows_notice.setEnabled(windows_available)
-        self.windows_notice.setAccessibleDescription('提示自动开录和下播收尾。' if windows_available
+        self.windows_notice.setAccessibleDescription('通过 Windows 提示自动开录和下播收尾。' if windows_available
                                                      else self.windows_notice_hint.text())
         self.windows_notice_hint.setVisible(not windows_available)
         if self.auto_record_mode is not None:
             with QSignalBlocker(self.auto_record_mode):
                 self.auto_record_mode.setCurrentIndex(0 if mode is None else self.auto_record_mode.findData(mode))
         self.auto_record_summary.setVisible(auto_record)
-        self.windows_notice_summary.setVisible(windows_notice)
+        self.windows_notice_summary.setVisible(windows_notice or live_notice)
         self.windows_notice_summary.setEnabled(windows_available)
         show_mode = self.auto_record_mode is not None or mode is not None
         self.mode_summary_icon.setVisible(show_mode)
         self.mode_summary_value.setVisible(show_mode)
         self.mode_summary_value.setText(RECORDING_MODE_SUMMARY[mode])
         mode_hint = next(label for label, value in RECORDING_MODES if value == mode)
+        notice_events = '、'.join(label for enabled, label in ((live_notice, '开播'), (windows_notice, '自动录制状态'))
+                                 if enabled)
         for indicator, hint in (
                 (self.auto_record_summary, '已开启自动录制'),
-                (self.windows_notice_summary, '已开启该主播的 Windows 通知' if windows_available
-                 else 'Windows 通知暂停 · 通知页总开关已关闭'),
+                (self.windows_notice_summary, f'Windows 通知 · {notice_events}' if windows_available
+                 else f'Windows 通知未生效 · {notice_events}'),
                 (self.mode_summary_icon, f'自动录制方式 · {mode_hint}'),
                 (self.mode_summary_value, f'自动录制方式 · {mode_hint}')):
             indicator.setAccessibleName(hint)

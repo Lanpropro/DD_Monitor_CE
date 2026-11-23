@@ -138,7 +138,7 @@ class NotificationSettingsPage(QWidget):
             '显示更新、开播和操作结果；关闭后仍可在通知菜单查看历史。',
             '主播开播时显示通知，并突出关注卡片。',
             '全屏观看时隐藏浮动通知，仍可在通知菜单查看。',
-            '将主播开播并开启自动录制、下播并停止自动录制同步到 Windows 通知中心。',
+            '允许将选中主播的开播提醒和自动录制状态发送到 Windows 通知中心。',
             '发现新版本时保留更新入口。',
             '置顶主播开播后保留提醒。',
             '其他主播开播后保留提醒。',
@@ -176,7 +176,7 @@ class NotificationSettingsPage(QWidget):
             self._states[key] = state
         self.windows_recording_notice = self._checks['notice_windows_recording']
         for card, row, text in (
-                (reception, reception_count, '还需在「主播监控」为该主播开启 Windows 通知。系统通知仅提示开录和下播收尾。'),
+                (reception, reception_count, '在「主播监控」为指定主播设置开播提醒方式和自动录制状态通知。'),
                 (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):
             hint = QLabel(text)
             hint.setObjectName('SettingsHint')

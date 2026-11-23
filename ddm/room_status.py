@@ -61,6 +61,9 @@ class RoomStatus:
         auto_recording = getattr(host, 'auto_recording', None)
         if auto_recording is not None:
             room_ids = list(dict.fromkeys((*room_ids, *auto_recording.monitored_rooms())))
+        notices = getattr(host, 'notice_control', None)
+        if notices is not None:
+            room_ids = list(dict.fromkeys((*room_ids, *notices.windows_live_rooms())))
         if not room_ids:
             return
         platform_ids = [rid for rid in room_ids if ":" in rid]
@@ -260,6 +263,9 @@ class RoomStatus:
             host._aside_cover_loader = host._start_avatar_loader(
                 covers, host._on_room_cover, subdir="covers")
         host._load_room_banners(host.sidebar.rooms())
+        notices = getattr(host, 'notice_control', None)
+        if notices is not None:
+            notices.apply_live_status(status)
         auto_recording = getattr(host, 'auto_recording', None)
         if auto_recording is not None:
             faces.update(auto_recording.apply_status(status))
