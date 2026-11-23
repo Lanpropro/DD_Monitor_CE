@@ -839,6 +839,59 @@ class SimulatorTests(unittest.TestCase):
         presentation.set_events([])
         self.assertFalse(presentation.timer.isActive())
 
+    def test_manual_reopen_has_five_second_deadline_then_waits_for_header_click(self):
+        window = self.window
+        stack = window.wall.danmaku.super_chats
+        overlay = window.tile.video_danmaku.super_chat_overlay
+        chat_id = stack._events[0]['id']
+        clock = 'ddm.super_chat_animation.time.monotonic'
+        header = stack._cards[0].name
+
+        def click_overlay(top_offset):
+            rect = overlay.card_rects()[0]
+            point = QPointF(rect.center().x(), rect.top() + top_offset)
+            QTest.mouseClick(overlay, Qt.LeftButton, pos=point.toPoint() - overlay._content_origin)
+            APP.processEvents()
+
+        for presentation in (stack.presentation, overlay.presentation):
+            self.assertAlmostEqual(presentation.delay, 3)
+            with patch(clock, return_value=presentation.deadlines[chat_id]):
+                presentation._expire()
+            self.assertTrue(presentation.is_collapsed(chat_id))
+
+        window.layout_choice.setCurrentIndex(1)
+        with patch(clock, return_value=100):
+            self.click(header)
+            click_overlay(18)
+        for presentation in (stack.presentation, overlay.presentation):
+            self.assertEqual(presentation.deadlines[chat_id], 105)
+        with patch(clock, return_value=104.99):
+            window.publish()
+            for presentation in (stack.presentation, overlay.presentation):
+                presentation._expire()
+                self.assertFalse(presentation.is_collapsed(chat_id))
+        with patch(clock, return_value=105):
+            for presentation in (stack.presentation, overlay.presentation):
+                presentation._expire()
+                self.assertTrue(presentation.is_collapsed(chat_id))
+            self.click(header)
+            click_overlay(18)
+
+        with patch(clock, return_value=120):
+            window.publish()
+            self.click(stack._cards[0].message.viewport())
+            click_overlay(overlay.card_rects()[0].height() - 4)
+            for presentation in (stack.presentation, overlay.presentation):
+                presentation._expire()
+                self.assertNotIn(chat_id, presentation.deadlines)
+                self.assertFalse(presentation.is_collapsed(chat_id))
+        self.click(header)
+        click_overlay(18)
+        for presentation in (stack.presentation, overlay.presentation):
+            self.assertTrue(presentation.is_collapsed(chat_id))
+            presentation.set_events([])
+            self.assertFalse(presentation.stays_expanded(chat_id))
+
     def test_many_cards_expand_independently_without_reordering(self):
         window = self.window
         for number in (2, 3, 4):
@@ -1025,8 +1078,8 @@ class SimulatorTests(unittest.TestCase):
         window = self.window
         stack = window.wall.danmaku.super_chats
         sc = window.tile.video_danmaku.super_chat_overlay
-        self.assertGreater(stack.presentation.timer.remainingTime(), 6500)
-        self.assertLessEqual(stack.presentation.timer.interval(), 7000)
+        self.assertGreater(stack.presentation.timer.remainingTime(), 2500)
+        self.assertLessEqual(stack.presentation.timer.interval(), 3000)
         window.collapse_delay.setValue(1)
         QTest.qWait(400)
         window.publish()

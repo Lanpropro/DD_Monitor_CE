@@ -39,6 +39,7 @@ DEFAULT_VOLUME = 40
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
 from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
 from .shortcut_actions import DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP
+from .super_chat_model import DEFAULT_COLLAPSE_DELAY
 
 DEFAULT_SETTINGS = {
     **MATERIAL_DEFAULTS,
@@ -160,7 +161,7 @@ DEFAULT_SETTINGS = {
     "video_danmaku_color": "#ffffff",
     "super_chat_enabled": True,
     "super_chat_opacity": 80,
-    "super_chat_collapse_delay": 7,
+    "super_chat_collapse_delay": DEFAULT_COLLAPSE_DELAY,
     "super_chat_scale": 100,
     "super_chat_scale_with_video": False,
     "super_chat_scale_strength": 35,

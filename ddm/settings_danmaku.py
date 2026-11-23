@@ -3,6 +3,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
 from . import config, theme
+from .super_chat_model import DEFAULT_COLLAPSE_DELAY
 from .super_chat_preview import SuperChatPlacementPreview
 from .ui import (FontSelectControl, ScaleCurveControl, SegmentedControl, SettingsSlider,
                  SettingsValueLabel, StepperControl, ToggleSwitch, page_header)
@@ -180,7 +181,7 @@ class DanmakuSettingsPage(QWidget):
         self.super_chat_collapse_delay.setRange(1, 60)
         self.super_chat_collapse_delay.setSuffix(' 秒')
         self.super_chat_collapse_delay.setAccessibleName('SC 自动折叠时间')
-        self.super_chat_collapse_delay.setValue(int(settings.get('super_chat_collapse_delay', 7)))
+        self.super_chat_collapse_delay.setValue(int(settings.get('super_chat_collapse_delay', DEFAULT_COLLAPSE_DELAY)))
         self.super_chat_collapse_stepper = StepperControl(self.super_chat_collapse_delay)
         grid.addWidget(QLabel('自动折叠'), 2, 0)
         grid.addWidget(self.super_chat_collapse_stepper, 2, 1, Qt.AlignRight)

@@ -17,6 +17,7 @@ from .images import AvatarLoader
 from .badge_surface import BadgeSurface
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
+from .super_chat_model import DEFAULT_COLLAPSE_DELAY
 from .super_chat_layout import paint_sc_background, sc_placement_rects, sc_message_document
 from .super_chat_model import format_price, format_remaining, super_chat_palette, SC_USER_COLOR, SC_PRICE_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats, SC_BODY_PADDING
 
@@ -231,7 +232,7 @@ class VideoDanmaku(QWidget):
         values['super_chat_enabled'] = settings.get('super_chat_enabled', True)
         values['super_chat_opacity'] = settings.get('super_chat_opacity', 80)
         values['super_chat_video_opacity'] = settings.get('super_chat_video_opacity', values['super_chat_opacity'])
-        values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', 7)
+        values['super_chat_collapse_delay'] = settings.get('super_chat_collapse_delay', DEFAULT_COLLAPSE_DELAY)
         values['super_chat_scale'] = settings.get('super_chat_scale', 100)
         values['super_chat_video_scale'] = settings.get('super_chat_video_scale', values['super_chat_scale'])
         values['super_chat_scale_with_video'] = bool(settings.get('super_chat_scale_with_video', False))

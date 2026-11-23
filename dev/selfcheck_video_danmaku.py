@@ -249,6 +249,8 @@ def check_quick_occlusion(app):
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
     layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _presentation_window=None)
+    layer._occluding_widgets = lambda: QuickDanmakuLayer._occluding_widgets(layer)
+    layer._stack_below_floats = lambda widgets, settings: QuickDanmakuLayer._stack_below_floats(layer, widgets, settings)
     try:
         for widget in (dialog, notice):
             widget.show()
@@ -949,7 +951,8 @@ def check_settings(app):
         assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
         assert not {"滚动速度", "顶部显示区域"}.intersection(labels)
         assert {box.accessibleName() or box.text() for box in page.findChildren(QCheckBox)} == {
-            '显示醒目留言', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放'}, \
+            '显示醒目留言', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放',
+            '关闭后保留直播格'}, \
             'Global danmaku settings expose SC and scaling curves without unrelated rolling-text controls'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
@@ -962,7 +965,7 @@ def check_settings(app):
         assert page.values()['super_chat_scale'] == 145
         assert page.values()['super_chat_scale_with_video'] is True
         page.reset()
-        assert page.values()['super_chat_collapse_delay'] == 7
+        assert page.values()['super_chat_collapse_delay'] == 3
         assert page.values()['super_chat_scale'] == 100
         assert page.values()['super_chat_scale_with_video'] is False
         assert page.values()['video_danmaku_scale'] is True

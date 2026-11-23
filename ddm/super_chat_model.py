@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 
 DEFAULT_DURATION = 60
+DEFAULT_COLLAPSE_DELAY = 3
 
 
 SC_PRICE_TIERS = (
