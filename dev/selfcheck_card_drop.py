@@ -143,12 +143,13 @@ class CardDropTests(unittest.TestCase):
         self.tile.room = {'room_id': '1001'}
         self.assertIsNone(card_drop.play_card_drop(self.tile, QMimeData(), self.position, '1001'))
 
-    def test_hot_swap_feedback_follows_the_incoming_widget_at_the_drop_position(self):
+    def test_sidebar_drop_of_already_placed_room_swaps_without_sinking(self):
         self.tile.room = {'room_id': 'previous'}
         incoming = DropTile(self.window)
         incoming.setGeometry(280, 360, 520, 200)
         incoming.room = {'room_id': '1001'}
         incoming.show()
+        self.window._tile_of = lambda room_id: incoming if room_id == '1001' else None
         APP.processEvents()
         target_geometry = self.tile.geometry()
         handle = int(incoming.video.winId())
@@ -160,8 +161,9 @@ class CardDropTests(unittest.TestCase):
         session.start(self.sidebar.items()[0], self.mime, self.snapshot, self.hotspot, self.position)
         with patch('ddm.sidebar_drag.widget_at', return_value=self.tile):
             self.assertTrue(session.finish())
+        self.assertEqual(incoming.geometry(), target_geometry)
         self.assertIsNone(getattr(self.tile, '_card_drop_overlay', None))
-        self.assertTrue(incoming._card_drop_overlay.timer.isActive())
+        self.assertIsNone(getattr(incoming, '_card_drop_overlay', None))
         self.assertEqual(int(incoming.video.winId()), handle)
 
     def test_same_room_and_cancelled_gesture_do_not_replay_feedback(self):
@@ -283,7 +285,7 @@ class CardDropTests(unittest.TestCase):
         self.assertIsNone(session.ghost)
         self.assertIsNone(self.tile._press_pos)
 
-    def test_wall_drop_keeps_move_semantics_and_routes_feedback_to_incoming_tile(self):
+    def test_wall_drop_swaps_without_sinking(self):
         self.window.sidebar = self.sidebar
         self.tile.room = {'room_id': 'previous'}
         incoming = DropTile(self.window)
@@ -303,7 +305,8 @@ class CardDropTests(unittest.TestCase):
         with patch('ddm.sidebar_drag.widget_at', return_value=self.tile):
             self.assertTrue(session.finish())
         self.assertEqual(incoming.geometry(), before)
-        self.assertTrue(incoming._card_drop_overlay.timer.isActive())
+        self.assertIsNone(getattr(self.tile, '_card_drop_overlay', None))
+        self.assertIsNone(getattr(incoming, '_card_drop_overlay', None))
         self.assertIsNone(session.ghost)
 
     def test_wall_card_falls_back_to_room_metadata_without_reading_video_pixels(self):

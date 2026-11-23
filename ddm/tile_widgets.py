@@ -440,11 +440,12 @@ class Tile(QFrame):
         self._set_drop_active(False)
         if event.mimeData().hasFormat(ROOM_MIME):
             room_id = bytes(event.mimeData().data(ROOM_MIME)).decode("utf-8", "ignore")
-            changed = str(self.room.get('room_id')) != room_id
+            tile_of = getattr(self.window(), '_tile_of', None)
+            new_room = str(self.room.get('room_id')) != room_id and (tile_of is None or tile_of(room_id) is None)
             position = self.mapToGlobal(event.position().toPoint())
             event.acceptProposedAction()
             self.roomDropped.emit(room_id)
-            if changed:
+            if new_room:
                 from .card_drop import play_card_drop
                 play_card_drop(self, event.mimeData(), position, room_id)
         elif event.mimeData().hasFormat(DANMAKU_MIME):
@@ -455,13 +456,8 @@ class Tile(QFrame):
                 self.danmakuDropped.emit()
         elif event.mimeData().hasFormat(TILE_MIME):
             source = bytes(event.mimeData().data(TILE_MIME)).decode("utf-8", "ignore")
-            changed = str(self.room.get('room_id')) != source
-            position = self.mapToGlobal(event.position().toPoint())
             event.acceptProposedAction()
             self.tileDropped.emit(source)
-            if changed:
-                from .card_drop import play_card_drop
-                play_card_drop(self, event.mimeData(), position, source)
 
     def mousePressEvent(self, event) -> None:
         self._press_pos = event.pos() if event.button() == Qt.LeftButton else None
@@ -494,8 +490,6 @@ class Tile(QFrame):
         if session is not None:
             session.start(self, mime, snapshot, hotspot, event.globalPosition().toPoint())
             return
-        from .card_drop import remember_card
-        remember_card(mime, snapshot, hotspot)
         drag = QDrag(self)
         drag.setMimeData(mime)
         drag.setPixmap(snapshot)
