@@ -7,7 +7,8 @@ import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, QTimer, Qt
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -104,6 +105,11 @@ def check_window_capture(window):
                 original_sidebar_size = sidebar.size()
                 original_account_rect = QRect(sidebar.account_row.geometry())
                 original_rail_rect = QRect(sidebar.navigation.rail.geometry())
+                original_max_height = sidebar.maximumHeight()
+                original_min_height = sidebar.minimumHeight()
+                root = window.centralWidget()
+                original_root_size = root.size()
+                original_alignment = root.layout().itemAt(root.layout().indexOf(sidebar)).alignment()
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
                 show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
@@ -153,6 +159,19 @@ def check_window_capture(window):
                     return result
 
                 repaint_sidebar = window.sidebar.repaint
+                set_sidebar_visible = sidebar.setVisible
+
+                def show_sidebar_with_late_parent_resize(visible):
+                    if state == Qt.WindowMaximized and visible and sidebar.isHidden():
+                        # QWidget::show can activate the still-fullscreen Qt parent layout.
+                        root.resize(screen.size())
+
+                        def restore_parent_size():
+                            root.resize(original_root_size)
+                            QCoreApplication.sendEvent(window, QResizeEvent(original_root_size, screen.size()))
+
+                        QTimer.singleShot(0, root, restore_parent_size)
+                    return set_sidebar_visible(visible)
 
                 def repaint_sidebar_before_video_shrinks():
                     sidebar_repaints.append((QRect(tile.video.geometry()), sidebar.size(),
@@ -199,6 +218,7 @@ def check_window_capture(window):
                             patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
                             patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame, \
                             patch.object(window_fullscreen, 'exit', side_effect=exit_with_prepared_bar), \
+                            patch.object(sidebar, 'setVisible', side_effect=show_sidebar_with_late_parent_resize), \
                             patch.object(window.sidebar, 'repaint', side_effect=repaint_sidebar_before_video_shrinks):
                         next(shortcut for shortcut in window._window_shortcuts
                              if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
@@ -215,6 +235,9 @@ def check_window_capture(window):
                 assert sidebar_repaints == [(QRect(QPoint(), screen.size()), original_sidebar_size,
                     original_account_rect, original_rail_rect)], (
                     'The sidebar must paint at its final size before the video shrinks', sidebar_repaints)
+                assert sidebar.maximumHeight() == original_max_height
+                assert sidebar.minimumHeight() == original_min_height
+                assert root.layout().itemAt(root.layout().indexOf(sidebar)).alignment() == original_alignment
                 assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
                     'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state

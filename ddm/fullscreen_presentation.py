@@ -16,7 +16,8 @@ class FullscreenPresentation(QObject):
         self._owner_hidden = False
         self._windowed_state = None
         self._windowed_geometry = None
-        self._windowed_root_size = None
+        self._windowed_sidebar_height = None
+        self._sidebar_height_limit = None
         self._maximized_frame = None
         window.installEventFilter(self)
 
@@ -28,6 +29,27 @@ class FullscreenPresentation(QObject):
     def _activate_main_layout(self):
         self.window.centralWidget().layout().activate()
         self.window._content.layout().activate()
+
+    def _limit_sidebar_height(self, fullscreen_height, restored_height):
+        sidebar = self.window.sidebar
+        if sidebar.side != 'left' or fullscreen_height == restored_height:
+            return
+        layout = self.window.centralWidget().layout()
+        alignment = layout.itemAt(layout.indexOf(sidebar)).alignment()
+        self._sidebar_height_limit = (fullscreen_height, sidebar.minimumHeight(), sidebar.maximumHeight(), alignment)
+        # QWidget::show can reapply a parent layout still using the old height.
+        layout.setAlignment(sidebar, (alignment & ~Qt.AlignVertical_Mask) | Qt.AlignTop)
+        sidebar.setFixedHeight(restored_height)
+
+    def _release_sidebar_height(self):
+        if self._sidebar_height_limit is None:
+            return
+        _, minimum_height, maximum_height, alignment = self._sidebar_height_limit
+        self._sidebar_height_limit = None
+        sidebar = self.window.sidebar
+        sidebar.setMinimumHeight(minimum_height)
+        sidebar.setMaximumHeight(maximum_height)
+        self.window.centralWidget().layout().setAlignment(sidebar, alignment)
 
     def _set_comments_changing(self, active):
         wall = self.window.wall
@@ -54,6 +76,7 @@ class FullscreenPresentation(QObject):
             border.show()
 
     def enter(self, tile, geometry=None):
+        self._release_sidebar_height()
         wall = self.window.wall
         in_main_window = (geometry is None and QApplication.platformName() == 'windows'
                           and os.environ.get('DDM_FULLSCREEN_WINDOW_CAPTURE') != '0')
@@ -75,7 +98,7 @@ class FullscreenPresentation(QObject):
             wall_widgets.extend((self.window.sidebar, self.window.empty_hint))
         native_maximized = in_main_window and bool(self._windowed_state & Qt.WindowMaximized)
         if native_maximized:
-            self._windowed_root_size = self.window.centralWidget().size()
+            self._windowed_sidebar_height = self.window.sidebar.height()
         self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
@@ -192,12 +215,11 @@ class FullscreenPresentation(QObject):
             finally:
                 tile._presentation_changing = False
             if self._maximized_frame is not None:
+                fullscreen_height = self.window.centralWidget().height()
                 window_fullscreen.exit(self.window, self._maximized_frame)
                 self._maximized_frame = None
-                # The native frame is back, but Qt may still be waiting for
-                # the resize that anchors the account and rail to its bottom.
-                self.window.centralWidget().resize(self._windowed_root_size)
-                self._windowed_root_size = None
+                self._limit_sidebar_height(fullscreen_height, self._windowed_sidebar_height)
+                self._windowed_sidebar_height = None
             else:
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
@@ -244,6 +266,11 @@ class FullscreenPresentation(QObject):
             # The normal wall can now show without the fullscreen-sized video.
             self._restore_wall(tile)
             self._activate_main_layout()
+            if self._sidebar_height_limit is not None:
+                fullscreen_height = self._sidebar_height_limit[0]
+                root_height = self.window.centralWidget().height()
+                if root_height == self.window.height() and root_height != fullscreen_height:
+                    self._release_sidebar_height()
             if layer is not None:
                 layer.resize()
             wall.update()
@@ -263,6 +290,10 @@ class FullscreenPresentation(QObject):
         self._set_comments_changing(False)
 
     def eventFilter(self, watched, event):
+        if (watched is self.window and event.type() == QEvent.Resize
+                and self._sidebar_height_limit is not None
+                and event.size().height() != self._sidebar_height_limit[0]):
+            self._release_sidebar_height()
         tile = self.tile
         if tile is not None:
             if watched is tile and event.type() == QEvent.Close:
