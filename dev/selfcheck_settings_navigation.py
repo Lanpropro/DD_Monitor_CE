@@ -19,6 +19,7 @@ from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_material_paint import glass_tint, window_background_tint
 from ddm.settings_navigation import SettingsNavigation
+from ddm.settings_streamer_defaults import StreamerDefaultsPage
 from ddm.ui import SettingsSurface
 
 APP = QApplication.instance() or QApplication([])
@@ -161,6 +162,8 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertIn('57%', card.summary_values['volume'].text())
         self.assertFalse(card.auto_record.isChecked())
         card.auto_record.click()
+        APP.processEvents()
+        card = page.cards[('huya:1001',)]
         card.windows_notice.click()
         card.auto_record_mode.setCurrentIndex(card.auto_record_mode.findData('clip'))
         APP.processEvents()
@@ -204,7 +207,8 @@ class SettingsNavigationTests(unittest.TestCase):
         page = dialog.stack.currentWidget()
         group = ('1001', '1002')
         for field, change in (
-                ('windows_live_notice', lambda card: card.live_notice.setCurrentIndex(1)),
+                ('monitor_live', lambda card: card.monitor_live.click()),
+                ('windows_live_notice', lambda card: card.live_notice.click()),
                 ('windows_recording_notice', lambda card: card.windows_notice.click()),
                 ('auto_record_mode', lambda card: card.auto_record_mode.setCurrentIndex(
                     card.auto_record_mode.findData('normal')))):
@@ -212,6 +216,12 @@ class SettingsNavigationTests(unittest.TestCase):
             change(page.cards[group])
             APP.processEvents()
             self.assertEqual(list(page.cards), [('1001',), ('1002',)])
+            if field == 'monitor_live':
+                self.assertIs(page.entries['1001'][field], True)
+                self.assertIs(page.entries['1002'][field], False)
+                page.edit(field, {'1002': True})
+                APP.processEvents()
+                continue
             self.assertNotIn(field, page.entries['1001'])
             self.assertIn(field, page.entries['1002'])
             page.edit(field, {'1002': None})
@@ -231,7 +241,7 @@ class SettingsNavigationTests(unittest.TestCase):
             page = dialog._loaded_pages[streamer]
             card = page.cards[('1001',)]
             self.assertEqual(card.windows_notice.isEnabled(), first == notifications)
-            self.assertEqual(card.windows_notice_hint.isHidden(), first == notifications)
+            self.assertEqual(page.windows_notice_hint.isHidden(), first == notifications)
             self.assertEqual(card.mode_summary_value.text(), '切片')
             self.assertFalse(card.auto_record_summary.isHidden())
             self.assertTrue(card.windows_notice_summary.isHidden())
@@ -241,9 +251,9 @@ class SettingsNavigationTests(unittest.TestCase):
                 self.assertNotIn('windows_recording_notice', page.entries['1001'])
                 switch.click()
             self.assertTrue(card.windows_notice.isEnabled())
-            self.assertTrue(card.windows_notice_hint.isHidden())
-            self.assertIsNone(card.live_notice.currentData())
-            card.live_notice.setCurrentIndex(1)
+            self.assertTrue(page.windows_notice_hint.isHidden())
+            self.assertFalse(card.live_notice.isChecked())
+            card.live_notice.click()
             APP.processEvents()
             card.windows_notice.click()
             APP.processEvents()
@@ -251,7 +261,7 @@ class SettingsNavigationTests(unittest.TestCase):
             self.assertTrue(card.windows_notice_summary.isEnabled())
             dialog.notification_page.reset()
             self.assertFalse(card.windows_notice.isEnabled())
-            self.assertFalse(card.windows_notice_hint.isHidden())
+            self.assertFalse(page.windows_notice_hint.isHidden())
             self.assertFalse(card.windows_notice_summary.isEnabled())
             self.assertTrue(card.windows_notice.isChecked())
             saved = dialog.settings()['streamer_defaults']['1001']
@@ -260,9 +270,62 @@ class SettingsNavigationTests(unittest.TestCase):
             switch.click()
             self.assertTrue(card.windows_notice.isEnabled())
             self.assertTrue(card.windows_notice.isChecked())
-            self.assertIs(card.live_notice.currentData(), True)
-            card.live_notice.setCurrentIndex(0)
+            self.assertTrue(card.live_notice.isChecked())
+            card.live_notice.click()
             self.assertNotIn('windows_live_notice', dialog.settings()['streamer_defaults']['1001'])
+
+    def test_streamer_monitor_pause_preserves_both_notification_and_recording_preferences(self):
+        rows = {'1001': {'name': '主播', 'auto_record': True, 'windows_live_notice': True,
+                         'windows_recording_notice': True, 'recording': 720}}
+        dialog = SettingsDialog(dict(config.DEFAULT_SETTINGS, streamer_defaults=rows,
+                                     notice_windows_recording=True), {}, preview=True)
+        self.addCleanup(dialog.deleteLater)
+        dialog.nav.setCurrentRow(PAGE_INDEX['streamer_defaults'])
+        page = dialog.stack.currentWidget()
+        card = page.cards[('1001',)]
+        self.assertTrue(card.monitor_live.isChecked())
+        self.assertTrue(card.live_notice.isEnabled() and card.windows_notice.isEnabled())
+        card.monitor_live.click()
+        APP.processEvents()
+        self.assertEqual(card.auto_record_summary.text(), '自动录制已暂停')
+        for toggle in (card.auto_record, card.live_notice, card.windows_notice):
+            self.assertFalse(toggle.isEnabled())
+            self.assertTrue(toggle.isChecked())
+        paused = dialog.settings()['streamer_defaults']['1001']
+        self.assertEqual(paused, {**rows['1001'], 'monitor_live': False})
+        reopened = type(page)(dict(config.DEFAULT_SETTINGS, streamer_defaults={'1001': paused},
+                                   notice_windows_recording=True), {})
+        self.addCleanup(reopened.deleteLater)
+        card = reopened.cards[('1001',)]
+        self.assertFalse(card.monitor_live.isChecked())
+        card.monitor_live.click()
+        APP.processEvents()
+        self.assertTrue(card.live_notice.isEnabled() and card.windows_notice.isEnabled())
+        self.assertEqual(card.auto_record_summary.text(), '自动录制')
+
+    def test_streamer_monitor_card_groups_and_fits_wide_and_narrow_windows(self):
+        settings = {'notice_windows_recording': True, 'streamer_defaults': {
+            '1001': {'name': '布局示例', 'monitor_live': True, 'auto_record': True}}}
+        page = StreamerDefaultsPage(settings, {'1001': {
+            'name': '布局示例', 'followed': True, 'clip_recording_available': True}})
+        self.addCleanup(page.deleteLater)
+        page.setAttribute(Qt.WA_ShowWithoutActivating)
+        page.show()
+        card = page.cards[('1001',)]
+        card.toggle.click()
+        for size, columns in (((1040, 700), 2), ((480, 760), 1)):
+            page.resize(*size)
+            QTest.qWait(30)
+            self.assertEqual(card.details.columns, columns)
+            left, right = card.details.section('playback'), card.details.section('capture')
+            self.assertIs(card.monitor_live.parentWidget(), left)
+            self.assertIs(card.live_notice.parentWidget(), left)
+            for control in (card.auto_record, card.recording, card.auto_record_mode, card.windows_notice):
+                self.assertIs(control.parentWidget(), right)
+                self.assertTrue(right.rect().contains(control.geometry()))
+                label = right.layout().labelForField(control)
+                self.assertTrue(right.rect().contains(label.geometry()))
+                self.assertFalse(label.geometry().intersects(control.geometry()))
 
     def test_streamer_quality_stays_editable_without_common_platform_tiers(self):
         rooms = {'1001': '主播甲', '1002': '主播乙'}

@@ -4,6 +4,11 @@
 
 已发布内容见 [v0.9 发布说明](RELEASE-v0.9.md) 和[发布时的完整开发记录](https://github.com/Lanpropro/DD_Monitor_CE/blob/v0.9/docs/releases/UNRELEASED.md)。配套插件的 [DDCut #161](https://github.com/Lanpropro/DD_Monitor_CE/pull/161) 和[同传 #234](https://github.com/Lanpropro/DD_Monitor_CE/pull/234) 等各自插件验收后再处理。
 
+## 分开配置主播监控与自动录制（待人工验收）
+
+- 主播卡片分别设置开播监控、自动录制和两种 Windows 通知。仅监控的主播也会在侧栏和已开启的托盘监控列表里显示直播状态。
+- 暂停一位主播的开播监控时保留录制和通知偏好，暂停后续自动录制，已开始的录制按下播流程收尾。原有自动录制或逐主播开播通知配置继续启用监控。
+
 ## 诊断工具 1.4 补充采集（主程序待实机验收）
 
 - 导出已有的设置滚轮、性能和窗口消失专项记录。对外部窗口记录仅保留故障相关字段，包括窗口状态、坐标及 Esc。

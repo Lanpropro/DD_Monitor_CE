@@ -3,6 +3,7 @@ import sys
 
 from . import plugins as plugin_api
 from .qt_lifecycle import delete_requested
+from .streamer_defaults import monitored_streamers
 
 
 class RoomStatus:
@@ -59,11 +60,9 @@ class RoomStatus:
         room_ids = list(dict.fromkeys(str(room.get("room_id")) for room in
             host.sidebar.rooms() + [tile.room for tile in (*host.wall.tiles, *parallel)] if room.get("room_id")))
         auto_recording = getattr(host, 'auto_recording', None)
-        if auto_recording is not None:
-            room_ids = list(dict.fromkeys((*room_ids, *auto_recording.monitored_rooms())))
-        notices = getattr(host, 'notice_control', None)
-        if notices is not None:
-            room_ids = list(dict.fromkeys((*room_ids, *notices.windows_live_rooms())))
+        watched = (auto_recording.watched_rooms() if auto_recording is not None
+                   else monitored_streamers(host.settings))
+        room_ids = list(dict.fromkeys((*room_ids, *watched)))
         if not room_ids:
             return
         platform_ids = [rid for rid in room_ids if ":" in rid]

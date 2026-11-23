@@ -1,7 +1,7 @@
 """Main window app notices; window remains the only state and Qt lifetime owner."""
 from pathlib import Path
 from uuid import uuid4
-from .streamer_defaults import room_defaults
+from .streamer_defaults import monitored_streamers, room_defaults
 
 
 class AppNotices:
@@ -22,12 +22,10 @@ class AppNotices:
 
     def windows_live_rooms(self):
         settings = self.host.settings
-        profiles = settings.get('streamer_defaults')
-        if not settings.get('notice_windows_recording') or not isinstance(profiles, dict):
+        if not settings.get('notice_windows_recording'):
             return {}
-        return {room_id: row for room_id, row in profiles.items()
-                if isinstance(room_id, str) and room_id and isinstance(row, dict)
-                and row.get('windows_live_notice') is True}
+        return {room_id: row for room_id, row in monitored_streamers(settings).items()
+                if row.get('windows_live_notice') is True}
 
     def apply_live_status(self, status):
         host = self.host
