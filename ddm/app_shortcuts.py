@@ -5,6 +5,7 @@ from PySide6.QtGui import QCursor, QKeySequence, QShortcut, QWindow
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
 from . import window_fullscreen
 from .playback_controls import VolumeButton
+from .sidebar_hit_test import widget_at
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
     LAYOUT_HEIGHT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, WHEEL_SHORTCUTS,
@@ -65,6 +66,8 @@ class AppShortcuts(QObject):
                     "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
                 shortcut.activated.connect(lambda key=sequence: self._activate_shortcut(key))
                 host._window_shortcuts.append(shortcut)
+        for floating in host.wall.pane_danmaku.floating_windows():
+            floating.refresh_close_shortcut(host.shortcuts)
         host._sync_input_shortcuts()
 
     def eventFilter(self, watched, event):
@@ -211,7 +214,12 @@ class AppShortcuts(QObject):
             if tile is not None:
                 tile.danmaku_button.toggle()
         elif pressed and pressed == shortcuts.get("close_tile"):
-            if host.wall.pane_danmaku.remove_at(QCursor.pos()):
+            point = QCursor.pos()
+            panes = host.wall.pane_danmaku
+            floats = panes.floating_windows()
+            if floats and (widget := widget_at(point)) is not None and widget.window() in floats:
+                return widget.window().close_selected_tab()
+            if panes.remove_at(point):
                 return True
             tile = host._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):

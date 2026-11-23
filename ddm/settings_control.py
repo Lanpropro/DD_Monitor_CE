@@ -268,10 +268,13 @@ class SettingsControl:
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
         windowed_bar_settings = {'windowed_transparent_controls', 'windowed_auto_hide_controls'}
         presentation_only = bool(changed_keys) and changed_keys <= (
-            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | config_module.FLOAT_GLASS_KEYS
             | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu',
                                        'settings_wheel_speed', 'wall_seamless'})
         host.settings.update(updated_settings)
+        if changed_keys & config_module.FLOAT_GLASS_KEYS:
+            for window in host.wall.pane_danmaku.floating_windows():
+                window.set_material(host.settings)
         if 'wall_seamless' in changed_keys:
             host.wall.set_seamless(host.settings['wall_seamless'])
         elif changed_keys & windowed_bar_settings:

@@ -21,7 +21,7 @@ import selfcheck_main_notices as fixtures
 from PySide6.QtCore import QAbstractAnimation, QEvent, QMimeData, QPoint, QPointF, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTabBar, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QTabBar, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.bili_interaction.composer import DanmakuComposer
@@ -414,7 +414,13 @@ class PaneDanmakuTests(unittest.TestCase):
                 patch.object(first.windowHandle(), 'startSystemMove', return_value=True), \
                 patch.object(second.windowHandle(), 'startSystemMove', return_value=True):
             self.assertTrue(first.start_move())
+            first.move(area.topLeft() + QPoint(125, 15))
             first.move(area.topLeft() + QPoint(140, 6))
+            self.assertTrue(first._move_frame.isActive())
+            self.assertEqual(second.pos(), area.topLeft() + offsets[1])
+            with patch.object(first, '_move_attached', wraps=first._move_attached) as update:
+                first._flush_move()
+                update.assert_called_once_with(QPoint(40, -134))
             self.assertEqual(second.pos(), first.pos() + QPoint(240, 0))
             self.assertEqual(third.pos(), first.pos() + QPoint(480, 0))
             self.assertEqual(detached.pos(), stationary)
@@ -426,10 +432,20 @@ class PaneDanmakuTests(unittest.TestCase):
             starts = [item.pos() for item in (first, second, third)]
             self.assertTrue(second.start_move())
             second.move(starts[1] + QPoint(0, 45))
+            second._flush_move()
             self.assertEqual(first.pos(), starts[0] + QPoint(0, 45))
             second.move(starts[1])  # The system restores the lead position when Esc cancels a move.
             second._finish_move()
             self.assertEqual([item.pos() for item in (first, second, third)], starts)
+
+            QTest.mousePress(second.move_handle, Qt.LeftButton)
+            self.assertFalse(second._drag_snapping)
+            second.move(starts[1] + QPoint(0, 6))
+            second._finish_move()
+            QTest.mouseRelease(second.move_handle, Qt.LeftButton)
+            self.assertTrue(second.snap.isChecked())
+            self.assertEqual(second.pos(), starts[1] + QPoint(0, 6))
+            self.assertEqual((first.pos(), third.pos()), (starts[0], starts[2]))
 
             second.snap.setChecked(False)
             self.assertTrue(second.start_move())
@@ -459,6 +475,7 @@ class PaneDanmakuTests(unittest.TestCase):
             floating.move(area.topLeft() + QPoint(25, 30))
             self.assertTrue(floating.start_move())
             floating.move(corner.topLeft())
+            floating._flush_move()
             self.assertEqual(floating._snap_edges, Qt.LeftEdge | Qt.TopEdge)
             if NATIVE:
                 import ctypes
@@ -477,6 +494,80 @@ class PaneDanmakuTests(unittest.TestCase):
             floating.move(corner.topLeft())
             floating._finish_move()
             self.assertEqual(floating.pos(), corner.topLeft())
+
+    def test_delete_closes_only_the_selected_float_tab_and_respects_editing_and_remapping(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            for tile in host.wall.tiles[:2]:
+                panes.open_for_tile(tile)
+        first, second = panes.floating
+        floating = panes.floating[first].window
+        panes.move_floating_tab(second, floating, 1)
+        self.app.setActiveWindow(floating)
+        editor = QLineEdit(floating)
+        editor.setText('ab')
+        editor.setCursorPosition(0)
+        editor.show()
+        editor.setFocus()
+        QTest.keyClick(editor, Qt.Key_Delete)
+        self.assertEqual(editor.text(), 'b')
+        self.assertEqual(floating.tabs.panels(), [first, second])
+        editor.hide()
+        second.body.setFocus()
+        QTest.keyClick(second.body, Qt.Key_Delete)
+        self.assertEqual(floating.tabs.panels(), [first])
+        self.assertFalse(second in panes.floating)
+
+        host.shortcuts['close_tile'] = 'Ctrl+K'
+        host._refresh_shortcuts()
+        first.body.setFocus()
+        QTest.keyClick(first.body, Qt.Key_Delete)
+        self.assertEqual(floating.tabs.panels(), [first])
+        with patch('ddm.app_shortcuts.widget_at', return_value=first.body):
+            self.assertTrue(host._handle_shortcut('Ctrl+K'))
+        self.assertFalse(panes.floating)
+
+    def test_float_glass_settings_update_the_background_without_tinting_foreground(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(host.wall.tiles[0])
+        floating, = panes.floating_windows()
+        handle = int(floating.winId())
+        point = floating.rect().center() + QPoint(0, 35)
+        self.app.processEvents()
+        self.assertEqual(floating.grab().toImage().pixelColor(point).alpha(), 255)
+        dialog = host._create_settings_dialog()
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.auto_save.stop)
+        page = dialog.danmaku_page
+        self.assertFalse(page.float_glass.isChecked())
+        self.assertFalse(page.float_glass_opacity.isEnabled())
+        dialog.auto_save.start()
+        with patch.object(config, 'save') as save:
+            page.float_glass.click()
+            page.float_glass_opacity.setValue(36)
+            self.assertTrue(dialog.auto_save.flush())
+            saved = save.call_args.args[0]['settings']
+            self.assertTrue(saved['danmaku_float_glass_enabled'])
+            self.assertEqual(saved['danmaku_float_glass_opacity'], 36)
+        self.app.processEvents()
+        self.assertTrue(floating.property('danmakuFloatGlass'))
+        self.assertEqual(floating.grab().toImage().pixelColor(point).alpha(), 92)
+        self.assertEqual(floating.windowOpacity(), 1.0)
+        self.assertEqual(int(floating.winId()), handle)
+        from ddm.settings_backdrop import blur_available
+        if blur_available():
+            self.assertTrue(floating._native_glass)
+            self.assertFalse(floating.mask().contains(QPoint(0, 0)))
+            self.assertTrue(floating.mask().contains(point))
+        with patch.object(config, 'save'):
+            page.reset()
+            self.assertTrue(dialog.auto_save.flush())
+        self.assertFalse(floating.property('danmakuFloatGlass'))
+        self.assertEqual(page.float_glass_opacity.value(), 75)
+        self.assertTrue(floating.mask().isEmpty())
 
     def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
         window = self.wall_window()

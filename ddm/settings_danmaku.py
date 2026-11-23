@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QSpinBox, QVBoxLayout, QWidget
-from . import theme
+from . import config, theme
 from .super_chat_preview import SuperChatPlacementPreview
 from .ui import (FontSelectControl, ScaleCurveControl, SegmentedControl, SettingsSlider,
                  SettingsValueLabel, StepperControl, ToggleSwitch, page_header)
@@ -86,6 +86,27 @@ class DanmakuSettingsPage(QWidget):
         floating.grid.addWidget(keep_label, 1, 0)
         floating.grid.addWidget(self.float_keep_video_slots, 1, 1, Qt.AlignRight)
         floating.grid.addWidget(_hint('开启后，关闭浮窗时空格也会保留为直播格。已有直播的格子始终保留。'), 2, 0, 1, 2)
+        glass_enabled, opacity = config.danmaku_float_material(settings)
+        glass_label = QLabel('启用浮窗毛玻璃')
+        self.float_glass = ToggleSwitch(glass_label.text())
+        self.float_glass.setChecked(glass_enabled)
+        floating.grid.addWidget(glass_label, 3, 0)
+        floating.grid.addWidget(self.float_glass, 3, 1, Qt.AlignRight)
+        opacity_label = QLabel('浮窗底色不透明度')
+        self.float_glass_opacity = SettingsSlider()
+        self.float_glass_opacity.setRange(0, 100)
+        self.float_glass_opacity.setValue(opacity)
+        self.float_glass_opacity.setAccessibleName(opacity_label.text())
+        opacity_value = SettingsValueLabel(f'{opacity}%')
+        self.float_glass_opacity.valueChanged.connect(lambda value: opacity_value.setText(f'{value}%'))
+        opacity_controls = QHBoxLayout()
+        opacity_controls.addWidget(self.float_glass_opacity, 1)
+        opacity_controls.addWidget(opacity_value)
+        floating.grid.addWidget(opacity_label, 4, 0)
+        floating.grid.addLayout(opacity_controls, 4, 1)
+        for widget in (opacity_label, self.float_glass_opacity, opacity_value):
+            widget.setEnabled(glass_enabled)
+            self.float_glass.toggled.connect(widget.setEnabled)
         self.sections.add_section('danmaku_float', floating)
         drag = SettingsSection('画面拖入弹幕栏')
         self.drag_unlinked = SegmentedControl((('source', '关联主播'), ('swap', '交换位置')),
@@ -309,6 +330,8 @@ class DanmakuSettingsPage(QWidget):
         self.size_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_font_size"]))
         self.float_cell_mode.setValue('reserve')
         self.float_keep_video_slots.setChecked(config_module.DEFAULT_SETTINGS['danmaku_float_keep_video_slots'])
+        self.float_glass.setChecked(config_module.DEFAULT_SETTINGS['danmaku_float_glass_enabled'])
+        self.float_glass_opacity.setValue(config_module.DEFAULT_SETTINGS['danmaku_float_glass_opacity'])
         self.drag_unlinked.setValue('source')
         self.drag_linked.setValue('source')
         self.keep_spin.setValue(int(config_module.DEFAULT_SETTINGS["danmaku_max_blocks"]))
@@ -338,6 +361,8 @@ class DanmakuSettingsPage(QWidget):
             "danmaku_font_size": int(self.size_spin.value()),
             "danmaku_float_reuse_cell": self.float_cell_mode.value() == 'reuse',
             "danmaku_float_keep_video_slots": self.float_keep_video_slots.isChecked(),
+            "danmaku_float_glass_enabled": self.float_glass.isChecked(),
+            "danmaku_float_glass_opacity": self.float_glass_opacity.value(),
             "danmaku_drag_unlinked_swap": self.drag_unlinked.value() == 'swap',
             "danmaku_drag_linked_swap": self.drag_linked.value() == 'swap',
             "danmaku_max_blocks": int(self.keep_spin.value()),

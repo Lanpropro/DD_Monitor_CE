@@ -145,6 +145,8 @@ DEFAULT_SETTINGS = {
     "danmaku_font_size": 13,  # 弹幕字号（面板上也能拖滑块实时改）
     "danmaku_float_reuse_cell": False,
     "danmaku_float_keep_video_slots": False,
+    "danmaku_float_glass_enabled": False,
+    "danmaku_float_glass_opacity": 75,
     "danmaku_drag_unlinked_swap": False,
     "danmaku_drag_linked_swap": False,
     "danmaku_max_blocks": 3000,  # 弹幕最多留多少条（超了就从最早的开始丢）
@@ -174,6 +176,17 @@ DEFAULT_SETTINGS = {
 }
 
 STATE_VERSION = 1
+
+FLOAT_GLASS_KEYS = {'danmaku_float_glass_enabled', 'danmaku_float_glass_opacity'}
+
+
+def danmaku_float_material(settings):
+    enabled = settings.get('danmaku_float_glass_enabled') is True
+    opacity = settings.get('danmaku_float_glass_opacity')
+    if type(opacity) is not int:
+        opacity = DEFAULT_SETTINGS['danmaku_float_glass_opacity']
+    return enabled, max(0, min(100, opacity))
+
 
 VIDEO_DANMAKU_SETTING_KEYS = ('danmaku_font', *(
     key for key in DEFAULT_SETTINGS if key.startswith('video_danmaku_')))

@@ -2,7 +2,7 @@
 SHORTCUT_ACTIONS = [
     ("focus", "全屏查看鼠标所在的格子", "F"),
     ("restore", "退出全屏", "Esc"),
-    ("close_tile", "关闭直播或移除弹幕格，目标由鼠标位置决定", "Del"),
+    ("close_tile", "关闭直播、移除弹幕格或关闭浮窗当前标签", "Del"),
     ("danmaku_input", "显示播放栏／聚焦鼠标所在格子的弹幕输入框", "Return"),
     ("toggle_folders", "展开／折叠全部关注文件夹", "Ctrl+Shift+F"),
     ("mute", "静音鼠标所在那一路（再按一次取消）", "M"),

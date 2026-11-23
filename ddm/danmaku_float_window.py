@@ -3,18 +3,21 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QCursor, QPainter, QPen
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QMenu, QSizeGrip,
-                               QStackedLayout, QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QCursor, QKeySequence, QPainter, QPen, QRegion, QShortcut
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QMenu, QPlainTextEdit,
+                               QSizeGrip, QStackedLayout, QTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
 
-from . import theme
+from . import config, theme
 from .corner_geometry import continuous_path
 from .danmaku_float_snap import snapped_position, touching_windows
 from .danmaku_float_tabs import DanmakuFloatTabs
 from .panel_resize import resize_edges, set_resize_cursor
+from .settings_backdrop import apply_blur
+from .shortcut_actions import DEFAULT_SHORTCUTS
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
+from .widget_support import _repolish
 from .window_fullscreen import set_window_topmost
 
 
@@ -32,11 +35,19 @@ class DanmakuFloatSlot(QFrame):
 
 
 class _MoveHandle(QWidget):
+    def event(self, event):
+        if event.type() in (QEvent.Enter, QEvent.Leave):
+            self.update()
+        return super().event(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(theme.qcolor(theme.TEXT3))
+        if self.underMouse():
+            painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
+            painter.drawRoundedRect(QRectF(self.rect()).adjusted(0, 2, 0, -2), 5, 5)
+        painter.setBrush(theme.qcolor(theme.ACCENT if self.underMouse() else theme.TEXT3))
         for x in (-2, 2):
             for y in (-4, 0, 4):
                 painter.drawEllipse(QRectF(self.width()/2 + x - 1, self.height()/2 + y - 1, 2, 2))
@@ -50,9 +61,14 @@ class DanmakuFloatWindow(QWidget):
         self.controller = controller
         self._move_origin = None
         self._move_followers = {}
+        self._drag_snapping = False
         self._snap_edges = Qt.Edge(0)
         self._move_watch = QTimer(self, interval=25)
         self._move_watch.timeout.connect(self._check_move_release)
+        self._move_frame = QTimer(self, interval=16, singleShot=True, timerType=Qt.PreciseTimer)
+        self._move_frame.timeout.connect(self._flush_move)
+        self._native_glass = False
+        self._glass_opacity = 100
         self.setWindowTitle('弹幕 · DD监控室CE')
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setProperty('floatingDanmaku', True)
@@ -64,9 +80,10 @@ class DanmakuFloatWindow(QWidget):
         controls = QHBoxLayout()
         controls.setSpacing(3)
         self.move_handle = _MoveHandle(self)
-        self.move_handle.setFixedWidth(14)
+        self.move_handle.setFixedWidth(18)
         self.move_handle.setCursor(Qt.SizeAllCursor)
-        self.move_handle.setToolTip('拖动浮窗及与它吸附的浮窗')
+        self.move_handle.setAccessibleName('单独拖动浮窗')
+        self.move_handle.setToolTip('按住单独拖动 · 此次绕过吸附')
         self.move_handle.installEventFilter(self)
         self.tabs = DanmakuFloatTabs(self)
         self.tabs.currentChanged.connect(self._tab_changed)
@@ -88,6 +105,11 @@ class DanmakuFloatWindow(QWidget):
         self.stack = QStackedLayout()
         self.box.addLayout(self.stack, 1)
         self.snap = QAction('拖动时吸附', self, checkable=True, checked=True)
+        self._close_shortcut = QShortcut(self)
+        self._close_shortcut.setContext(Qt.WindowShortcut)
+        self._close_shortcut.setAutoRepeat(False)
+        self._close_shortcut.activated.connect(self.close_selected_tab)
+        self.refresh_close_shortcut(getattr(owner, 'shortcuts', {}))
         self.grip = QSizeGrip(self)
         self.grip.setToolTip('拖动调整大小')
         screen = QApplication.screenAt(area.center()) or owner.screen()
@@ -96,7 +118,49 @@ class DanmakuFloatWindow(QWidget):
         point = QPoint(max(available.left(), min(area.x(), available.right() - size.width() + 1)),
                        max(available.top(), min(area.y(), available.bottom() - size.height() + 1)))
         self.setGeometry(QRect(point, size))
+        self.set_material(getattr(owner, 'settings', {}))
         theme.signals().changed.connect(self.update)
+
+    def refresh_close_shortcut(self, shortcuts):
+        self._close_shortcut.setKey(QKeySequence(shortcuts.get('close_tile', DEFAULT_SHORTCUTS['close_tile'])))
+
+    def close_selected_tab(self):
+        focused = QApplication.focusWidget()
+        if isinstance(focused, (QLineEdit, QPlainTextEdit, QTextEdit)) and not focused.isReadOnly():
+            return False
+        panel = self.stack.currentWidget()
+        if panel is None:
+            return False
+        self.controller.return_floating(panel)
+        return True
+
+    def set_material(self, settings):
+        enabled, opacity = config.danmaku_float_material(settings)
+        if enabled != self.property('danmakuFloatGlass'):
+            self.setProperty('danmakuFloatGlass', enabled)
+            for panel in self.tabs.panels():
+                _repolish(panel)
+            if self.isVisible():
+                self._sync_glass()
+        self._glass_opacity = opacity
+        self.update()
+
+    def _sync_glass(self):
+        enabled = self.property('danmakuFloatGlass')
+        self._native_glass = apply_blur(self, enabled) if enabled or self._native_glass else False
+        self._sync_glass_mask()
+
+    def _sync_glass_mask(self):
+        if self._native_glass:
+            # The native blur can show through transparent corners of a Qt layered HWND.
+            shape = continuous_path(QRectF(self.rect()), 14)
+            self.setMask(QRegion(shape.toFillPolygon().toPolygon()))
+        elif not self.mask().isEmpty():
+            self.clearMask()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_glass()
 
     def attach_panel(self, panel, index=-1):
         scroll = panel.scroll_control.scroll_state()
@@ -177,17 +241,19 @@ class DanmakuFloatWindow(QWidget):
         menu.exec(self.more.mapToGlobal(QPoint(0, self.more.height())))
         menu.deleteLater()
 
-    def start_move(self):
+    def start_move(self, *, independent=False):
         handle = self.windowHandle()
         if handle is None:
             return False
         self._move_origin = self.frameGeometry().topLeft()
-        if self.snap.isChecked():
+        self._drag_snapping = self.snap.isChecked() and not independent
+        if self._drag_snapping:
             frames = {window: window.frameGeometry() for window in self._magnetic_windows()}
             frames[self] = self.frameGeometry()
             self._move_followers = touching_windows(self, frames)
         if not handle.startSystemMove():
             self._move_origin = None
+            self._drag_snapping = False
             self._move_followers.clear()
             return False
         if QApplication.platformName() != 'windows':
@@ -211,20 +277,36 @@ class DanmakuFloatWindow(QWidget):
 
     def _move_attached(self, delta):
         for window, origin in self._move_followers.items():
-            if isValid(window) and window.isVisible():
-                window.move(origin + delta)
+            position = origin + delta
+            if isValid(window) and window.isVisible() and window.pos() != position:
+                window.move(position)
+
+    def _flush_move(self):
+        if self._move_origin is None or not self._drag_snapping:
+            return
+        self._move_attached(self.frameGeometry().topLeft() - self._move_origin)
+        _, edges = self._snap_candidate()
+        if edges != self._snap_edges:
+            self._snap_edges = edges
+            self.update()
 
     def _finish_move(self):
         origin, self._move_origin = self._move_origin, None
         self._move_watch.stop()
-        if origin is not None and self.isVisible() and self.snap.isChecked() and self.frameGeometry().topLeft() != origin:
-            position, edges = self._snap_candidate()
-            if edges:
-                self.move(position)
-                self._move_attached(self.frameGeometry().topLeft() - origin)
+        self._move_frame.stop()
+        if origin is not None and self._drag_snapping:
+            position = self.frameGeometry().topLeft()
+            self._move_attached(position - origin)
+            if self.isVisible() and position != origin:
+                snapped, edges = self._snap_candidate()
+                if edges and snapped != position:
+                    self.move(snapped)
+                    self._move_attached(self.frameGeometry().topLeft() - origin)
+        self._drag_snapping = False
         self._move_followers.clear()
-        self._snap_edges = Qt.Edge(0)
-        self.update()
+        if self._snap_edges:
+            self._snap_edges = Qt.Edge(0)
+            self.update()
 
     def nativeEvent(self, event_type, message):
         if event_type == b'windows_generic_MSG' and self._move_origin is not None:
@@ -234,14 +316,13 @@ class DanmakuFloatWindow(QWidget):
 
     def moveEvent(self, event):
         super().moveEvent(event)
-        if self._move_origin is not None:
-            self._move_attached(self.frameGeometry().topLeft() - self._move_origin)
-        if self._move_origin is not None and self.snap.isChecked():
-            _, self._snap_edges = self._snap_candidate()
-            self.update()
+        if self._move_origin is not None and self._drag_snapping and not self._move_frame.isActive():
+            # WM_MOVE can arrive several times per frame. Follow only its newest position.
+            self._move_frame.start()
 
     def eventFilter(self, watched, event):
-        if (event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton and self.start_move()):
+        if (event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton
+                and self.start_move(independent=watched is self.move_handle)):
             event.accept()
             return True
         return super().eventFilter(watched, event)
@@ -260,12 +341,17 @@ class DanmakuFloatWindow(QWidget):
 
     def resizeEvent(self, event):
         self.grip.move(self.width() - self.grip.width(), self.height() - self.grip.height())
+        if self._native_glass:
+            self._sync_glass_mask()
         super().resizeEvent(event)
 
     def paintEvent(self, _event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(theme.qcolor(theme.CONTENT))
+        color = theme.qcolor(theme.CONTENT)
+        if self.property('danmakuFloatGlass'):
+            color.setAlpha(max(1, round(255 * self._glass_opacity / 100)))
+        painter.setBrush(color)
         painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
         painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 14))
         if self._snap_edges:

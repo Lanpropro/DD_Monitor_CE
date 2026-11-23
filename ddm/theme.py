@@ -1869,6 +1869,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     border: none;
     border-radius: 10px;
 }}
+*[danmakuFloatGlass="true"] #DanmakuPanel {{background: transparent;}}
 #DanmakuHeader {{
     background: rgba(255, 255, 255, 0.025);
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
