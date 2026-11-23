@@ -6,7 +6,6 @@ from PySide6.QtWidgets import QMenu
 
 from . import layouts
 from .danmaku_sources import is_live_danmaku_source
-from .window_fullscreen import set_presentation_owner
 
 
 @dataclass
@@ -355,16 +354,16 @@ class PaneDanmaku:
         window = DanmakuFloatWindow(self.wall.window(), self, rect)
         window.returnRequested.connect(lambda: self._return_window(window))
         tile = self.wall.fullscreen_tile
-        if tile is not None and tile.isWindow():
-            set_presentation_owner(window, tile)
+        if tile is not None:
+            window.set_fullscreen_owner(tile.window())
         return window
 
     def floating_windows(self):
         return tuple(dict.fromkeys(entry.window for entry in self.floating.values()))
 
-    def set_floating_owner(self, owner):
+    def set_floating_fullscreen_owner(self, owner):
         for window in self.floating_windows():
-            set_presentation_owner(window, owner)
+            window.set_fullscreen_owner(owner)
 
     def move_floating_tab(self, panel, destination, index):
         source = self.floating[panel].window

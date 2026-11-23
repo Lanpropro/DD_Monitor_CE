@@ -18,7 +18,7 @@ from .shortcut_actions import DEFAULT_SHORTCUTS
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
 from .widget_support import _repolish
-from .window_fullscreen import set_window_topmost
+from .window_fullscreen import raise_below_native_windows, set_presentation_owner, set_window_topmost
 
 
 class DanmakuFloatSlot(QFrame):
@@ -61,6 +61,8 @@ class DanmakuFloatWindow(QWidget):
     def __init__(self, owner, controller, area):
         super().__init__(owner, Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.controller = controller
+        self._fullscreen_owner = None
+        self._hidden_with_owner = False
         self._move_origin = None
         self._move_followers = {}
         self._group_press = None
@@ -132,6 +134,7 @@ class DanmakuFloatWindow(QWidget):
                        max(available.top(), min(area.y(), available.bottom() - size.height() + 1)))
         self.setGeometry(QRect(point, size))
         self.set_material(getattr(owner, 'settings', {}))
+        owner.installEventFilter(self)
         theme.signals().changed.connect(self.update)
 
     def configure_shortcuts(self, close_sequence, playback_sequences=(), forward=None):
@@ -271,8 +274,50 @@ class DanmakuFloatWindow(QWidget):
         self.more.setVisible(self.tabs.count() > 1)
         self.update()
 
+    def set_fullscreen_owner(self, owner):
+        if owner is self._fullscreen_owner:
+            return
+        if owner is not None and self._fullscreen_owner is None:
+            self._windowed_show_without_activating = self.testAttribute(Qt.WA_ShowWithoutActivating)
+        self._fullscreen_owner = owner
+        self._sync_presentation_owner()
+
+    def _sync_presentation_owner(self):
+        fullscreen = self._fullscreen_owner
+        wall_owner = self.parentWidget()
+        pinned = self.pin.isChecked()
+        behind_fullscreen = fullscreen is not None and not pinned
+        owner = fullscreen if fullscreen is not None and pinned else wall_owner
+        if fullscreen is wall_owner and not pinned:
+            # Windows keeps an owned window above its owner, even without pinning.
+            owner = None
+        self.setProperty('behindFullscreen', behind_fullscreen)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, behind_fullscreen or self._windowed_show_without_activating)
+        set_presentation_owner(self, owner)
+
+    def _stack_behind_fullscreen(self):
+        owner = self._fullscreen_owner
+        if (owner is None or self.pin.isChecked() or not self.isVisible()
+                or not owner.isVisible() or owner.isMinimized()):
+            return False
+        if QApplication.platformName() != 'windows' or not raise_below_native_windows(self, [int(owner.winId())]):
+            self.lower()
+        return True
+
+    def raise_(self):
+        if not self._stack_behind_fullscreen():
+            super().raise_()
+
+    def activateWindow(self):
+        fullscreen = self._fullscreen_owner
+        if fullscreen is not None and not self.pin.isChecked() and fullscreen.isVisible():
+            return
+        super().activateWindow()
+
     def _set_pinned(self, pinned):
         set_window_topmost(self, pinned)
+        if self._fullscreen_owner is not None:
+            self._sync_presentation_owner()
         label = '已置顶，点击取消置顶' if pinned else '未置顶，点击置顶'
         self.pin.setToolTip(label)
         self.pin.setAccessibleName(label)
@@ -380,7 +425,18 @@ class DanmakuFloatWindow(QWidget):
             self._move_frame.start()
 
     def eventFilter(self, watched, event):
-        if (event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton
+        kind = event.type()
+        if watched is self.parentWidget() and kind in (QEvent.Hide, QEvent.Show, QEvent.WindowStateChange):
+            # An unowned float behind the main fullscreen window does not inherit minimization.
+            visible = kind != QEvent.Hide and watched.isVisible() and not watched.isMinimized()
+            if visible and self._hidden_with_owner:
+                self._hidden_with_owner = False
+                self.show()
+            elif (not visible and self._fullscreen_owner is watched
+                  and not self.pin.isChecked() and self.isVisible()):
+                self._hidden_with_owner = True
+                self.hide()
+        if (kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton
                 and self.start_move(event.globalPosition().toPoint(), independent=watched is self.move_handle)):
             event.accept()
             return True
@@ -435,6 +491,8 @@ class DanmakuFloatWindow(QWidget):
         result = super().event(event)
         if kind == QEvent.DevicePixelRatioChange and getattr(self, '_native_glass', False):
             self._sync_glass_clip()
+        elif kind in (QEvent.Show, QEvent.WindowActivate) and self._fullscreen_owner is not None:
+            QTimer.singleShot(0, self, self._stack_behind_fullscreen)
         return result
 
     def resizeEvent(self, event):

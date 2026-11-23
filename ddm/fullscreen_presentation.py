@@ -181,8 +181,8 @@ class FullscreenPresentation(QObject):
             dialog.set_presentation_owner(tile.window())
             if dialog.isVisible():
                 dialog.raise_()
+        panes.set_floating_fullscreen_owner(tile.window())
         if not in_main_window:
-            panes.set_floating_owner(tile)
             # Keep the wall visible until the independent video covers it.
             self._hide_wall(tile)
         layer = wall._quick_danmaku_layer
@@ -232,7 +232,7 @@ class FullscreenPresentation(QObject):
                 sidebar._refresh_visible_covers()
                 sidebar.repaint()
         else:
-            wall.pane_danmaku.set_floating_owner(self.window)
+            wall.pane_danmaku.set_floating_fullscreen_owner(None)
             self._restore_wall(tile, repaint_covered_bars=native_bar)
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
@@ -274,6 +274,7 @@ class FullscreenPresentation(QObject):
             if layer is not None:
                 layer.resize()
             wall.update()
+            wall.pane_danmaku.set_floating_fullscreen_owner(None)
         wall.fullscreen_tile = None
         wall._sync_danmaku_controls()
         tile._layout_areas()

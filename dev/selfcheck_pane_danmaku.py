@@ -1787,20 +1787,37 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertFalse(user32.GetWindowLongW(int(bar.winId()), -20) & 0x8)
 
     @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
-    def test_native_detached_fullscreen_keeps_existing_and_new_floats_above_video(self):
+    def test_native_detached_fullscreen_keeps_only_pinned_floats_above_video(self):
+        self.check_native_fullscreen_float_layer(detached=True)
+
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_main_window_fullscreen_keeps_only_pinned_floats_above_video(self):
+        self.check_native_fullscreen_float_layer(detached=False)
+
+    def check_native_fullscreen_float_layer(self, *, detached):
         import ctypes
         from ctypes import wintypes
+        from types import SimpleNamespace
+        from ddm.video_danmaku_quick import QuickDanmakuLayer
 
         window = self.wall_window()
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         wall, panes = window.wall, window.wall.pane_danmaku
         source, other = wall.tiles[:2]
+        overlay = SimpleNamespace(parent=wall, _presentation_window=None)
 
         user32 = ctypes.windll.user32
         user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
         user32.GetWindow.restype = wintypes.HWND
         user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
         user32.GetWindowLongW.restype = ctypes.c_long
+
+        def assert_above(upper, lower):
+            above = user32.GetWindow(lower, 3)  # GW_HWNDPREV
+            while above and above != upper:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, upper)
+
         with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
             panes.open_for_tile(source)
             panel, = panes.floating
@@ -1811,34 +1828,61 @@ class PaneDanmakuTests(unittest.TestCase):
             self.assertTrue(user32.GetWindowLongW(handle, -20) & 0x8)
             self.assertEqual(int(floating.winId()), handle)
             enter = window._fullscreen_presentation.enter
-            with patch.object(window._fullscreen_presentation, 'enter',
-                              side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
-                window._on_fullscreen(source)
+            if detached:
+                with patch.object(window._fullscreen_presentation, 'enter',
+                                  side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
+                    window._on_fullscreen(source)
+            else:
+                with patch.dict(os.environ, DDM_FULLSCREEN_WINDOW_CAPTURE='1'):
+                    window._on_fullscreen(source)
             try:
-                video = int(source.winId())
+                video = int(source.window().winId())
+                self.assertEqual(source.isWindow(), detached)
                 self.assertTrue(user32.GetWindowLongW(handle, -20) & 0x8)
-                QTest.mouseClick(floating.pin, Qt.LeftButton)
-                self.assertFalse(user32.GetWindowLongW(handle, -20) & 0x8)
-                source.raise_()
                 self.assertEqual(user32.GetWindow(handle, 4), video)  # GW_OWNER
-                above = user32.GetWindow(video, 3)  # GW_HWNDPREV
-                while above and above != handle:
-                    above = user32.GetWindow(above, 3)
-                self.assertEqual(above, handle)
-                self.assertTrue(floating.isVisible() and source.frameGeometry().intersects(floating.frameGeometry()))
+                assert_above(handle, video)
+                self.assertIn(floating, QuickDanmakuLayer._occluding_widgets(overlay))
                 source.bottom.raise_()
-                above = user32.GetWindow(int(source.bottom.winId()), 3)  # GW_HWNDPREV
-                while above and above != handle:
-                    above = user32.GetWindow(above, 3)
-                self.assertEqual(above, handle, 'Detached fullscreen must keep the bar below floating chat')
+                assert_above(handle, int(source.bottom.winId()))
                 picker = panel.source_picker
                 with patch('ddm.motion.enabled', return_value=False):
                     QTest.mouseClick(picker.anchor, Qt.LeftButton)
                     QTest.mouseClick(picker.buttons[other], Qt.LeftButton)
                 self.assertIs(panes.target(panel), other)
+                QTest.mouseClick(floating.pin, Qt.LeftButton)
+                self.assertFalse(user32.GetWindowLongW(handle, -20) & 0x8)
+                floating.raise_()
+                self.assertTrue(floating.isVisible())
+                assert_above(video, handle)
+                self.assertNotIn(floating, QuickDanmakuLayer._occluding_widgets(overlay))
                 panes.open_for_tile(source)
                 extra, = (entry.window for item, entry in panes.floating.items() if item is not panel)
-                self.assertEqual(user32.GetWindow(int(extra.winId()), 4), video)
+                self.app.processEvents()
+                assert_above(video, int(extra.winId()))
+                panes.open_for_tile(source)  # Reopening an existing float must keep its layer.
+                self.app.processEvents()
+                assert_above(video, int(extra.winId()))
+                if not detached:
+                    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+                    user32.IsWindowVisible.restype = wintypes.BOOL
+                    window.hide()
+                    self.app.processEvents()
+                    self.assertFalse(user32.IsWindowVisible(handle))
+                    window.show()
+                    self.app.processEvents()
+                    self.assertTrue(user32.IsWindowVisible(handle))
+                    assert_above(video, handle)
+                    state = window.windowState()
+                    window.setWindowState(state | Qt.WindowMinimized)
+                    self.app.processEvents()
+                    self.assertFalse(user32.IsWindowVisible(handle))
+                    window.setWindowState(state)
+                    self.app.processEvents()
+                    self.assertTrue(user32.IsWindowVisible(handle))
+                    assert_above(video, handle)
+                QTest.mouseClick(extra.pin, Qt.LeftButton)
+                assert_above(int(extra.winId()), video)
+                self.assertIn(extra, QuickDanmakuLayer._occluding_widgets(overlay))
             finally:
                 window._exit_fullscreen()
             self.assertEqual(int(floating.winId()), handle)

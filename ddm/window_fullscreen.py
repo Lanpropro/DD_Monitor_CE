@@ -59,11 +59,11 @@ def raise_below_native_windows(widget, anchors):
 
 
 def set_presentation_owner(widget, owner):
-    """Switch an owned window between the main window and detached fullscreen."""
-    owner_id = int(owner.winId())
+    """Update transient ownership without replacing the window's native handle."""
+    owner_id = int(owner.winId()) if owner is not None else 0
     widget_id = int(widget.winId())
     handle = widget.windowHandle()
-    handle.setTransientParent(owner.windowHandle())
+    handle.setTransientParent(owner.windowHandle() if owner is not None else None)
     if sys.platform == 'win32' and QApplication.platformName() == 'windows':
         # Qt applies transient ownership on show. Update the existing HWND too,
         # before the previous owner can be destroyed during a fullscreen switch.
