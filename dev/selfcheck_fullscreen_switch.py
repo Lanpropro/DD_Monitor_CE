@@ -97,6 +97,8 @@ def check_window_capture(window):
                 original_wall = QRect(wall.geometry())
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
                 original_video = QRect(tile.video.geometry())
+                original_bar = QRect(tile.bottom.geometry())
+                original_origin = wall.mapToGlobal(QPoint())
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
                 show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
@@ -104,12 +106,16 @@ def check_window_capture(window):
 
                 enter_native = window_fullscreen.enter
                 peers = [pane for pane in (*visible, *panels, window.sidebar) if pane is not tile]
-                entry_exposures, exit_exposures, restored_sizes = [], [], []
+                entry_exposures, old_bar_paints, exit_exposures, restored_sizes = [], [], [], []
 
                 class RestoreEvents(QObject):
                     def eventFilter(self, watched, event):
                         if watched is tile.video and event.type() == QEvent.Resize and tile.property('fullscreen'):
-                            entry_exposures.append(sum(pane.isVisible() for pane in peers))
+                            entry_exposures.append((sum(pane.isVisible() for pane in peers), bool(old_bar_paints)))
+                        elif (watched is tile and event.type() == QEvent.Paint and tile.bottom.isHidden()
+                              and tile.geometry() == original_panes[0]
+                              and event.region().intersects(original_bar)):
+                            old_bar_paints.append(True)
                         elif watched is window and event.type() == QEvent.Resize:
                             restored_sizes.append(event.size())
                         elif watched in peers and event.type() == QEvent.Show:
@@ -119,10 +125,13 @@ def check_window_capture(window):
                 def enter_with_prepared_video(widget):
                     assert tile.video.geometry() == QRect(QPoint(), widget.screen().size()), (
                         'The selected video must be ready before changing the native frame', tile.video.geometry())
+                    assert wall.mapToGlobal(QPoint()) == original_origin, (
+                        'The sidebar layout moved the ordinary wall before the native frame changed')
                     return enter_native(widget)
 
                 events = RestoreEvents()
                 tile.video.installEventFilter(events)
+                tile.installEventFilter(events)
                 try:
                     with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native, \
                             patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as enter_frame:
@@ -130,8 +139,9 @@ def check_window_capture(window):
                         assert native.called == (state == Qt.WindowMaximized)
                 finally:
                     tile.video.removeEventFilter(events)
-                assert entry_exposures and not any(entry_exposures), (
-                    'Wall panes were visible while the target video expanded', entry_exposures)
+                    tile.removeEventFilter(events)
+                assert entry_exposures and all(count == 0 and painted for count, painted in entry_exposures), (
+                    'Video expanded before hiding the other panes and painting the old bar area', entry_exposures)
                 QTest.qWait(90)
                 assert window.isFullScreen(), 'The capture target must fill the screen itself'
                 assert window.geometry() == window.screen().geometry()

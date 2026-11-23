@@ -93,11 +93,17 @@ class FullscreenPresentation(QObject):
                 # The expanded video shares the wall HWND hierarchy. Hide the
                 # ordinary panes before it can overlap their native controls.
                 self._hide_wall(tile)
+                if native_maximized and bar_visible and not bar.qt_composited:
+                    # Flush the strip the native child bar used to cover before
+                    # Windows can expose it at a different client origin.
+                    tile.repaint(bar.geometry())
                 # Keep the video in its original HWND hierarchy for window capture.
-                if not native_maximized:
+                if native_maximized:
+                    geometry = QRect(QPoint(), geometry.size())
+                else:
                     self.window.setWindowState(Qt.WindowFullScreen)
-                self._activate_main_layout()
-                geometry = QRect(QPoint(), geometry.size()) if native_maximized else wall.rect()
+                    self._activate_main_layout()
+                    geometry = wall.rect()
             else:
                 flags = Qt.Window | Qt.FramelessWindowHint
                 background = (self._show_without_activating
@@ -128,7 +134,7 @@ class FullscreenPresentation(QObject):
         if bar.qt_composited:
             bar.setWindowOpacity(0.0)
         bar.setVisible(bar_visible)
-        # Exposing a new Tool bar can dispatch the owner's old native resize.
+        # Exposing a new native bar can dispatch the owner's old native resize.
         if bar.qt_composited and bar_visible:
             bar.prepare_fullscreen_frame()
             if tile.geometry() != geometry:
@@ -150,6 +156,7 @@ class FullscreenPresentation(QObject):
             if dialog.isVisible():
                 dialog.raise_()
         if not in_main_window:
+            panes.set_floating_owner(tile)
             # Keep the wall visible until the independent video covers it.
             self._hide_wall(tile)
         layer = wall._quick_danmaku_layer
@@ -178,6 +185,7 @@ class FullscreenPresentation(QObject):
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
         else:
+            wall.pane_danmaku.set_floating_owner(self.window)
             self._restore_wall(tile, repaint_covered_bars=native_bar)
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
