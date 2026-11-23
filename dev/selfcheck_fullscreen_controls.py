@@ -119,8 +119,12 @@ def check_transparent_bar(app, tile):
             tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground | QWidget.DrawChildren)
             painter.end()
             assert editor.paints > 0, 'Transparent composition must include the live editor'
-            sample_x = tile.bottom.width() // 2 + 120
-            check_gradient(image, sample_x)
+            background = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+            background.fill(Qt.transparent)
+            painter = QPainter(background)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+            painter.end()
+            check_gradient(background, background.width() // 2)
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
