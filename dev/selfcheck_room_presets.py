@@ -516,6 +516,13 @@ def check_snap_grid_and_other_presets(app):
                 opacity = .84
                 assert all(abs(result - (original * (1 - opacity) + color * opacity)) <= 2
                            for result, original, color in zip(masked.getRgb()[:3], base.getRgb()[:3], tint.getRgb()[:3]))
+                wall._fullscreen_layout_pending = True
+                try:
+                    assert not wall.snap_grid.interactive()
+                    assert window.grab().toImage().pixelColor(sample) == masked, (
+                        'The wall must keep its tint while fullscreen layout is pending')
+                finally:
+                    wall._fullscreen_layout_pending = False
                 window.settings['skin_mask'] = 70
                 controller.refresh()
                 app.processEvents()

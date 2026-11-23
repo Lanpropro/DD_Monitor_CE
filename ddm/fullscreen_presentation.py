@@ -35,6 +35,23 @@ class FullscreenPresentation(QObject):
         for pane in wall.tiles:
             pane.video_danmaku.super_chat_overlay.set_presentation_changing(active)
 
+    def _hide_wall(self, tile):
+        for pane, visible in self._visible:
+            if pane is not tile and visible:
+                pane.hide()
+        for border in self._borders:
+            border.hide()
+
+    def _restore_wall(self, tile, *, repaint_covered_bars=False):
+        for pane, visible in self._visible:
+            if pane is not tile:
+                pane.setVisible(visible)
+                if repaint_covered_bars and visible and pane in self.window.wall.tiles:
+                    # Paint native bars before the independent fullscreen window uncovers them.
+                    pane.bottom.repaint()
+        for border in self._borders:
+            border.show()
+
     def enter(self, tile, geometry=None):
         wall = self.window.wall
         in_main_window = (geometry is None and QApplication.platformName() == 'windows'
@@ -73,8 +90,9 @@ class FullscreenPresentation(QObject):
         try:
             bar.hide()
             if in_main_window:
-                self.window.sidebar.hide()
-                self.window.empty_hint.hide()
+                # The expanded video shares the wall HWND hierarchy. Hide the
+                # ordinary panes before it can overlap their native controls.
+                self._hide_wall(tile)
                 # Keep the video in its original HWND hierarchy for window capture.
                 if not native_maximized:
                     self.window.setWindowState(Qt.WindowFullScreen)
@@ -131,12 +149,9 @@ class FullscreenPresentation(QObject):
             dialog.set_presentation_owner(tile.window())
             if dialog.isVisible():
                 dialog.raise_()
-        # Keep the other panes visible until the selected video is ready.
-        for pane, visible in self._visible:
-            if pane is not tile and visible:
-                pane.hide()
-        for border in self._borders:
-            border.hide()
+        if not in_main_window:
+            # Keep the wall visible until the independent video covers it.
+            self._hide_wall(tile)
         layer = wall._quick_danmaku_layer
         if layer is not None:
             if in_main_window:
@@ -162,25 +177,13 @@ class FullscreenPresentation(QObject):
             else:
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
-        # The independent presentation still covers the wall during restoration.
-        for pane, visible in self._visible:
-            if pane is not tile:
-                pane.setVisible(visible)
-                if not in_main_window and native_bar and visible and pane in wall.tiles:
-                    # show() queues painting; flush bars while fullscreen still
-                    # covers the wall, rather than exposing empty backing stores.
-                    pane.bottom.repaint()
-        for border in self._borders:
-            border.show()
+        else:
+            self._restore_wall(tile, repaint_covered_bars=native_bar)
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
             # Detach before changing the tile's native window flags on exit.
             dialog.set_presentation_owner(self.window)
-        if in_main_window:
-            self._activate_main_layout()
-            if layer is not None:
-                layer.resize()
-        elif layer is not None:
+        if not in_main_window and layer is not None:
             layer.set_presentation_window(None)
         tile.removeEventFilter(self)
         self.tile = None
@@ -204,6 +207,13 @@ class FullscreenPresentation(QObject):
                     break
         finally:
             tile._presentation_changing = False
+        if in_main_window:
+            # The normal wall can now show without the fullscreen-sized video.
+            self._restore_wall(tile)
+            self._activate_main_layout()
+            if layer is not None:
+                layer.resize()
+            wall.update()
         wall.fullscreen_tile = None
         wall._sync_danmaku_controls()
         tile._layout_areas()

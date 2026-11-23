@@ -83,7 +83,7 @@ def check_window_capture(window):
     try:
         with patch.dict(os.environ):
             os.environ.pop('DDM_FULLSCREEN_WINDOW_CAPTURE', None)
-            for state in (Qt.WindowNoState, Qt.WindowMaximized):
+            for state in (Qt.WindowNoState, Qt.WindowMaximized) * 2:
                 window.setWindowState(state)
                 QTest.qWait(250)
                 original_state = window.windowState()
@@ -92,21 +92,41 @@ def check_window_capture(window):
                 original_saved_geometry = window.current_state()['geometry']
                 original_wall = QRect(wall.geometry())
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
+                original_video = QRect(tile.video.geometry())
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
                 show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
                 notice = window._result_notice
 
                 enter_native = window_fullscreen.enter
+                peers = [pane for pane in (*visible, *panels, window.sidebar) if pane is not tile]
+                entry_exposures, exit_exposures, restored_sizes = [], [], []
+
+                class RestoreEvents(QObject):
+                    def eventFilter(self, watched, event):
+                        if watched is tile.video and event.type() == QEvent.Resize and tile.property('fullscreen'):
+                            entry_exposures.append(sum(pane.isVisible() for pane in peers))
+                        elif watched is window and event.type() == QEvent.Resize:
+                            restored_sizes.append(event.size())
+                        elif watched in peers and event.type() == QEvent.Show:
+                            exit_exposures.append(QRect(tile.video.geometry()))
+                        return False
 
                 def enter_with_prepared_video(widget):
                     assert tile.video.geometry() == QRect(QPoint(), widget.screen().size()), (
                         'The selected video must be ready before changing the native frame', tile.video.geometry())
                     return enter_native(widget)
 
-                with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
-                    window._on_fullscreen(tile)
-                    assert native.called == (state == Qt.WindowMaximized)
+                events = RestoreEvents()
+                tile.video.installEventFilter(events)
+                try:
+                    with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
+                        window._on_fullscreen(tile)
+                        assert native.called == (state == Qt.WindowMaximized)
+                finally:
+                    tile.video.removeEventFilter(events)
+                assert entry_exposures and not any(entry_exposures), (
+                    'Wall panes were visible while the target video expanded', entry_exposures)
                 QTest.qWait(90)
                 assert window.isFullScreen(), 'The capture target must fill the screen itself'
                 assert window.geometry() == window.screen().geometry()
@@ -123,16 +143,8 @@ def check_window_capture(window):
                 assert all(not panel.isVisible() for panel in panels)
                 assert window.players[tile] is player
 
-                restored_sizes = []
-
-                class RestoreEvents(QObject):
-                    def eventFilter(self, watched, event):
-                        if event.type() == QEvent.Resize:
-                            restored_sizes.append(event.size())
-                        return False
-
-                events = RestoreEvents()
-                window.installEventFilter(events)
+                for widget in (window, *peers):
+                    widget.installEventFilter(events)
                 try:
                     with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta:
                         next(shortcut for shortcut in window._window_shortcuts
@@ -141,7 +153,10 @@ def check_window_capture(window):
                         QTest.qWait(90)
                         refresh_meta.assert_called()
                 finally:
-                    window.removeEventFilter(events)
+                    for widget in (window, *peers):
+                        widget.removeEventFilter(events)
+                assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
+                    'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state
                 assert window.geometry() == original_geometry and wall.geometry() == original_wall
                 assert window.normalGeometry() == normal_geometry
@@ -154,7 +169,7 @@ def check_window_capture(window):
                 assert [pane.geometry() for pane in wall.tiles] == original_panes
                 assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
                 assert user32.GetAncestor(video_hwnd, 2) == main_hwnd
-                assert window.players[tile] is player and tile.bottom.isVisible()
+                assert window.players[tile] is player and tile.bottom.isVisible() and not tile.bottom.isWindow()
                 assert not player.play.called and not player.release.called
                 assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
                 notice.dismiss(animate=False)
@@ -177,7 +192,10 @@ def main():
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, name, Mock()))
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x3',
-                            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+                            state={'plugins_enabled': [], 'settings': {
+                                'close_behavior': 'exit', 'fullscreen_auto_hide_controls': False,
+                                'windowed_transparent_controls': False, 'windowed_auto_hide_controls': False,
+                                'wall_seamless': False}})
         window.setGeometry(-9000, -9000, 1200, 700)
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
