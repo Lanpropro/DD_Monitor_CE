@@ -322,6 +322,8 @@ def configure_appearance(values):
     return True
 _skin_active = False
 _skin_sidebar = False
+_SKIN_COLORS = {'Sidebar': 'SIDEBAR', 'Tile': 'BG', 'TileBottom': 'BG', 'DanmakuPanel': 'CONTENT'}
+_SKIN_SURFACES = _SKIN_COLORS.keys() | {'Root', 'WallGrid', 'TileVideo'}
 
 
 def set_skin_active(active, sidebar=False):
@@ -329,7 +331,28 @@ def set_skin_active(active, sidebar=False):
     active, sidebar = bool(active), bool(sidebar)
     if (_skin_active, _skin_sidebar) != (active, sidebar):
         _skin_active, _skin_sidebar = active, sidebar
-        apply(_mode)
+        _refresh_skin_surfaces()
+
+
+def _refresh_skin_surfaces():
+    from .continuous_corners import source_stylesheet
+    from .skin_parts import style_for
+
+    palette = {name: globals()[name] for name in _DARK}
+    local_style = _local_styles(palette)
+    for widget in QApplication.allWidgets():
+        if widget.objectName() not in _SKIN_SURFACES:
+            continue
+        current = widget.styleSheet()
+        saved = _styles.get(widget)
+        source, colors = saved[:2] if saved and saved[2] == current else (source_stylesheet(current), palette)
+        extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
+        styled = local_style(source, tuple(colors.items()) if source else (), extra)
+        if styled != current:
+            widget.setStyleSheet(styled)
+            _pending_palette.pop(widget, None)
+            widget.update()
+        _styles[widget] = (source, colors, styled)
 
 
 def _skin_style(widget):
@@ -343,14 +366,12 @@ def _skin_style(widget):
     if name in ('WallGrid', 'TileVideo'):
         return (f'#{name}[appearanceLight="false"], #{name}[appearanceLight="true"] '
                 '{background: transparent;}')
-    colors = {'Sidebar': 'SIDEBAR', 'Tile': 'BG',
-              'TileBottom': 'BG', 'DanmakuPanel': 'CONTENT'}
-    if name not in colors:
+    if name not in _SKIN_COLORS:
         return ''
     opacity = .84 if name in ('Sidebar', 'Tile') else .88
     rules = []
     for mode, palette in (('false', _DARK), ('true', _LIGHT)):
-        color = qcolor(palette[colors[name]])
+        color = qcolor(palette[_SKIN_COLORS[name]])
         selector = '#' + name + f'[appearanceLight="{mode}"]'
         if name == 'Tile':
             selector += ', ' + selector + '[empty="true"]'
@@ -605,6 +626,26 @@ def _system_changed(_scheme):
         apply("system")
 
 
+def _local_styles(palette):
+    from .continuous_corners import stylesheet
+
+    # Cards with identical source QSS share their palette translation.
+    @lru_cache(maxsize=None)
+    def palette_pattern(colors):
+        replacements = {old: palette[name] for name, old in colors}
+        pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
+        return pattern, replacements
+
+    @lru_cache(maxsize=None)
+    def local_style(source, colors, extra):
+        if source:
+            pattern, replacements = palette_pattern(colors)
+            source = pattern.sub(lambda match: replacements[match.group()], source)
+        return stylesheet(source + '\n' + extra if extra else source)
+
+    return local_style
+
+
 def apply(value):
     """重绘主题，不重建控件、播放器或视频窗口。"""
     global _mode, _light, _applied_typography
@@ -635,7 +676,7 @@ def apply(value):
     widgets = list(app.allWidgets())
     typography = (FONT_FAMILY, FONT_CONTROL, FONT_CAPTION, FONT_BODY, FONT_HEADING)
     typography_changed = typography != _applied_typography
-    from .continuous_corners import source_stylesheet, stylesheet
+    from .continuous_corners import source_stylesheet
     from .skin_parts import style_for
     # Keep the source palette of local QSS, so identical light backgrounds can
     # return to their distinct original dark colours without lossy replacement.
@@ -650,20 +691,7 @@ def apply(value):
     if app.styleSheet() != stable_style:
         app.setStyleSheet(stable_style)
 
-    # Cards with identical source styles can share one translation per theme change.
-    @lru_cache(maxsize=None)
-    def palette_pattern(colors):
-        replacements = {old: palette[name] for name, old in colors}
-        pattern = re.compile("|".join(re.escape(color) for color in sorted(replacements, key=len, reverse=True)))
-        return pattern, replacements
-
-    @lru_cache(maxsize=None)
-    def local_style(source, colors, extra):
-        if source:
-            pattern, replacements = palette_pattern(colors)
-            source = pattern.sub(lambda match: replacements[match.group()], source)
-        return stylesheet(source + '\n' + extra if extra else source)
-
+    local_style = _local_styles(palette)
     for widget in widgets:
         source, colors, _last = _styles[widget]
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)

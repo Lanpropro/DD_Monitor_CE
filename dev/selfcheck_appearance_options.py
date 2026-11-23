@@ -32,6 +32,14 @@ def settle():
         APP.processEvents()
 
 
+def wait_for_gallery_image(editor):
+    for _ in range(100):
+        if not editor._reading_image:
+            return
+        QTest.qWait(20)
+    raise AssertionError('Background image read did not finish')
+
+
 def dispose(widget):
     widget.close()
     widget.deleteLater()
@@ -404,6 +412,7 @@ class AppearanceOptionsTests(unittest.TestCase):
                     self.assertEqual(Path(open_folder.call_args.args[0].toLocalFile()), folder.resolve())
                 QTest.mouseClick(editor.gallery.viewport(), Qt.LeftButton,
                                  pos=editor.gallery.visualItemRect(item).center())
+                wait_for_gallery_image(editor)
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
                 self.assertEqual(len(list(folder.iterdir())), 1)
                 self.assertIsNotNone(controller.layer.image)
@@ -431,6 +440,7 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertTrue((Path(directory) / owner.settings['skin_background']).is_file())
                 self.assertEqual(editor.gallery.currentItem().data(Qt.UserRole), owner.settings['skin_background'])
                 editor._select_background('utils/skins/fixture.png')
+                wait_for_gallery_image(editor)
                 editor.mask_toggle.click()
                 self.assertFalse(owner.settings['skin_mask_enabled'])
                 self.assertEqual(owner.settings['skin_mask'], 47)
@@ -440,6 +450,7 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(controller.layer.mask, 47)
                 self.assertTrue(editor.mask_slider.isEnabled())
                 editor._select_background('utils/skins/missing.png')
+                wait_for_gallery_image(editor)
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
                 package = dict(version=1, owner='fixture', name='Fixture', mask=22,
                                path=str(folder / 'fixture.png'), parts={})
@@ -455,6 +466,77 @@ class AppearanceOptionsTests(unittest.TestCase):
                 dispose(editor)
                 controller.stop()
                 dispose(owner)
+
+    def test_gallery_decodes_off_thread_and_default_wins_over_an_inflight_image(self):
+        from threading import Event, get_ident
+        from ddm import skin_assets
+        from ddm.skin_background import BackgroundLayer
+        from ddm.skin_settings import SkinSettings
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(config, 'REPO', directory):
+            root = QWidget()
+            root.setObjectName('Root')
+            layer = BackgroundLayer(root, root)
+            folder = Path(directory) / 'utils/skins'
+            folder.mkdir(parents=True)
+            path = folder / 'slow.png'
+            image = QImage(60, 40, QImage.Format_RGB32)
+            image.fill(QColor('#be7040'))
+            self.assertTrue(image.save(str(path)))
+            settings = {'skin_mask': 47}
+            applied = []
+
+            def apply(values):
+                applied.append(values)
+                settings.update(values)
+                selected = values['skin_background']
+                theme.set_skin_active(bool(selected), True)
+                layer.load(str(Path(directory) / selected) if selected else '')
+
+            owner = SimpleNamespace(settings=settings, set_skin=apply)
+            editor = SkinSettings(settings)
+            editor.controller = SimpleNamespace(window=owner, layer=layer, override=None, error='')
+            editor.changed.connect(apply)
+            editor.show()
+            relative = 'utils/skins/slow.png'
+            entered, release = Event(), Event()
+            threads = []
+            read = skin_assets.read_image
+
+            def slow_read(filename):
+                threads.append(get_ident())
+                entered.set()
+                release.wait(2)
+                return read(filename)
+
+            try:
+                with patch.object(skin_assets, 'read_image', side_effect=slow_read), \
+                        patch('ddm.skin_background.read_image', side_effect=AssertionError('Image decoded again')), \
+                        patch.object(theme, 'apply', side_effect=AssertionError('Global theme reapplied')):
+                    editor._select_background(relative)
+                    self.assertTrue(entered.wait(1))
+                    self.assertNotEqual(threads[0], get_ident())
+                    self.assertEqual(applied, [])
+                    editor.clear.click()
+                    self.assertEqual([state['skin_background'] for state in applied], [''])
+                    release.set()
+                    wait_for_gallery_image(editor)
+                    self.assertIsNone(layer.image)
+                    editor._select_background(relative)
+                    wait_for_gallery_image(editor)
+                    self.assertEqual(layer.image.pixelColor(0, 0), QColor('#be7040'))
+                    self.assertIn('background: transparent', root.styleSheet())
+                    editor._select_background('')
+                    self.assertIsNone(layer.image)
+                    self.assertNotIn('background: transparent', root.styleSheet())
+                    self.assertEqual([state['skin_background'] for state in applied], ['', relative, ''])
+            finally:
+                release.set()
+                wait_for_gallery_image(editor)
+                dispose(editor)
+                dispose(root)
+                theme.set_skin_active(False)
 
     def test_gallery_covers_thumbnail_and_keeps_import_drop_contract(self):
         from PySide6.QtCore import QMimeData, QUrl

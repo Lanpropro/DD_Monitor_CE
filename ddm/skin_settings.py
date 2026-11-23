@@ -2,7 +2,8 @@
 from pathlib import Path
 from copy import deepcopy
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QThreadPool, Qt, Signal, Slot
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
@@ -17,6 +18,7 @@ from .skin_controls import (_background_name, SkinAssetDropArea)
 
 class SkinSettings(QWidget):
     changed = Signal(dict)
+    _imageReady = Signal(str, QImage, str)
 
     def __init__(self, settings, controller=None, parent=None):
         super().__init__(parent)
@@ -25,6 +27,9 @@ class SkinSettings(QWidget):
         self._video_enabled = bool(settings.get('skin_video_enabled', True))
         self._mask_enabled = bool(settings.get('skin_mask_enabled', True))
         self.job = None
+        self._pending_image = None
+        self._reading_image = False
+        self._imageReady.connect(self._image_ready, Qt.QueuedConnection)
         self._overrides = {key: bool(settings.get(key, False)) for key in
                            ('skin_background_override', 'skin_mask_override', 'skin_sidebar_override')}
         layout = QVBoxLayout(self)
@@ -143,7 +148,7 @@ class SkinSettings(QWidget):
         previous = self.mask_toggle.blockSignals(True)
         self.mask_toggle.setChecked(self._mask_enabled)
         self.mask_toggle.blockSignals(previous)
-        self.gallery.set_current(self.path)
+        self.gallery.set_current(self._pending_image[0] if self._pending_image else self.path)
         from . import config
         folder = Path(config.data_root()) / 'utils/skins'
         self.gallery_location.setToolTip(str(folder.resolve()))
@@ -163,6 +168,8 @@ class SkinSettings(QWidget):
         self.mask_label.setText(str(value) + '%')
         if self.job is not None:
             self.status.setText('正在导入背景文件…')
+        elif self._pending_image is not None:
+            self.status.setText('正在读取背景图片…')
         elif self.controller is not None and self.controller.error:
             self.status.setText(('皮肤插件背景错误：' if override else '背景错误：') + self.controller.error)
         elif override and self._locked():
@@ -195,16 +202,60 @@ class SkinSettings(QWidget):
         if not path:
             self.reset()
             return
+        self._pending_image = None
         from . import config
-        from .skins import validate_asset
+        from .skin_assets import IMAGES, asset_file
         try:
             managed = (Path(config.data_root()) / path).resolve()
             if not managed.is_relative_to((Path(config.data_root()) / 'utils/skins').resolve()):
                 return
-            validate_asset(managed)
+            if managed.suffix.lower() in IMAGES:
+                self._pending_image = (path, managed)
+                self._read_pending_image()
+                self.sync()
+                return
+            asset_file(managed)
         except (OSError, ValueError) as error:
+            self.sync()
             self.status.setText(str(error))
             return
+        self._apply_background(path)
+
+    def _read_pending_image(self):
+        # Keep one decode in flight while new selections replace the pending choice.
+        if not self._reading_image and self._pending_image is not None:
+            from .skin_assets import GalleryImageRead
+            self._reading_image = True
+            QThreadPool.globalInstance().start(GalleryImageRead(self._pending_image[1], self._imageReady))
+
+    @Slot(str, QImage, str)
+    def _image_ready(self, filename, image, error):
+        self._reading_image = False
+        pending = self._pending_image
+        if pending is None or self._locked():
+            self._pending_image = None
+            self.sync()
+            return
+        path, asset = pending
+        if asset != Path(filename):
+            self._read_pending_image()
+            return
+        self._pending_image = None
+        if error:
+            self.sync()
+            self.status.setText(error)
+            return
+        if self.controller is not None:
+            layer = self.controller.layer
+            layer.prepared_image = (asset, image)
+            try:
+                self._apply_background(path)
+            finally:
+                layer.prepared_image = None
+        else:
+            self._apply_background(path)
+
+    def _apply_background(self, path):
         self.path = path
         self._video_enabled = True
         self._overrides['skin_background_override'] = True
@@ -226,6 +277,7 @@ class SkinSettings(QWidget):
     def import_file(self, source):
         if self.job is not None or self._locked():
             return
+        self._pending_image = None
         # The application owns the worker so closing settings cannot destroy a
         # running copy thread. A completed copy does not change a closed page.
         parent = self.controller.window if self.controller is not None else self.window()
@@ -261,15 +313,17 @@ class SkinSettings(QWidget):
     def reset(self):
         if not self.clear.isEnabled():
             return
+        self._pending_image = None
         self.path = ''
         self._video_enabled = True
         self._mask_enabled = True
         self._overrides = dict.fromkeys(self._overrides, True)
-        self.mask_slider.setValue(35)
+        self._mask = 35
         self.changed.emit(self.values())
         self.sync()
 
     def hideEvent(self, event):
+        self._pending_image = None
         if self.job is not None:
             self.job.requestInterruption()
         super().hideEvent(event)

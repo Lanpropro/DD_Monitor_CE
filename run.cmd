@@ -28,6 +28,7 @@ if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
 if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
+if /i "%~1"=="--check-background-switch" goto backgroundSwitchCheck
 if /i "%~1"=="--check-portrait-ui" goto portraitUiCheck
 if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
@@ -631,6 +632,11 @@ if errorlevel 1 exit /b %errorlevel%
 set "DDM_CHECK_MODE=offline"
 set "QT_QPA_PLATFORM=windows"
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --update-retry-native
+exit /b %errorlevel%
+
+:backgroundSwitchCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_appearance_options -- AppearanceOptionsTests.test_local_gallery_selection_and_mask_keep_saved_strength AppearanceOptionsTests.test_gallery_decodes_off_thread_and_default_wins_over_an_inflight_image AppearanceOptionsTests.test_gallery_covers_thumbnail_and_keeps_import_drop_contract
 exit /b %errorlevel%
 
 :settingsControlsCheck

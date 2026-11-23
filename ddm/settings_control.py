@@ -381,14 +381,17 @@ class SettingsControl:
         host._save_timer.start()
 
     def set_skin(self, values):
+        from .settings_performance import measure
+
         host = self.host
         active = host.plugins.active_skin()
         if active is not None and active['version'] == 1:
             host.refresh_skin()
             return
         host.settings.update(values)
-        host.refresh_skin()
-        config_module.save(host.current_state())
+        measure('skin.refresh', host.refresh_skin)
+        state = measure('skin.collect_state', host.current_state)
+        measure('skin.save', config_module.save, state)
 
     def set_skin_parts(self, values):
         host = self.host

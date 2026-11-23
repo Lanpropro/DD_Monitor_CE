@@ -112,8 +112,10 @@ class SkinController(QObject):
         self.layer.mask = self.override['mask'] if use_package and (legacy or not settings.get('skin_mask_override')) else mask
         if not settings.get('skin_mask_enabled', True) and not legacy:
             self.layer.mask = 0
-        theme.set_skin_active(bool(path), True)
-        self.layer.load(str(path) if path else '', video_enabled=bool(settings.get('skin_video_enabled', True)))
+        from .settings_performance import measure
+        measure('skin.apply_surfaces', theme.set_skin_active, bool(path), True)
+        measure('skin.load_background', self.layer.load, str(path) if path else '',
+                video_enabled=bool(settings.get('skin_video_enabled', True)))
         self.layer._visibility()
         self.error = self.layer.error
         self.layer.update()
