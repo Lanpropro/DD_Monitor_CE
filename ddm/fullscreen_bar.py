@@ -186,6 +186,9 @@ class FullscreenBar(QWidget):
                     region -= QRegion(settings.occlusion.translated(-self.geometry().topLeft()))
                 else:
                     region = QRegion()
+            dialog = getattr(owner, '_local_settings_dialog', None) if composited else None
+            if dialog is not None and dialog.isVisible() and not dialog.isMinimized():
+                region -= QRegion(dialog.frameGeometry().translated(-self.geometry().topLeft()))
             # Qt treats an empty window mask as unmasked, so hide a fully covered bar.
             visible = not region.isEmpty()
             mask_changed = visible and region != self.mask()

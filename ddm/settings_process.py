@@ -123,20 +123,22 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None):
+    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None, page=None):
         if self.closing:
             return
         context = host_layout_context(self.parent())
         if self.visible:
             _allow_foreground(self.worker_pid)
-            self._send({'kind': 'focus', **context})
+            self._send({'kind': 'focus', 'page': page, **context})
             return
         if self.pending is not None:
+            if page is not None:
+                self.pending['page'] = page
             return
         from .config import DEFAULT_SETTINGS
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
-            'shortcuts': dict(shortcuts)}
+            'shortcuts': dict(shortcuts), 'page': page}
         self.pending['sc_preview_context'] = sc_preview_context or {}
         self.pending.update(context)
         self.pending['streamer_rooms'] = streamer_rooms or {}

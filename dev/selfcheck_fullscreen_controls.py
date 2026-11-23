@@ -481,6 +481,31 @@ def check_windowed_overlay(app):
             check_bar(first)
             check_bar(second)
 
+            from ddm.dialogs import SettingsDialog
+            dialog = SettingsDialog(window.settings, {}, window, preview=True)
+            covered = QPoint(3 * bar.width() // 4, bar.height() // 2)
+            exposed = QPoint(bar.width() // 4, bar.height() // 2)
+
+            def show_local_settings():
+                dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+                dialog.move(bar.mapToGlobal(QPoint(bar.width() // 2, -100)))
+                dialog.show()
+                app.processEvents()
+                assert bar.isVisible() and not bar.mask().contains(covered), 'Local settings must clip the native bar'
+                assert bar.mask().contains(exposed), 'Uncovered controls must remain available'
+                first.raise_overlays()
+                assert not bar.mask().contains(covered), 'Raising controls must keep settings clear'
+                dialog.move(dialog.pos() + QPoint(0, -dialog.height()))
+                app.processEvents()
+                assert bar.mask().contains(covered), 'Moving the local dialog must expose the controls immediately'
+                dialog.hide()
+                return SettingsDialog.DialogCode.Rejected
+
+            with patch.object(window, '_create_settings_dialog', return_value=dialog), \
+                    patch.object(dialog, 'exec', side_effect=show_local_settings):
+                assert not window.open_settings()
+            check_bar(first)
+
             enter = window._fullscreen_presentation.enter
             with patch.object(window, '_upgrade_fullscreen_quality'), \
                     patch.object(window._fullscreen_presentation, 'enter',

@@ -22,15 +22,17 @@ class SettingsControl:
             self._streamer_catalog = StreamerSettingsCatalog(self.host)
         self._streamer_catalog.request(room_id, reply)
 
-    def open_sidebar_settings(self):
+    def open_sidebar_settings(self, page=None):
         host = self.host
         if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
-            return host.open_settings()
+            return host.open_settings() if page is None else host.open_settings(page)
         session = getattr(host, '_settings_host', None)
         if session is not None:
             session.sync()
-        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(),
-                                          streamer_rooms=self.streamer_rooms())
+        options = {'streamer_rooms': self.streamer_rooms()}
+        if page is not None:
+            options['page'] = page
+        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(), **options)
         return False
 
     def sc_preview_context(self):
@@ -194,10 +196,16 @@ class SettingsControl:
         host = self.host
         SettingsDialog = dialog_class
         """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        if page == 'updates' and os.environ.get("DDM_SETTINGS_PROCESS") == "1":
+            # The shared update page must stay owned by the active settings session.
+            return self.open_sidebar_settings(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
                           dict(host.plugins._platform_owner), set(host.plugins._removed))
         dialog = host._create_settings_dialog()
+        previous = getattr(host, '_local_settings_dialog', None)
+        host._local_settings_dialog = dialog
+        dialog.occlusionChanged.connect(self._sync_settings_occlusion)
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
             for index, (key, _label) in enumerate(dialog.PAGES):
@@ -210,6 +218,8 @@ class SettingsControl:
                 return False
             return host._apply_settings_dialog(dialog, plugins_before)
         finally:
+            host._local_settings_dialog = previous
+            self._sync_settings_occlusion()
             dialog.deleteLater()
 
     def apply_plugin_selection(self, enabled_plugins):

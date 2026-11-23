@@ -108,6 +108,11 @@ def run_worker():
             rect = list(self.frameGeometry().getRect()) if self.isVisible() and not self.isMinimized() else []
             send({'kind': 'occlusion', 'rect': rect})
 
+        def select_page(self, page):
+            index = self.PAGE_INDEX.get(page)
+            if index is not None:
+                self.nav.setCurrentRow(index)
+
         def changes(self):
             return {'settings': {key: value for key, value in self.settings().items()
                                  if value != self.initial_settings.get(key)},
@@ -311,6 +316,7 @@ def run_worker():
             elif kind == 'focus' and self.dialog is not None:
                 if 'portrait' in message:
                     self.dialog.set_host_layout(bool(message['portrait']), message.get('work_area'))
+                self.dialog.select_page(message.get('page'))
                 QTimer.singleShot(0, self.dialog,
                                   lambda dialog=self.dialog: host_api._activate_dialog(dialog))
             elif kind == 'open' and self.dialog is None:
@@ -321,6 +327,7 @@ def run_worker():
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
                 send({'kind': 'window', 'hwnd': int(dialog.winId())})
+                dialog.select_page(message.get('page'))
                 QTimer.singleShot(0, dialog,
                                   lambda dialog=dialog: host_api._activate_dialog(dialog))
 

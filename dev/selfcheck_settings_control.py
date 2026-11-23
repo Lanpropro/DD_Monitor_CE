@@ -35,6 +35,7 @@ class Dialog(QObject):
     streamerQualityRequested = Signal(str, str)
     updatesViewed = Signal(dict)
     appearanceChanged = Signal(str)
+    occlusionChanged = Signal()
 
     def __init__(self, settings, shortcuts, parent, **options):
         super().__init__(parent)
@@ -145,6 +146,16 @@ class SettingsControlTests(unittest.TestCase):
         room = host._settings_process.open.call_args.kwargs['streamer_rooms']['1001']
         self.assertEqual((room['name'], room['followed']), ('主播', True))
         self.assertTrue(room['clip_recording_available'])
+
+    def test_update_notice_entry_reuses_the_settings_worker(self):
+        host = self.host
+        with patch('ddm.settings_process.SettingsProcess', Process), \
+                patch.object(host, '_create_settings_dialog') as modal, \
+                patch.object(host, '_sc_preview_context', return_value={}), \
+                patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
+            self.assertFalse(host.open_settings('updates'))
+        modal.assert_not_called()
+        self.assertEqual(host._settings_process.open.call_args.kwargs['page'], 'updates')
 
     def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
         sidebar = self.host.sidebar

@@ -1,5 +1,5 @@
 """Frameless settings shell and its draggable, accessible window header."""
-from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractButton, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -70,6 +70,7 @@ class SettingsTitleBar(QWidget):
 
 
 class SettingsWindow(QDialog):
+    occlusionChanged = Signal()
     PORTRAIT_WIDTH = 840
     SINGLE_COLUMN_WIDTH = 1040
     DEFAULT_WIDTH = 1200
@@ -95,6 +96,12 @@ class SettingsWindow(QDialog):
         outer.addWidget(self.window_header)
         outer.addLayout(self.body_layout, 1)
         theme.signals().changed.connect(self._sync_frame)
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.WindowStateChange):
+            self.occlusionChanged.emit()
+        return result
 
     def _sync_frame(self):
         if self.isVisible():

@@ -625,6 +625,9 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_settings
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_download_progress -- UpdateDownloadTests.test_app_update_action_keeps_its_left_anchor_through_transfer_states UpdateDownloadTests.test_plugin_expansion_moves_only_its_column_and_keeps_one_footer UpdateDownloadTests.test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width UpdateDownloadTests.test_plugin_columns_resize_filter_sort_and_keep_download_controls UpdateDownloadTests.test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals
+if errorlevel 1 exit /b %errorlevel%
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --update-retry-native
 exit /b %errorlevel%
 
 :settingsControlsCheck

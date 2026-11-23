@@ -27,6 +27,7 @@ def embedded_page_indices(action):
         'embed-shutdown': ('appearance',),
         'embed-scroll': ('appearance', 'shortcuts', 'updates', 'appearance', 'updates'),
         'embed-coordinates': ('appearance', 'general', 'updates', 'general', 'plugins', 'appearance', 'updates'),
+        'embed-update-retry': ('general', 'updates'),
         'embed-appearance': ('appearance', 'general', 'appearance', 'plugins', 'appearance'),
     }
     keys = ('plugins',) if action.startswith('embed-restart-') else sequences.get(action, (
@@ -43,7 +44,7 @@ def child(action):
 
     class AutomatedDialog(original):
         def nativeEvent(self, event_type, message):
-            if action == 'embed-scroll':
+            if action in ('embed-scroll', 'embed-update-retry'):
                 import ctypes
                 from ctypes import wintypes
                 if wintypes.MSG.from_address(int(message)).message == 0x8051:
@@ -151,6 +152,8 @@ def child(action):
                 self.reject()
                 return
             if action.startswith('embed-'):
+                if action == 'embed-update-retry':
+                    assert self.nav.currentRow() == PAGE_INDEX['updates'], 'Update entry opened the wrong page'
                 self.general_page.volume_slider.setValue(17)
                 self.shell_hwnd = int(self.winId())
                 self.sequence = iter(embedded_page_indices(action))
@@ -230,7 +233,7 @@ def child(action):
                     'glass': self._native_glass,
                     'embedded': self.host_container is not None,
                     'size': [self.width(), self.height()], **extra}), flush=True)
-                if action not in ('embed-scroll', 'embed-shutdown'):
+                if action not in ('embed-scroll', 'embed-shutdown', 'embed-update-retry'):
                     QTimer.singleShot(50, self.step)
             QTimer.singleShot(200, self, observed)
 
@@ -718,7 +721,8 @@ def check_host_application(app, action='save', *, installed_controls=False):
         stack.enter_context(patch.object(config, 'REPO', temporary))
         stack.enter_context(patch.object(config, 'CONFIG_PATH', str(Path(temporary) / 'config.json')))
         stack.enter_context(patch.object(plugins, 'DEFAULT_PLUGINS_DIR', str(Path(temporary) / 'plugins')))
-        stack.enter_context(patch.object(online_ui.OnlinePage, 'start'))
+        if action != 'embed-update-retry':
+            stack.enter_context(patch.object(online_ui.OnlinePage, 'start'))
         for name in ('start_all', 'refresh_account', 'refresh_status', 'refresh_stats',
                      'load_cached_covers', 'load_cached_avatars', 'load_room_avatars'):
             stack.enter_context(patch.object(host.MainWindow, name))
@@ -798,8 +802,10 @@ def check_host_application(app, action='save', *, installed_controls=False):
             stack.enter_context(patch.object(sys, 'excepthook', report_error))
             from ddm.dialogs import SettingsDialog
             stack.enter_context(patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Settings reopened')))
-            if action == 'embed-install':
+            if action in ('embed-install', 'embed-update-retry'):
                 stack.enter_context(patch.object(sys, 'frozen', True, create=True))
+            if action == 'embed-update-retry':
+                stack.enter_context(patch.dict(os.environ, DDM_SETTINGS_PROCESS='1'))
 
             def observed(message):
                 if message['kind'] != 'shell':
@@ -883,6 +889,24 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 if action == 'embed-scroll':
                     # Acknowledge this step only after both process endpoints pass.
                     user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
+                if action == 'embed-update-retry':
+                    page = session.dialog.update_page
+                    if message['index'] == PAGE_INDEX['general']:
+                        window.open_settings('updates')
+                        wait(app, lambda: session.stack.currentWidget() is page, timeout=5)
+                    else:
+                        from ddm import online
+                        page.offer = {'size': 4096, 'version': '9.1'}
+                        page._busy(False)
+                        with patch.object(online, 'download', side_effect=online.requests.ReadTimeout) as download:
+                            for attempt in (1, 2):
+                                page.action.click()
+                                wait(app, lambda: not page.jobs, timeout=5)
+                                assert download.call_count == attempt and page.download_state['phase'] == 'failed'
+                                assert session.stack.currentWidget() is page and page.isVisible()
+                                assert user32.GetAncestor(handle, 2) == message['hwnd']
+                                assert page.version_section.isVisible() and page.notes_section.isVisible()
+                    user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
                 if action == 'embed-shutdown':
                     from ctypes import wintypes
                     user32.IsWindowVisible.argtypes = (wintypes.HWND,)
@@ -903,7 +927,10 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         window.close()
             client.received.connect(observed)
         try:
-            client.open(window.settings, window.shortcuts)
+            if action == 'embed-update-retry':
+                window.open_settings('updates')
+            else:
+                client.open(window.settings, window.shortcuts)
             # Host changes made while the editor is open must survive its save.
             window.settings['skin_mask'] = 29
             window.shortcuts['fullscreen'] = 'Ctrl+F10'
@@ -1206,6 +1233,11 @@ def main():
         assert app.platformName() == 'windows'
         check_host_application(app, 'embed-coordinates')
         print('PASS: exposed host repaints and all host page switches preserve native coordinates')
+        return 0
+    if sys.argv[1:] == ['--update-retry-native']:
+        assert app.platformName() == 'windows'
+        check_host_application(app, 'embed-update-retry')
+        print('PASS: update entry and retry keep the same embedded settings page')
         return 0
     if sys.argv[1:] == ['--appearance-native']:
         assert app.platformName() == 'windows'
