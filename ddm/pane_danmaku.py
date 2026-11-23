@@ -289,7 +289,10 @@ class PaneDanmaku:
             return
         for panel, floating in self.floating.items():
             if self.target(panel) is tile:
-                self._pending_returns.discard(panel)
+                if panel in self._pending_returns:
+                    self._pending_returns.remove(panel)
+                    floating.window.attach_panel(panel)
+                floating.window.select_panel(panel)
                 floating.window.show()
                 floating.window.raise_()
                 floating.window.activateWindow()
@@ -330,22 +333,60 @@ class PaneDanmaku:
         self.wall.paneConfigurationChanged.emit()
 
     def _open_window(self, panel, cell, rect, released, source, slot=None):
-        from .danmaku_float_window import DanmakuFloatWindow
-        window = DanmakuFloatWindow(self.wall.window(), panel, rect)
-        window.returnRequested.connect(lambda: self.return_floating(panel))
+        window = self._create_floating_window(rect)
         self.floating[panel] = FloatingPane(window, slot, cell, released, source)
         self._set_float_button(panel, True)
         # Return the composer to the source tile before reparenting its chat panel.
         self.wall._sync_danmaku_controls()
-        window.attach_panel()
+        window.attach_panel(panel)
+        return window
+
+    def _create_floating_window(self, rect):
+        from .danmaku_float_window import DanmakuFloatWindow
+        window = DanmakuFloatWindow(self.wall.window(), self, rect)
+        window.returnRequested.connect(lambda: self._return_window(window))
         tile = self.wall.fullscreen_tile
         if tile is not None and tile.isWindow():
             set_presentation_owner(window, tile)
         return window
 
+    def floating_windows(self):
+        return tuple(dict.fromkeys(entry.window for entry in self.floating.values()))
+
     def set_floating_owner(self, owner):
-        for floating in tuple(self.floating.values()):
-            set_presentation_owner(floating.window, owner)
+        for window in self.floating_windows():
+            set_presentation_owner(window, owner)
+
+    def move_floating_tab(self, panel, destination, index):
+        source = self.floating[panel].window
+        if source is destination:
+            original = source.tabs.panels().index(panel)
+            source.tabs.moveTab(original, index - int(index > original))
+            source.select_panel(panel)
+            return
+        scroll = panel.scroll_control.scroll_state()
+        source.release_panel(panel, self.wall)
+        self.floating[panel].window = destination
+        destination.attach_panel(panel, index)
+        panel.scroll_control.restore_scroll_state(scroll)
+        self._discard_empty_window(source)
+        destination.show()
+        destination.raise_()
+        destination.activateWindow()
+
+    def split_floating_tab(self, panel, position):
+        source = self.floating[panel].window
+        if source.tabs.count() > 1:
+            rect = QRect(position - QPoint(24, 16), source.size())
+            self.move_floating_tab(panel, self._create_floating_window(rect), 0)
+
+    def _return_window(self, window):
+        for panel in window.tabs.panels():
+            self.return_floating(panel)
+
+    def _discard_empty_window(self, window):
+        if not window.tabs.count() and window not in self.floating_windows():
+            window.deleteLater()
 
     @staticmethod
     def _set_float_button(panel, floating):
@@ -359,13 +400,12 @@ class PaneDanmaku:
     def _detach_window(self, panel):
         floating = self.floating.pop(panel)
         self._pending_returns.discard(panel)
-        floating.window.hide()
-        floating.window.release_panel(self.wall)
+        floating.window.release_panel(panel, self.wall)
         self._set_float_button(panel, False)
         if floating.slot is not None:
             floating.slot.hide()
             floating.slot.deleteLater()
-        floating.window.deleteLater()
+        self._discard_empty_window(floating.window)
         return floating
 
     def return_floating(self, panel, *, notify=True):
@@ -373,8 +413,8 @@ class PaneDanmaku:
             return
         if notify and self.floating[panel].cell is not None and self.wall._fullscreen_layout_pending:
             # Fullscreen keeps a snapshot of wall widgets until its original layout returns.
-            self.floating[panel].window.hide()
             self._pending_returns.add(panel)
+            self.floating[panel].window.release_panel(panel, self.wall)
             return
         floating = self._detach_window(panel)
         if floating.cell is None:
@@ -416,6 +456,9 @@ class PaneDanmaku:
         for panel in self.all_panels():
             if hasattr(panel, 'source_picker'):
                 panel.source_picker.refresh()
+            entry = self.floating.get(panel)
+            if entry is not None and panel not in self._pending_returns:
+                entry.window.tabs.refresh_source(panel)
 
     def apply(self, bindings, *, exchange=None):
         wall = self.wall

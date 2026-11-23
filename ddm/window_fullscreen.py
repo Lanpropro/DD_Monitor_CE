@@ -14,6 +14,18 @@ from . import theme
 _FRAME_SWITCH_FLAGS = 0x0020 | 0x0004 | 0x0100
 
 
+def set_window_topmost(widget, pinned):
+    if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+        position = ctypes.windll.user32.SetWindowPos
+        position.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE. Keep the window and its owner intact.
+        position(int(widget.winId()), -1 if pinned else -2, 0, 0, 0, 0, 0x13)
+    else:
+        widget.winId()
+        widget.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
+
+
 def set_presentation_owner(widget, owner):
     """Switch an owned window between the main window and detached fullscreen."""
     owner_id = int(owner.winId())
