@@ -706,8 +706,8 @@ class MainWindow(QMainWindow):
     def set_appearance(self, mode: str) -> None:
         return self.settings_control.set_appearance(mode)
 
-    def _open_sidebar_settings(self):
-        return self.settings_control.open_sidebar_settings()
+    def _open_sidebar_settings(self, page=None):
+        return self.settings_control.open_settings(page, dialog_class=SettingsDialog, prefer_process=True)
 
     def _sidebar_card_mode_changed(self, enabled):
         return self.settings_control.sidebar_card_mode_changed(enabled)
@@ -734,8 +734,8 @@ class MainWindow(QMainWindow):
         return self.settings_control.create_settings_dialog(
             settings, shortcuts, dialog_class=SettingsDialog, hosted=hosted)
 
-    def open_settings(self, page: str = "general") -> bool:
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+    def open_settings(self, page: str | None = None) -> bool:
+        """打开设置，或在已经打开的窗口中切换类别。"""
         return self.settings_control.open_settings(page, dialog_class=SettingsDialog)
 
     def _apply_settings_dialog(self, dialog, plugins_before):

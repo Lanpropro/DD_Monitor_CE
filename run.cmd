@@ -476,6 +476,10 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --reuse-navigation
 exit /b %errorlevel%
 
 :updatePreview

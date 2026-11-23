@@ -22,10 +22,8 @@ class SettingsControl:
             self._streamer_catalog = StreamerSettingsCatalog(self.host)
         self._streamer_catalog.request(room_id, reply)
 
-    def open_sidebar_settings(self, page=None):
+    def _open_process(self, page):
         host = self.host
-        if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
-            return host.open_settings() if page is None else host.open_settings(page)
         session = getattr(host, '_settings_host', None)
         if session is not None:
             session.sync()
@@ -68,6 +66,7 @@ class SettingsControl:
             host._settings_process.autoSaveRequested.connect(lambda message: handle_request(host, message))
             host._settings_process.hostRequest.connect(host._settings_host_request)
             host._settings_process.closed.connect(host._close_settings_host)
+            host._settings_process.reopenRequested.connect(host._open_sidebar_settings)
             host._settings_process.occlusionChanged.connect(self._sync_settings_occlusion)
             host._settings_process.failed.connect(lambda message: host._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=host.open_settings))
@@ -192,35 +191,38 @@ class SettingsControl:
         bind_dialog(host, dialog)
         return dialog
 
-    def open_settings(self, page: str = "general", *, dialog_class) -> bool:
-        """Open the requested category, reusing the settings window for updates."""
+    def open_settings(self, page: str | None, *, dialog_class, prefer_process=False) -> bool:
+        """Route all settings requests through the active local or isolated window."""
         host = self.host
-        if page in ('updates', 'plugins'):
-            dialog = getattr(host, '_local_settings_dialog', None)
-            if dialog is not None:
-                from .settings_process import _activate_dialog
-                self._select_page(dialog, page)
-                _activate_dialog(dialog)
-                return False
-            client = getattr(host, '_settings_process', None)
-            if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (
-                    page == 'updates' or (client is not None and (client.visible or client.pending is not None))):
-                return self.open_sidebar_settings(page)
+        if host._closing:
+            return False
+        dialog = getattr(host, '_local_settings_dialog', None)
+        if dialog is not None:
+            from .settings_process import _activate_dialog
+            self._select_page(dialog, page)
+            _activate_dialog(dialog)
+            return False
+        client = getattr(host, '_settings_process', None)
+        if client is not None and client.focus(page):
+            return False
+        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page == 'updates'):
+            return self._open_process(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
                           dict(host.plugins._platform_owner), set(host.plugins._removed))
         dialog = host._create_settings_dialog()
-        previous = getattr(host, '_local_settings_dialog', None)
         host._local_settings_dialog = dialog
         dialog.occlusionChanged.connect(self._sync_settings_occlusion)
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            self._select_page(dialog, page)
+            self._select_page(dialog, page or 'general')
             if dialog.exec() != dialog_class.Accepted:
                 return False
+            host._local_settings_dialog = None
             return host._apply_settings_dialog(dialog, plugins_before)
         finally:
-            host._local_settings_dialog = previous
+            if host._local_settings_dialog is dialog:
+                host._local_settings_dialog = None
             self._sync_settings_occlusion()
             dialog.deleteLater()
 

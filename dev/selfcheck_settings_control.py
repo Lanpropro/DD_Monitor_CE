@@ -1,6 +1,7 @@
 """Settings coordination with Qt signals and fake pages; no worker, window or accounts."""
 from contextlib import ExitStack
 from copy import deepcopy
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -29,7 +30,8 @@ class AutoSave(QObject):
 
 class Dialog(QObject):
     Accepted, Rejected = 1, 0
-    PAGES = (('general', ''), ('plugins', ''), ('updates', ''), ('danmaku', ''))
+    PAGES = (('general', ''), ('plugins', ''), ('updates', ''), ('danmaku', ''),
+             ('streamer_defaults', ''), ('recording', ''))
     PAGE_INDEX = {key: index for index, (key, _) in enumerate(PAGES)}
     pageCreated = Signal(int, object)
     streamerQualityRequested = Signal(str, str)
@@ -66,6 +68,8 @@ class Process(QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.open = Mock()
+        self.focus = Mock(return_value=False)
+        self.reopenRequested = Mock()
         self._send = Mock()
 
 
@@ -136,7 +140,10 @@ class SettingsControlTests(unittest.TestCase):
         host = self.host
         self.assertFalse(host.settings_control.streamer_rooms()['1001']['clip_recording_available'])
         host.recorder = SimpleNamespace(background_clip_factory=object())
-        with patch.object(host, 'open_settings', return_value=True) as normal, \
+        dialog = host._create_settings_dialog()
+        dialog.exec.return_value = Dialog.Accepted
+        with patch.object(host, '_create_settings_dialog', return_value=dialog) as normal, \
+                patch.object(host, '_apply_settings_dialog', return_value=True), \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '0'}):
             self.assertTrue(host._open_sidebar_settings())
             normal.assert_called_once_with()
@@ -160,7 +167,7 @@ class SettingsControlTests(unittest.TestCase):
         modal.assert_not_called()
         self.assertEqual(host._settings_process.open.call_args.kwargs['page'], 'updates')
 
-    def test_update_notice_entry_reuses_the_local_settings_window(self):
+    def test_all_entries_reuse_the_local_settings_window(self):
         host = self.host
         for process_mode in ('0', '1'):
             with self.subTest(process_mode=process_mode), \
@@ -168,19 +175,56 @@ class SettingsControlTests(unittest.TestCase):
                     patch.object(host, '_get_settings_process') as worker:
                 dialog = host._create_settings_dialog()
 
-                def open_update_from_notice():
+                def open_from_other_entries():
                     self.assertEqual(dialog.exec.call_count, 1)
-                    self.assertFalse(host.open_settings('updates'))
-                    dialog.nav.setCurrentRow.assert_called_with(Dialog.PAGE_INDEX['updates'])
-                    dialog.activateWindow.assert_called_once()
+                    for page in ('streamer_defaults', 'danmaku', 'recording', 'updates', 'plugins'):
+                        self.assertFalse(host.open_settings(page))
+                        dialog.nav.setCurrentRow.assert_called_with(Dialog.PAGE_INDEX[page])
+                    self.assertFalse(host._open_sidebar_settings())
+                    dialog.nav.setCurrentRow.assert_called_with(Dialog.PAGE_INDEX['plugins'])
+                    self.assertEqual(dialog.activateWindow.call_count, 6)
                     return Dialog.Rejected
 
-                dialog.exec.side_effect = open_update_from_notice
+                dialog.exec.side_effect = open_from_other_entries
                 with patch.object(host, '_create_settings_dialog', return_value=dialog) as create:
                     self.assertFalse(host.open_settings('general'))
                 create.assert_called_once()
                 worker.assert_not_called()
                 dialog.exec.assert_called_once()
+
+    def test_sidebar_and_monitor_reuse_worker_without_building_another_snapshot(self):
+        host = self.host
+        process = host._settings_process = Process(host)
+        process.focus.return_value = True
+        with patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}), \
+                patch.object(host, '_create_settings_dialog', side_effect=AssertionError('Second dialog')) as local, \
+                patch.object(host, '_sc_preview_context') as snapshot:
+            self.assertFalse(host.open_settings('streamer_defaults'))
+            self.assertFalse(host.open_settings('danmaku'))
+            self.assertFalse(host._open_sidebar_settings())
+        self.assertEqual([call.args for call in process.focus.call_args_list],
+                         [('streamer_defaults',), ('danmaku',), (None,)])
+        local.assert_not_called()
+        snapshot.assert_not_called()
+        process.open.assert_not_called()
+
+    def test_late_focus_reply_does_not_override_newer_local_request(self):
+        from ddm.settings_process import PREFIX, SettingsProcess
+
+        client = SettingsProcess(self.host)
+        reopen = Mock()
+        client.reopenRequested.connect(reopen)
+        client.visible = True
+        with patch.object(client, '_send') as send:
+            self.assertTrue(client.focus('streamer_defaults'))
+        request = send.call_args.args[0]
+        client.visible = False
+        self.assertFalse(client.focus('danmaku'))
+        reply = {'kind': 'focus-missed', 'serial': request['serial'], 'page': request['page']}
+        wire = (PREFIX + json.dumps(reply) + '\n').encode('utf-8')
+        with patch.object(client.process, 'readAllStandardOutput', return_value=wire):
+            client._read()
+        reopen.assert_not_called()
 
     def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
         sidebar = self.host.sidebar

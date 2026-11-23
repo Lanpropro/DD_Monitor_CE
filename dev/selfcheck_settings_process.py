@@ -54,7 +54,8 @@ def child(action):
 
         def showEvent(self, event):
             super().showEvent(event)
-            QTimer.singleShot(40, self.exercise)
+            if action != 'reuse-navigation':
+                QTimer.singleShot(40, self.exercise)
 
         def exercise(self):
             if action == 'theme':
@@ -238,7 +239,7 @@ def child(action):
             QTimer.singleShot(200, self, observed)
 
     dialogs.SettingsDialog = AutomatedDialog
-    if action.startswith('embed-') or action in ('zorder', 'theme'):
+    if action.startswith('embed-') or action in ('zorder', 'theme', 'reuse-navigation'):
         def background_activate(dialog):
             from PySide6.QtCore import Qt
             dialog.setAttribute(Qt.WA_ShowWithoutActivating)
@@ -251,6 +252,15 @@ def child(action):
                 dialog.setGeometry(670, 291, 1200, 800)
             dialog.show()
         settings_process._activate_dialog = background_activate
+    if action == 'reuse-navigation':
+        def report_navigation(dialog):
+            if not dialog.isVisible():
+                background_activate(dialog)
+            print(settings_process.PREFIX + json.dumps({
+                'kind': 'navigation', 'page': dialog.nav.currentRow(), 'hwnd': int(dialog.winId()),
+                'visible': sum(isinstance(widget, original) and widget.isVisible()
+                               for widget in QApplication.topLevelWidgets())}), flush=True)
+        settings_process._activate_dialog = report_navigation
     if action == 'zorder':
         activate = settings_process._activate_dialog
 
@@ -661,10 +671,10 @@ def check_host_adapter():
     host._closing = True
     MainWindow._remote_settings_saved(host, {'settings': {'default_volume': 33}})
     assert len(applied) == 1
-    host.open_settings = lambda: applied.append('original')
+    host._create_settings_dialog = lambda: applied.append('unexpected dialog')
     with patch.dict(os.environ, {'DDM_SETTINGS_PROCESS': '0'}):
-        MainWindow._open_sidebar_settings(host)
-    assert applied[-1] == 'original'
+        assert not MainWindow._open_sidebar_settings(host)
+    assert len(applied) == 1, 'Shutdown must ignore new settings requests'
 
 
 def check_host_save_validation():
@@ -937,6 +947,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                         window.close()
             client.received.connect(observed)
         try:
+            if action == 'reuse-navigation':
+                check_navigation_reuse(app, window, client, messages)
+                return
             if action == 'embed-update-retry':
                 window.open_settings('updates')
             else:
@@ -996,6 +1009,47 @@ def check_host_application(app, action='save', *, installed_controls=False):
         finally:
             window.close()
             wait(app, lambda: client.process.state() == QProcess.NotRunning)
+
+
+def check_navigation_reuse(app, window, client, messages):
+    from ddm.dialogs import SettingsDialog
+
+    def navigation():
+        return [message for message in messages if message['kind'] == 'navigation']
+
+    def assert_page(count, page):
+        wait(app, lambda: len(navigation()) == count)
+        current = navigation()[-1]
+        assert current['page'] == PAGE_INDEX[page] and current['visible'] == 1, current
+        return current['hwnd']
+
+    monitor = window.sidebar.navigation.monitor_menu.settings_button
+    gear = window.sidebar.settings_button
+    with patch.dict(os.environ, DDM_SETTINGS_PROCESS='1'), \
+            patch.object(settings_process, '_allow_foreground'), \
+            patch.object(SettingsDialog, 'exec', side_effect=AssertionError('Second settings window')) as local:
+        gear.click()
+        assert client.pending is not None
+        monitor.click()
+        gear.click()
+        assert client.pending['page'] == 'streamer_defaults'
+        hwnd = assert_page(1, 'streamer_defaults')
+        worker_pid = client.worker_pid
+        window.open_settings('danmaku')
+        assert assert_page(2, 'danmaku') == hwnd
+        gear.click()
+        assert assert_page(3, 'danmaku') == hwnd
+        monitor.click()
+        assert assert_page(4, 'streamer_defaults') == hwnd
+        assert sum(message['kind'] == 'window' for message in messages) == 1
+
+        # Queue another click before the host can receive the old window's close result.
+        client._send({'kind': 'host-cancel'})
+        monitor.click()
+        assert_page(5, 'streamer_defaults')
+        assert sum(message['kind'] == 'window' for message in messages) == 2
+        assert client.worker_pid == worker_pid and client.visible
+        local.assert_not_called()
 
 
 def restart_host_fixture(action, path):
@@ -1229,6 +1283,10 @@ def main():
     if sys.argv[1:] == ['--streamer-defaults-only']:
         check_worker(app, 'streamer-defaults')
         print('PASS: streamer defaults room snapshot and worker autosave')
+        return 0
+    if sys.argv[1:] == ['--reuse-navigation']:
+        check_host_application(app, 'reuse-navigation')
+        print('PASS: settings navigation reuses one window during startup, while open, and across close')
         return 0
     if sys.argv[1:] == ['--theme-sync-only']:
         check_theme_sync(app)
