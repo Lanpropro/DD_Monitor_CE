@@ -875,7 +875,7 @@ def main():
             window.set_skin({'skin_mask': 35})
             window.set_appearance('light')
             QTest.qWait(30)
-            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet()), 'Background must cover the sidebar by default'
+            assert window.sidebar.property('skinBackground') == 'light', 'Background must cover the sidebar by default'
             live_video = folder/'live.mp4'
             subprocess.run([ffmpeg_path(), '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
                 '-i', 'color=c=blue:size=320x180:rate=15', '-t', '20', '-c:v', 'libx264',
@@ -897,13 +897,13 @@ def main():
             assert controls.choose.isEnabled()
             assert not hasattr(controls, 'sidebar_toggle')
             QTest.qWait(30)
-            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
+            assert window.sidebar.property('skinBackground') == 'light'
             assert controls.values()['skin_sidebar']
             assert window.settings['skin_background'] == path and layer.mask == 35
             window.set_appearance('dark')
-            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
+            assert window.sidebar.property('skinBackground') == 'dark'
             window.set_appearance('light')
-            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
+            assert window.sidebar.property('skinBackground') == 'light'
             next_source = folder / 'next.png'
             image.fill(QColor('#426CDB'))
             image.save(str(next_source))
@@ -949,7 +949,7 @@ def main():
             assert controls.choose.isEnabled() and layer.mask == 50
             assert controls.mask_slider.value() == 50
             assert controls.values()['skin_sidebar']
-            assert 'rgba(' in source_stylesheet(window.sidebar.styleSheet())
+            assert window.sidebar.property('skinBackground') == 'light'
             assert layer.image.pixelColor(0, 0) == QColor('#426CDB')
             manager.enabled.add('test_skin')
             window.refresh_skin()
@@ -974,7 +974,7 @@ def main():
             window.grab().save(str(output/'skin-light.png'))
             dialog.grab().save(str(output/'skin-settings.png'))
             controls.reset()
-            assert window.settings['skin_sidebar'] and 'rgba(' not in source_stylesheet(window.sidebar.styleSheet())
+            assert window.settings['skin_sidebar'] and window.sidebar.property('skinBackground') is None
             window.set_skin({'skin_background': custom, 'skin_mask': 50, 'skin_sidebar': True})
             dialog.reject()
             # Exercise the new slots while the real libmpv player is running.
@@ -1080,7 +1080,7 @@ def main():
             assert video_editor.preview.background is None
             video_editor.close()
             assert layer.player.playbackState() == QMediaPlayer.StoppedState
-            assert not theme._skin_active and 'rgba(' not in source_stylesheet(window.sidebar.styleSheet())
+            assert not theme._skin_active and window.sidebar.property('skinBackground') is None
             missing = 'utils/skins/missing.png'
             window.set_skin({'skin_background': missing, 'skin_mask': 35})
             assert window.skin_controller.error and layer.image is None
@@ -1093,7 +1093,8 @@ def main():
         with patch('PySide6.QtCore.QTimer.singleShot'):
             restored = module.MainWindow([], [], state=persisted)
         assert restored.skin_controller.layer.image.pixelColor(0, 0) == QColor('#426CDB')
-        assert restored.settings['skin_sidebar'] and 'rgba(' in source_stylesheet(restored.sidebar.styleSheet())
+        assert restored.settings['skin_sidebar']
+        assert restored.sidebar.property('skinBackground') == ('light' if theme.is_light() else 'dark')
         restored.close()
         theme.set_skin_active(False)
     print('PASS: copied/persisted image, default sidebar coverage, asynchronous import, translucent panels, plugin ownership, path validation, muted video/first-frame mode, pause/resume and stable video HWND')

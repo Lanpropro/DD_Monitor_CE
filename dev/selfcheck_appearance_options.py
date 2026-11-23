@@ -477,7 +477,12 @@ class AppearanceOptionsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.object(config, 'REPO', directory):
             root = QWidget()
             root.setObjectName('Root')
+            sidebar = QWidget(root)
+            sidebar.setObjectName('Sidebar')
             layer = BackgroundLayer(root, root)
+            theme.apply('dark')
+            root_style = root.styleSheet()
+            sidebar_style = sidebar.styleSheet()
             folder = Path(directory) / 'utils/skins'
             folder.mkdir(parents=True)
             path = folder / 'slow.png'
@@ -513,7 +518,9 @@ class AppearanceOptionsTests(unittest.TestCase):
             try:
                 with patch.object(skin_assets, 'read_image', side_effect=slow_read), \
                         patch('ddm.skin_background.read_image', side_effect=AssertionError('Image decoded again')), \
-                        patch.object(theme, 'apply', side_effect=AssertionError('Global theme reapplied')):
+                        patch.object(theme, 'apply', side_effect=AssertionError('Global theme reapplied')), \
+                        patch.object(root, 'setStyleSheet', side_effect=AssertionError('Root stylesheet replaced')), \
+                        patch.object(sidebar, 'setStyleSheet', side_effect=AssertionError('Sidebar stylesheet replaced')):
                     editor._select_background(relative)
                     self.assertTrue(entered.wait(1))
                     self.assertNotEqual(threads[0], get_ident())
@@ -526,10 +533,16 @@ class AppearanceOptionsTests(unittest.TestCase):
                     editor._select_background(relative)
                     wait_for_gallery_image(editor)
                     self.assertEqual(layer.image.pixelColor(0, 0), QColor('#be7040'))
-                    self.assertIn('background: transparent', root.styleSheet())
+                    self.assertEqual(root.property('skinBackground'), 'dark')
+                    self.assertEqual(sidebar.property('skinBackground'), 'dark')
+                    self.assertEqual(root.styleSheet(), root_style)
+                    self.assertEqual(sidebar.styleSheet(), sidebar_style)
                     editor._select_background('')
                     self.assertIsNone(layer.image)
-                    self.assertNotIn('background: transparent', root.styleSheet())
+                    self.assertIsNone(root.property('skinBackground'))
+                    self.assertIsNone(sidebar.property('skinBackground'))
+                    self.assertEqual(root.styleSheet(), root_style)
+                    self.assertEqual(sidebar.styleSheet(), sidebar_style)
                     self.assertEqual([state['skin_background'] for state in applied], ['', relative, ''])
             finally:
                 release.set()

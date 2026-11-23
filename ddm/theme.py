@@ -331,48 +331,38 @@ def set_skin_active(active, sidebar=False):
     active, sidebar = bool(active), bool(sidebar)
     if (_skin_active, _skin_sidebar) != (active, sidebar):
         _skin_active, _skin_sidebar = active, sidebar
-        _refresh_skin_surfaces()
+        # Changing an ancestor's stylesheet would re-polish its whole subtree.
+        for widget in QApplication.allWidgets():
+            if _set_skin_property(widget):
+                _refresh_widget_palette(widget, invalidate=True)
+                widget.update()
 
 
-def _refresh_skin_surfaces():
-    from .continuous_corners import source_stylesheet
-    from .skin_parts import style_for
-
-    palette = {name: globals()[name] for name in _DARK}
-    local_style = _local_styles(palette)
-    for widget in QApplication.allWidgets():
-        if widget.objectName() not in _SKIN_SURFACES:
-            continue
-        current = widget.styleSheet()
-        saved = _styles.get(widget)
-        source, colors = saved[:2] if saved and saved[2] == current else (source_stylesheet(current), palette)
-        extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
-        styled = local_style(source, tuple(colors.items()) if source else (), extra)
-        if styled != current:
-            widget.setStyleSheet(styled)
-            _pending_palette.pop(widget, None)
-            widget.update()
-        _styles[widget] = (source, colors, styled)
+def _set_skin_property(widget):
+    name = widget.objectName()
+    if name not in _SKIN_SURFACES:
+        return False
+    mode = None
+    if _skin_active and (name != 'Sidebar' or _skin_sidebar):
+        mode = 'light' if _light else 'dark'
+    if widget.property('skinBackground') == mode:
+        return False
+    widget.setProperty('skinBackground', mode)
+    return True
 
 
 def _skin_style(widget):
-    if not _skin_active:
-        return ''
     name = widget.objectName()
-    if name == 'Sidebar' and not _skin_sidebar:
-        return ''
-    if name == 'Root':
-        return '#Root {background: transparent;}'
-    if name in ('WallGrid', 'TileVideo'):
-        return (f'#{name}[appearanceLight="false"], #{name}[appearanceLight="true"] '
+    if name in ('Root', 'WallGrid', 'TileVideo'):
+        return (f'#{name}[skinBackground="dark"], #{name}[skinBackground="light"] '
                 '{background: transparent;}')
     if name not in _SKIN_COLORS:
         return ''
     opacity = .84 if name in ('Sidebar', 'Tile') else .88
     rules = []
-    for mode, palette in (('false', _DARK), ('true', _LIGHT)):
+    for mode, palette in (('dark', _DARK), ('light', _LIGHT)):
         color = qcolor(palette[_SKIN_COLORS[name]])
-        selector = '#' + name + f'[appearanceLight="{mode}"]'
+        selector = '#' + name + f'[skinBackground="{mode}"]'
         if name == 'Tile':
             selector += ', ' + selector + '[empty="true"]'
         rules.append(f'{selector} {{background: rgba({color.red()}, {color.green()}, {color.blue()}, {opacity});}}')
@@ -581,6 +571,7 @@ class ThemeSignals(QObject):
                 return True
         # Newly opened settings/popups need the same exceptions as existing UI.
         if kind == QEvent.Polish and isinstance(widget, QWidget):
+            _set_skin_property(widget)
             refresh_theme_properties(widget)
         if kind == QEvent.Polish and isinstance(widget, QWidget):
             from .skin_parts import style_for
@@ -697,6 +688,7 @@ def apply(value):
         extra = _light_style(widget) + _skin_style(widget) + style_for(widget)
         styled = local_style(source, tuple(colors.items()) if source else (), extra)
         style_changed = styled != widget.styleSheet()
+        skin_changed = _set_skin_property(widget)
         properties_changed = _set_theme_properties(widget, defer_thumb_text=not (style_changed or typography_changed))
         if style_changed:
             # Replacing local QSS already polishes the widget with its new properties.
@@ -704,9 +696,9 @@ def apply(value):
             _pending_palette.pop(widget, None)
         elif properties_changed is not None and not typography_changed:
             editor = isinstance(widget, QLineEdit)
-            if properties_changed or styled or editor:
+            if properties_changed or skin_changed or styled or editor:
                 # Qt's stylesheet polish invalidates the render rules and rebuilds the palette.
-                _refresh_widget_palette(widget, invalidate=editor, defer=True)
+                _refresh_widget_palette(widget, invalidate=editor or skin_changed, defer=True)
         _styles[widget] = (source, colors, styled)
         if typography_changed:
             _refresh_widget_palette(widget, invalidate=True)
