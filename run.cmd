@@ -107,6 +107,11 @@ if /i "%~1"=="--diagnose-window-dpi-profile" (
     set "DDM_WINDOW_DPI_PROFILE=1"
 )
 if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
+rem Keep inherited Python test hooks out of the normal launch.
+if /i not "%DIAG_ARG:~0,11%"=="--diagnose-" (
+    set "PYTHONPATH="
+    if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
+)
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
