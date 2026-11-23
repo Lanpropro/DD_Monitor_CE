@@ -14,8 +14,8 @@ from ddm import online, version
 
 
 def main():
-    assert version.VERSION == '0.9'
-    assert version.VERSION_TAG == 'v0.9'
+    assert version.VERSION == '0.9.1'
+    assert version.VERSION_TAG == 'v0.9.1'
     assert version.UPDATE_REVISION == 0
     root = Path(__file__).resolve().parents[1]
     context_tree = ast.parse((root / 'ddm/plugin_types.py').read_text(encoding='utf-8'))
