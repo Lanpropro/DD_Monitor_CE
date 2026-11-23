@@ -473,6 +473,8 @@ class Tile(QFrame):
         if start is None or (event.pos() - start).manhattanLength() < QApplication.startDragDistance():
             return
         self._press_pos = None
+        if self.property('fullscreen'):
+            return
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             import ctypes
             if not ctypes.windll.user32.GetAsyncKeyState(1) & 0x8000:
@@ -740,11 +742,14 @@ class Tile(QFrame):
 
     def event(self, event) -> bool:
         result = super().event(event)
-        if (event.type() == QEvent.Type.DevicePixelRatioChange
+        kind = event.type()
+        if (kind == QEvent.Type.DevicePixelRatioChange
                 and getattr(self, "_overlay_ready", False)):
             # 等原生子窗口都切换到新屏幕比例后再重做遮罩。
             self._video_mask_key = self._controls_mask_key = self._cover_key = None
             self._mask_refresh_timer.start(0)
+        elif kind == QEvent.DynamicPropertyChange and event.propertyName() == b'fullscreen':
+            self._press_pos = None
         return result
 
     def eventFilter(self, watched, event) -> bool:

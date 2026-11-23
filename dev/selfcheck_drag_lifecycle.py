@@ -578,6 +578,42 @@ class DragLifecycleTests(unittest.TestCase):
         tile.mouseMoveEvent(event)
         self.assertIsNone(tile._press_pos)
 
+    def test_fullscreen_tile_keeps_danmaku_clicks_but_blocks_card_drag(self):
+        from ddm import tile_widgets as widgets
+        tile = widgets.Tile({'room_id': 'fixture'}, self.window)
+        tile.resize(300, 200)
+        start = QPoint(20, 20)
+        end = start + QPoint(QApplication.startDragDistance() + 10, 0)
+        press = QMouseEvent(QEvent.MouseButtonPress, QPointF(start), QPointF(tile.video.mapToGlobal(start)),
+                            Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+        release = QMouseEvent(QEvent.MouseButtonRelease, QPointF(start), press.globalPosition(),
+                              Qt.LeftButton, Qt.NoButton, Qt.NoModifier)
+        move = QMouseEvent(QEvent.MouseMove, QPointF(end), QPointF(tile.mapToGlobal(end)),
+                           Qt.NoButton, Qt.LeftButton, Qt.NoModifier)
+        tile.setProperty('fullscreen', True)
+        with patch.object(QApplication, 'platformName', return_value='offscreen'), \
+                patch.object(widgets, 'QDrag') as factory, \
+                patch.object(tile.video_danmaku, 'open_actions_at', return_value=True) as menu:
+            tile.eventFilter(tile.video, press)
+            self.assertTrue(tile.eventFilter(tile.video, release))
+            menu.assert_called_once_with(press.globalPosition().toPoint())
+
+            tile.eventFilter(tile.video, press)
+            tile.mouseMoveEvent(move)
+            factory.assert_not_called()
+            self.assertIsNone(tile._press_pos)
+            self.assertFalse(tile.eventFilter(tile.video, release))
+            self.assertEqual(menu.call_count, 1)
+
+            tile.eventFilter(tile.video, press)
+            tile.setProperty('fullscreen', False)
+            tile.mouseMoveEvent(move)
+            factory.assert_not_called()
+            tile.eventFilter(tile.video, press)
+            tile.mouseMoveEvent(move)
+            factory.assert_called_once_with(tile)
+            factory.return_value.exec.assert_called_once_with(Qt.MoveAction)
+
 
 if __name__ == '__main__':
     unittest.main()
