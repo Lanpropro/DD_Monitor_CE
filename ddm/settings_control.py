@@ -193,12 +193,19 @@ class SettingsControl:
         return dialog
 
     def open_settings(self, page: str = "general", *, dialog_class) -> bool:
+        """Open the requested category, reusing the settings window for updates."""
         host = self.host
-        SettingsDialog = dialog_class
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
-        if page == 'updates' and os.environ.get("DDM_SETTINGS_PROCESS") == "1":
-            # The shared update page must stay owned by the active settings session.
-            return self.open_sidebar_settings(page)
+        if page in ('updates', 'plugins'):
+            dialog = getattr(host, '_local_settings_dialog', None)
+            if dialog is not None:
+                from .settings_process import _activate_dialog
+                self._select_page(dialog, page)
+                _activate_dialog(dialog)
+                return False
+            client = getattr(host, '_settings_process', None)
+            if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (
+                    page == 'updates' or (client is not None and (client.visible or client.pending is not None))):
+                return self.open_sidebar_settings(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
                           dict(host.plugins._platform_owner), set(host.plugins._removed))
@@ -208,19 +215,22 @@ class SettingsControl:
         dialog.occlusionChanged.connect(self._sync_settings_occlusion)
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            for index, (key, _label) in enumerate(dialog.PAGES):
-                if key == page:
-                    dialog.nav.setCurrentRow(index)
-                    break
-            if page == "plugins":
-                dialog.plugin_page.tabs.setCurrentIndex(1)
-            if dialog.exec() != SettingsDialog.Accepted:
+            self._select_page(dialog, page)
+            if dialog.exec() != dialog_class.Accepted:
                 return False
             return host._apply_settings_dialog(dialog, plugins_before)
         finally:
             host._local_settings_dialog = previous
             self._sync_settings_occlusion()
             dialog.deleteLater()
+
+    @staticmethod
+    def _select_page(dialog, page):
+        index = dialog.PAGE_INDEX.get(page)
+        if index is not None:
+            dialog.nav.setCurrentRow(index)
+        if page == 'plugins':
+            dialog.plugin_page.tabs.setCurrentIndex(1)
 
     def apply_plugin_selection(self, enabled_plugins):
         from .settings_performance import measure

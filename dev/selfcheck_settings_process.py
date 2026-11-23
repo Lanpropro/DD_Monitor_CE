@@ -892,7 +892,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 if action == 'embed-update-retry':
                     page = session.dialog.update_page
                     if message['index'] == PAGE_INDEX['general']:
-                        window.open_settings('updates')
+                        with patch.object(window, '_unread_app_update', return_value={'version': '9.1'}):
+                            window.app_updates.show_update_notice()
+                        window._update_notice.settings_action.click()
                         wait(app, lambda: session.stack.currentWidget() is page, timeout=5)
                     else:
                         from ddm import online
@@ -906,6 +908,14 @@ def check_host_application(app, action='save', *, installed_controls=False):
                                 assert session.stack.currentWidget() is page and page.isVisible()
                                 assert user32.GetAncestor(handle, 2) == message['hwnd']
                                 assert page.version_section.isVisible() and page.notes_section.isVisible()
+                        offer = {'id': 'fixture', 'name': '测试插件', 'version': '1.0'}
+                        with patch.object(window, '_unread_plugin_updates', return_value=[offer]), \
+                                patch.object(online_ui.PluginStorePage, 'refresh_catalog'):
+                            window.app_updates.show_update_notice()
+                            window._update_notice.settings_action.click()
+                            wait(app, lambda: session.dialog.nav.currentRow() == PAGE_INDEX['plugins'] and
+                                 session.dialog.plugin_page.tabs.currentIndex() == 1, timeout=5)
+                        assert user32.GetAncestor(handle, 2) == message['hwnd']
                     user32.PostMessageW(ctypes.c_void_p(message['hwnd']), 0x8051, 0, 0)
                 if action == 'embed-shutdown':
                     from ctypes import wintypes

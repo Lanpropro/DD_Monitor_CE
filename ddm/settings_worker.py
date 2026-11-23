@@ -112,6 +112,8 @@ def run_worker():
             index = self.PAGE_INDEX.get(page)
             if index is not None:
                 self.nav.setCurrentRow(index)
+                if page == 'plugins':
+                    send({'kind': 'host-plugin-store'})
 
         def changes(self):
             return {'settings': {key: value for key, value in self.settings().items()

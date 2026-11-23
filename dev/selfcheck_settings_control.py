@@ -44,6 +44,9 @@ class Dialog(QObject):
         self.nav, self.plugin_page, self._mark_update_page = Mock(), Mock(), Mock()
         self.set_host_layout = Mock()
         self.exec = Mock(return_value=self.Rejected)
+        self.show, self.raise_, self.activateWindow = Mock(), Mock(), Mock()
+        self.isMinimized = Mock(return_value=False)
+        self.winId = Mock(return_value=0)
         self.settings = Mock(return_value={})
         self.shortcuts = Mock(return_value=shortcuts)
         self.enabled_plugins = Mock(return_value={'alpha'})
@@ -156,6 +159,28 @@ class SettingsControlTests(unittest.TestCase):
             self.assertFalse(host.open_settings('updates'))
         modal.assert_not_called()
         self.assertEqual(host._settings_process.open.call_args.kwargs['page'], 'updates')
+
+    def test_update_notice_entry_reuses_the_local_settings_window(self):
+        host = self.host
+        for process_mode in ('0', '1'):
+            with self.subTest(process_mode=process_mode), \
+                    patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': process_mode}), \
+                    patch.object(host, '_get_settings_process') as worker:
+                dialog = host._create_settings_dialog()
+
+                def open_update_from_notice():
+                    self.assertEqual(dialog.exec.call_count, 1)
+                    self.assertFalse(host.open_settings('updates'))
+                    dialog.nav.setCurrentRow.assert_called_with(Dialog.PAGE_INDEX['updates'])
+                    dialog.activateWindow.assert_called_once()
+                    return Dialog.Rejected
+
+                dialog.exec.side_effect = open_update_from_notice
+                with patch.object(host, '_create_settings_dialog', return_value=dialog) as create:
+                    self.assertFalse(host.open_settings('general'))
+                create.assert_called_once()
+                worker.assert_not_called()
+                dialog.exec.assert_called_once()
 
     def test_streamer_snapshot_includes_sidebar_folder_order_and_default_membership(self):
         sidebar = self.host.sidebar
