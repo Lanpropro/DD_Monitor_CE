@@ -328,6 +328,12 @@ class DanmakuPanel(QFrame):
             self._tile_controls.layout_panel()
         self._sync_super_chat_limit()
 
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.DevicePixelRatioChange and getattr(self, '_has_content', False):
+            QTimer.singleShot(0, self, self.document_control.refresh_medal_scale)
+        return result
+
     def _layout_header(self) -> None:
         box = self.header.layout()
         margins = box.contentsMargins()

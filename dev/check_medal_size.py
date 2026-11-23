@@ -1,81 +1,99 @@
-"""量粉丝牌渲染出来的实际尺寸：名字长短、等级位数不同时，高度必须一致。"""
+"""Render the chat panel and check medal alignment and image resolution."""
+import argparse
 import os
+from pathlib import Path
 import sys
+from unittest.mock import patch
 
+from PySide6.QtCore import QEvent, Qt, QUrl
+from PySide6.QtGui import QColor, QTextCharFormat, QTextDocument
 from PySide6.QtWidgets import QApplication
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, REPO)
-os.environ.setdefault("DDM_NO_SAVE", "1")
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+os.environ.setdefault('DDM_NO_SAVE', '1')
 
-from ddm import theme  # noqa: E402
-from ddm.widgets import DanmakuPanel  # noqa: E402
-
-# (名字, 等级, 颜色) —— 覆盖短名/长名、一位数/四位数等级、深色/浅色底
-MEDALS = [
-    ("绿冻", "7", "#5c7cfa"),
-    ("满皇", "21", "#f5c542"),
-    ("茶水间", "1000", "#8d8366"),
-    ("非常长的粉丝牌名字", "3", "#e36ea7"),
-]
+from ddm import theme
+from ddm.danmaku_widgets import DanmakuPanel
 
 
-def pixels_of(image, color: str) -> list[tuple[int, int]]:
-    """找出这个颜色的像素坐标（粉丝牌是实心色块）。"""
-    target = theme.mix(color, "#ffffff", 0.0).lstrip("#")
-    red, green, blue = (int(target[index:index + 2], 16) for index in (0, 2, 4))
+MEDALS = (
+    ('绿冻', '7', '#184f48'),
+    ('满皇', '21', '#f5c542'),
+    ('茶水间', '1000', '#122a74'),
+    ('非常长的粉丝牌名字', '3', '#651c7b'),
+)
+NAME_COLOR = '#00a1d6'
+MESSAGE_COLOR = '#e6e9ee'
+
+
+def bounds(image, color, *, left=0, top=0, bottom=None):
+    target = QColor(color)
     hits = []
-    for y in range(image.height()):
-        for x in range(image.width()):
+    for y in range(top, image.height() if bottom is None else min(bottom, image.height())):
+        for x in range(left, image.width()):
             pixel = image.pixelColor(x, y)
-            if (abs(pixel.red() - red) <= 6 and abs(pixel.green() - green) <= 6
-                    and abs(pixel.blue() - blue) <= 6):
+            if all(abs(a - b) <= 8 for a, b in zip(pixel.getRgb()[:3], target.getRgb()[:3])):
                 hits.append((x, y))
-    return hits
+    assert hits, color
+    return (min(x for x, _ in hits), min(y for _, y in hits),
+            max(x for x, _ in hits), max(y for _, y in hits))
 
 
-def main() -> int:
-    try:
-        sys.stdout.reconfigure(errors="replace")
-    except Exception:  # noqa: BLE001
-        pass
-    app = QApplication(sys.argv)
-    app.setStyleSheet(theme.qss())
-
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--snapshot', type=Path)
+    args = parser.parse_args()
+    app = QApplication([])
+    theme.apply('dark')
     panel = DanmakuPanel()
-    panel.resize(460, 320)
+    panel.setAttribute(Qt.WA_ShowWithoutActivating)
+    panel.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+    panel.move(-10000, -10000)
+    panel.resize(520, 280)
     panel.show()
-    panel.apply_style("", 13)
+    panel.apply_style('', 17)
     for name, level, color in MEDALS:
-        panel.add_event({"kind": "danmaku", "uname": f"{name}家的小号", "text": "测试弹幕",
-                         "medal": {"name": name, "level": level, "color": color}})
-    for _ in range(4):
+        panel.add_event({'uname': '新事旧', 'color': NAME_COLOR, 'text': '发言测试',
+                         'medal': {'name': name, 'level': level, 'color': color}})
+    app.processEvents()
+    shot = panel.body.viewport().grab()
+    if args.snapshot is not None:
+        assert panel.grab().save(str(args.snapshot))
+    image, dpr = shot.toImage(), shot.devicePixelRatioF()
+    document = panel.body.document()
+    block = document.firstBlock()
+    heights = []
+    for _, _, color in MEDALS:
+        _, top, right, bottom = bounds(image, color)
+        heights.append(bottom - top + 1)
+        midpoint = (top + bottom) / 2
+        padding = round(10 * dpr)
+        for ink in (NAME_COLOR, MESSAGE_COLOR):
+            _, ink_top, _, ink_bottom = bounds(image, ink, left=right + 1,
+                                              top=max(0, top - padding), bottom=bottom + padding)
+            difference = abs(midpoint - (ink_top + ink_bottom) / 2)
+            assert difference <= 3 * dpr, (color, ink, difference / dpr)
+        fmt = block.begin().fragment().charFormat().toImageFormat()
+        assert fmt.verticalAlignment() == QTextCharFormat.AlignMiddle
+        badge = document.resource(QTextDocument.ImageResource, QUrl(fmt.name()))
+        assert badge.devicePixelRatioF() == dpr
+        assert abs(badge.width() - fmt.width() * dpr) <= 1
+        assert abs(badge.height() - fmt.height() * dpr) <= 1
+        block = block.next()
+    assert max(heights) - min(heights) <= 1, heights
+    medal_count = len(panel._images)
+    new_dpr = 2 if dpr != 2 else 1.5
+    with patch.object(panel.body.viewport(), 'devicePixelRatioF', return_value=new_dpr):
+        app.sendEvent(panel, QEvent(QEvent.DevicePixelRatioChange))
         app.processEvents()
-
-    panel.grab().save(os.path.join(REPO, "work", "preview", "medal_sizes.png"), "PNG")
-    image = panel.grab().toImage()
-
-    heights, tops = [], []
-    for name, level, color in MEDALS:
-        hits = pixels_of(image, color)
-        if not hits:
-            print(f"  {name}{level}: 没找到色块")
-            return 1
-        xs = [x for x, _ in hits]
-        ys = [y for _, y in hits]
-        height = max(ys) - min(ys) + 1
-        widths = max(xs) - min(xs) + 1
-        heights.append(height)
-        tops.append(min(ys))
-        print(f"  {name}{level:<5} 色块 {widths}x{height}  顶部 y={min(ys)}")
-
-    print(f"\n高度：{heights}（应当全相同）")
-    print(f"顶部 y：{tops}（应当全相同：同一行对齐）")
-    ok = len(set(heights)) == 1 and len(set(tops)) == 1
-    print("结论：" + ("统一" if ok else "不统一"))
-    print("截图：work/preview/medal_sizes.png")
-    return 0 if ok else 1
+        for url, badge in panel._images.items():
+            assert badge.devicePixelRatioF() == new_dpr
+            assert document.resource(QTextDocument.ImageResource, QUrl(url)).devicePixelRatioF() == new_dpr
+    assert len(panel._images) == medal_count and document.blockCount() == len(MEDALS)
+    panel.close()
+    print(f'PASS: centered fan medals and DPI-matched text at {dpr:g}×')
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    main()
