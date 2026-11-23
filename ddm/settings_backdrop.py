@@ -3,6 +3,7 @@ import ctypes
 from ctypes import wintypes
 import sys
 
+from PySide6.QtGui import QTransform
 from PySide6.QtWidgets import QApplication
 
 
@@ -42,6 +43,29 @@ def apply_blur(widget, enabled):
         return False
     widget._blur_state = state
     return bool(enabled)
+
+
+def set_blur_clip(widget, path):
+    """Clip the compositor in device pixels without masking Qt's backing store."""
+    user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+    user32.SetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN, wintypes.BOOL)
+    user32.SetWindowRgn.restype = ctypes.c_int
+    hwnd = int(widget.winId())
+    if path is None:
+        return bool(user32.SetWindowRgn(hwnd, None, True))
+    scale = widget.devicePixelRatioF()
+    polygon = QTransform.fromScale(scale, scale).map(path).toFillPolygon().toPolygon()
+    points = (wintypes.POINT * polygon.size())(*(wintypes.POINT(p.x(), p.y()) for p in polygon))
+    gdi32.CreatePolygonRgn.argtypes = (ctypes.POINTER(wintypes.POINT), ctypes.c_int, ctypes.c_int)
+    gdi32.CreatePolygonRgn.restype = wintypes.HRGN
+    region = gdi32.CreatePolygonRgn(points, len(points), 2)  # WINDING
+    if not region:
+        return False
+    if user32.SetWindowRgn(hwnd, region, True):
+        return True
+    gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+    gdi32.DeleteObject(region)
+    return False
 
 
 def apply_frame(widget, light):

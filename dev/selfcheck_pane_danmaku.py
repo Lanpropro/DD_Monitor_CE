@@ -616,23 +616,34 @@ class PaneDanmakuTests(unittest.TestCase):
         dialog.auto_save.start()
         with patch.object(config, 'save') as save:
             page.float_glass.click()
-            page.float_glass_opacity.setValue(36)
+            page.float_glass_opacity.setValue(60)
             self.assertTrue(dialog.auto_save.flush())
             saved = save.call_args.args[0]['settings']
             self.assertTrue(saved['danmaku_float_glass_enabled'])
-            self.assertEqual(saved['danmaku_float_glass_opacity'], 36)
+            self.assertEqual(saved['danmaku_float_glass_opacity'], 60)
         self.app.processEvents()
         self.assertTrue(floating.property('danmakuFloatGlass'))
         panel = floating.stack.currentWidget()
         panel.body.setHtml('<span style="color:white; font-size:24px">████</span>')
-        image = floating.grab().toImage()
-        self.assertEqual(pixel(image, outer).alpha(), 92)
-        self.assertAlmostEqual(pixel(image, point).alpha(), 178, delta=1)
+        self.addCleanup(theme.apply, 'dark')
+        self.addCleanup(theme.set_skin_active, False)
+        theme.set_skin_active(True)
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            self.app.processEvents()
+            image = floating.grab().toImage()
+            self.assertEqual(pixel(image, outer).alpha(), 153)
+            self.assertAlmostEqual(pixel(image, point).alpha(), 183, delta=1)
+            for x in (0, image.width() - 1):
+                for y in (0, image.height() - 1):
+                    self.assertEqual(image.pixelColor(x, y).alpha(), 0, (x, y))
+            self.assertTrue(any(0 < image.pixelColor(x, y).alpha() < 153
+                                for x in range(1, 14) for y in range(1, 14)))
         self.assertFalse(panel.body.viewport().autoFillBackground())
         floating.set_material({**saved, 'danmaku_float_glass_opacity': 18})
         self.app.processEvents()
         dimmer = floating.grab().toImage()
-        self.assertAlmostEqual(pixel(dimmer, point).alpha(), 157, delta=1)
+        self.assertAlmostEqual(pixel(dimmer, point).alpha(), 108, delta=1)
         self.assertLess(pixel(dimmer, outer).alpha(), pixel(image, outer).alpha())
         text = panel.body.viewport().mapTo(floating, QPoint(8, 8))
         self.assertTrue(any(pixel(dimmer, text + QPoint(x, y)) == QColor('white')
@@ -641,15 +652,38 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(int(floating.winId()), handle)
         from ddm.settings_backdrop import blur_available
         if blur_available():
+            import ctypes
+            from ctypes import wintypes
+            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+            gdi32.CreateRectRgn.restype = wintypes.HRGN
+            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
+            gdi32.GetRgnBox.argtypes = (wintypes.HRGN, ctypes.POINTER(wintypes.RECT))
+            gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+            region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            self.addCleanup(gdi32.DeleteObject, region)
             self.assertTrue(floating._native_glass)
-            self.assertFalse(floating.mask().contains(QPoint(0, 0)))
-            self.assertTrue(floating.mask().contains(point))
+            self.assertTrue(floating.mask().isEmpty(), 'Do not cut the antialiased Qt surface with a logical mask')
+            floating.resize(floating.width() + 17, floating.height() + 13)
+            self.app.processEvents()
+            scale = floating.devicePixelRatioF()
+            self.assertGreater(user32.GetWindowRgn(handle, region), 0)
+            self.assertFalse(gdi32.PtInRegion(region, 0, 0))
+            self.assertTrue(gdi32.PtInRegion(region, round(point.x() * scale), round(point.y() * scale)))
+            bounds = wintypes.RECT()
+            gdi32.GetRgnBox(region, ctypes.byref(bounds))
+            sized = floating.grab()
+            self.assertEqual((bounds.right, bounds.bottom),
+                             (sized.width(), sized.height()))
         with patch.object(config, 'save'):
             page.reset()
             self.assertTrue(dialog.auto_save.flush())
         self.assertFalse(floating.property('danmakuFloatGlass'))
         self.assertEqual(page.float_glass_opacity.value(), 75)
-        self.assertTrue(floating.mask().isEmpty())
+        self.assertFalse(panel.property('customControlSurface'))
+        if blur_available():
+            self.assertEqual(user32.GetWindowRgn(handle, region), 0)
 
     def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
         window = self.wall_window()

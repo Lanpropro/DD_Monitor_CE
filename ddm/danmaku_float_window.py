@@ -3,7 +3,7 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QCursor, QKeySequence, QPainter, QPen, QRegion, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QMenu, QPlainTextEdit,
                                QSizeGrip, QStackedLayout, QTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
@@ -13,7 +13,7 @@ from .corner_geometry import continuous_path
 from .danmaku_float_snap import snapped_position, touching_windows
 from .danmaku_float_tabs import DanmakuFloatTabs
 from .panel_resize import resize_edges, set_resize_cursor
-from .settings_backdrop import apply_blur
+from .settings_backdrop import apply_blur, set_blur_clip
 from .shortcut_actions import DEFAULT_SHORTCUTS
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
@@ -55,6 +55,8 @@ class _MoveHandle(QWidget):
 
 class DanmakuFloatWindow(QWidget):
     returnRequested = Signal()
+    CORNER_RADIUS = 14
+    TEXT_MASK_ALPHA = 76
 
     def __init__(self, owner, controller, area):
         super().__init__(owner, Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
@@ -69,6 +71,7 @@ class DanmakuFloatWindow(QWidget):
         self._move_frame = QTimer(self, interval=16, singleShot=True, timerType=Qt.PreciseTimer)
         self._move_frame.timeout.connect(self._flush_move)
         self._native_glass = False
+        self._glass_clip = None
         self._glass_opacity = 100
         self.setWindowTitle('弹幕 · DD监控室CE')
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -152,21 +155,27 @@ class DanmakuFloatWindow(QWidget):
 
     @staticmethod
     def _refresh_panel_glass(panel, enabled):
+        # The floating window owns the background, including under themed panels.
+        panel.setProperty('customControlSurface', bool(enabled))
         _repolish(panel)
         panel.body.viewport().setAutoFillBackground(not enabled)
+        panel.update()
 
     def _sync_glass(self):
         enabled = self.property('danmakuFloatGlass')
         self._native_glass = apply_blur(self, enabled) if enabled or self._native_glass else False
-        self._sync_glass_mask()
+        self._sync_glass_clip()
 
-    def _sync_glass_mask(self):
+    def _sync_glass_clip(self):
         if self._native_glass:
-            # The native blur can show through transparent corners of a Qt layered HWND.
-            shape = continuous_path(QRectF(self.rect()), 14)
-            self.setMask(QRegion(shape.toFillPolygon().toPolygon()))
-        elif not self.mask().isEmpty():
-            self.clearMask()
+            geometry = (int(self.winId()), self.size(), self.devicePixelRatioF())
+            if geometry != self._glass_clip:
+                path = continuous_path(QRectF(self.rect()), self.CORNER_RADIUS)
+                if set_blur_clip(self, path):
+                    self._glass_clip = geometry
+        elif self._glass_clip is not None:
+            set_blur_clip(self, None)
+            self._glass_clip = None
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -393,12 +402,15 @@ class DanmakuFloatWindow(QWidget):
                 return True
             if kind in (QEvent.UngrabMouse, QEvent.Hide, QEvent.WindowDeactivate):
                 self._finish_move()
-        return super().event(event)
+        result = super().event(event)
+        if kind == QEvent.DevicePixelRatioChange and getattr(self, '_native_glass', False):
+            self._sync_glass_clip()
+        return result
 
     def resizeEvent(self, event):
         self.grip.move(self.width() - self.grip.width(), self.height() - self.grip.height())
         if self._native_glass:
-            self._sync_glass_mask()
+            self._sync_glass_clip()
         super().resizeEvent(event)
 
     def paintEvent(self, _event):
@@ -409,13 +421,14 @@ class DanmakuFloatWindow(QWidget):
             color.setAlpha(max(1, round(255 * self._glass_opacity / 100)))
         painter.setBrush(color)
         painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 14))
+        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
+                                         self.CORNER_RADIUS))
         panel = self.stack.currentWidget()
         if self.property('danmakuFloatGlass') and panel is not None:
-            # Keep a legible tint behind text, even with a very transparent frame.
             viewport = panel.body.viewport()
-            color.setAlpha(135)
-            painter.fillRect(QRect(viewport.mapTo(self, QPoint()), viewport.size()), color)
+            text_area = QRectF(QRect(viewport.mapTo(self, QPoint()), viewport.size()))
+            color.setAlpha(self.TEXT_MASK_ALPHA)
+            painter.fillPath(continuous_path(text_area, 10, corners=(0, 0, 10, 10)), color)
         if self._snap_edges:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2, Qt.SolidLine, Qt.RoundCap))
             right, bottom = self.width()-2, self.height()-2
