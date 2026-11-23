@@ -14,6 +14,9 @@ from .shortcut_actions import (
 from .video_surface import VideoSurface
 
 
+FLOAT_PLAYBACK_ACTIONS = ('focus', 'mute', 'audio_cycle', 'record', 'video_danmaku', 'solo', 'danmaku_input')
+
+
 class AppShortcuts(QObject):
     def __init__(self, host):
         super().__init__(host)
@@ -67,12 +70,47 @@ class AppShortcuts(QObject):
                 shortcut.activated.connect(lambda key=sequence: self._activate_shortcut(key))
                 host._window_shortcuts.append(shortcut)
         for floating in host.wall.pane_danmaku.floating_windows():
-            floating.refresh_close_shortcut(host.shortcuts)
+            self.refresh_floating_shortcuts(floating)
         host._sync_input_shortcuts()
 
+    def refresh_floating_shortcuts(self, floating):
+        shortcuts = getattr(self.host, 'shortcuts', DEFAULT_SHORTCUTS)
+        actions = FLOAT_PLAYBACK_ACTIONS
+        if self.host._fullscreen_tile is not None:
+            actions += ('restore',) + FULLSCREEN_VOLUME_SHORTCUTS
+        sequences = [shortcuts.get(action, DEFAULT_SHORTCUTS[action]) for action in actions]
+        if shortcuts.get('danmaku_input') == 'Return':
+            sequences.append('Enter')
+        floating.configure_shortcuts(shortcuts.get('close_tile', DEFAULT_SHORTCUTS['close_tile']),
+                                     sequences, self._forward_floating_shortcut)
+
+    def _floating_shortcuts_target_tile(self):
+        focused = QApplication.focusWidget()
+        if (isinstance(focused, (QLineEdit, QPlainTextEdit, QTextEdit)) and not focused.isReadOnly()
+                or QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None):
+            return False
+        tile = self.host._tile_under_cursor()
+        if tile is None or not tile.room.get('room_id'):
+            return False
+        # A video rectangle can be underneath the chat itself or another app.
+        hit = widget_at(QCursor.pos())
+        return hit is not None and hit.window() in (tile.window(), tile.bottom)
+
+    def _forward_floating_shortcut(self, sequence):
+        if not self._floating_shortcuts_target_tile():
+            return False
+        self._activate_shortcut(sequence)
+        return True
+
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.ShortcutOverride and isinstance(watched, QWindow):
-            self._queued_fullscreen_toggle = self._is_queued_fullscreen_toggle(watched, event)
+        if event.type() == QEvent.ShortcutOverride:
+            if isinstance(watched, QWindow):
+                self._queued_fullscreen_toggle = self._is_queued_fullscreen_toggle(watched, event)
+            floating = QApplication.activeWindow()
+            if (floating is not None and floating.property('floatingDanmaku')
+                    and floating.parentWidget() is self.host):
+                # Leave keys such as arrows to the floating widgets before Qt matches them.
+                floating.enable_playback_shortcuts(self._floating_shortcuts_target_tile())
         if event.type() != QEvent.Wheel:
             return False
         host = self.host
@@ -134,7 +172,8 @@ class AppShortcuts(QObject):
             return False
         return receiver is host.windowHandle() or any(
             receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
-            for tile in host.wall.tiles)
+            for tile in host.wall.tiles) or any(
+            receiver is floating.windowHandle() for floating in host.wall.pane_danmaku.floating_windows())
 
     def _activate_shortcut(self, sequence):
         # Qt can match the shortcut again when it forwards the key to a QWidget.

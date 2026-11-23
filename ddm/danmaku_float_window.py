@@ -116,8 +116,13 @@ class DanmakuFloatWindow(QWidget):
         self._close_shortcut = QShortcut(self)
         self._close_shortcut.setContext(Qt.WindowShortcut)
         self._close_shortcut.setAutoRepeat(False)
-        self._close_shortcut.activated.connect(self.close_selected_tab)
-        self.refresh_close_shortcut(getattr(owner, 'shortcuts', {}))
+        self._close_shortcut.activated.connect(self._activate_close_shortcut)
+        self._playback_shortcuts = []
+        shortcut_control = getattr(owner, 'shortcut_control', None)
+        if shortcut_control is None:
+            self.configure_shortcuts(getattr(owner, 'shortcuts', {}).get('close_tile', DEFAULT_SHORTCUTS['close_tile']))
+        else:
+            shortcut_control.refresh_floating_shortcuts(self)
         self.grip = QSizeGrip(self)
         self.grip.setToolTip('拖动调整大小')
         screen = QApplication.screenAt(area.center()) or owner.screen()
@@ -129,8 +134,33 @@ class DanmakuFloatWindow(QWidget):
         self.set_material(getattr(owner, 'settings', {}))
         theme.signals().changed.connect(self.update)
 
-    def refresh_close_shortcut(self, shortcuts):
-        self._close_shortcut.setKey(QKeySequence(shortcuts.get('close_tile', DEFAULT_SHORTCUTS['close_tile'])))
+    def configure_shortcuts(self, close_sequence, playback_sequences=(), forward=None):
+        self._close_sequence = close_sequence
+        self._forward_shortcut = forward
+        close_key = QKeySequence(close_sequence)
+        self._close_shortcut.setKey(close_key)
+        for shortcut in self._playback_shortcuts:
+            shortcut.setEnabled(False)
+            shortcut.deleteLater()
+        self._playback_shortcuts.clear()
+        for sequence in dict.fromkeys(playback_sequences):
+            key = QKeySequence(sequence)
+            if key.isEmpty() or key == close_key:
+                continue
+            shortcut = QShortcut(key, self)
+            shortcut.setContext(Qt.WindowShortcut)
+            shortcut.setAutoRepeat(False)
+            shortcut.setEnabled(False)
+            shortcut.activated.connect(lambda seq=sequence: forward(seq))
+            self._playback_shortcuts.append(shortcut)
+
+    def enable_playback_shortcuts(self, enabled):
+        for shortcut in self._playback_shortcuts:
+            shortcut.setEnabled(enabled)
+
+    def _activate_close_shortcut(self):
+        if self._forward_shortcut is None or not self._forward_shortcut(self._close_sequence):
+            self.close_selected_tab()
 
     def close_selected_tab(self):
         focused = QApplication.focusWidget()

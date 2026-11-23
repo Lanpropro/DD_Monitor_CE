@@ -559,6 +559,75 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(floating.pos(), QPoint(-560, -400))
         self.assertEqual(neighbor.geometry(), peer)
 
+    def test_active_float_keeps_playback_shortcuts_targeted_at_hovered_tile(self):
+        host = self.wall_window()
+        source, target = host.wall.tiles[:2]
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(source)
+        floating, = panes.floating_windows()
+        panel, = floating.tabs.panels()
+        self.app.setActiveWindow(floating)
+        panel.body.setFocus()
+        self.assertTrue(floating.isActiveWindow())
+        original_mute = target.muted
+        original_source_mute = source.muted
+        point = target.video.mapToGlobal(target.video.rect().center())
+        with patch('ddm.app_shortcuts.QCursor.pos', return_value=point), \
+                patch('ddm.app_shortcuts.widget_at', return_value=target.video) as hit:
+            QTest.keyClick(panel.body, Qt.Key_M)
+            self.assertNotEqual(target.muted, original_mute)
+            self.assertEqual(source.muted, original_source_mute)
+            self.assertTrue(floating.isActiveWindow())
+
+            host.shortcuts['mute'] = 'Ctrl+K, Ctrl+M'
+            host._refresh_shortcuts()
+            QTest.keyClick(panel.body, Qt.Key_M)
+            self.assertNotEqual(target.muted, original_mute)
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+
+            hit.return_value = panel.body
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+            hit.return_value = None
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+            hit.return_value = target.video
+            with patch.object(host, '_handle_shortcut', return_value=True) as handle:
+                QTest.keyClick(panel.body, Qt.Key_Delete)
+                handle.assert_called_once_with(host.shortcuts['close_tile'])
+            self.assertEqual(floating.tabs.panels(), [panel])
+
+            hit.return_value = target.bottom
+            with patch.object(host, '_handle_shortcut', return_value=True) as handle:
+                for key in (Qt.Key_F, Qt.Key_R, Qt.Key_B, Qt.Key_Return):
+                    QTest.keyClick(panel.body, key)
+                self.assertEqual([item.args[0] for item in handle.call_args_list], [
+                    host.shortcuts[key] for key in ('focus', 'record', 'video_danmaku', 'danmaku_input')])
+            hit.return_value = target.video
+            host.shortcuts['mute'] = 'M'
+            host._refresh_shortcuts()
+            editor = QLineEdit(floating)
+            editor.show()
+            editor.setFocus()
+            QTest.keyClick(editor, Qt.Key_M)
+            self.assertEqual(editor.text(), 'm')
+            self.assertEqual(target.muted, original_mute)
+
+            editor.hide()
+            hit.return_value = panel.body
+            host.shortcuts['mute'] = 'Right'
+            host._refresh_shortcuts()
+            panel.font_slider.setFocus()
+            original_size = panel.font_slider.value()
+            QTest.keyClick(panel.font_slider, Qt.Key_Right)
+            self.assertEqual(panel.font_slider.value(), original_size + 1)
+            self.assertEqual(target.muted, original_mute)
+
     def test_delete_closes_only_the_selected_float_tab_and_respects_editing_and_remapping(self):
         host = self.wall_window()
         panes = host.wall.pane_danmaku
