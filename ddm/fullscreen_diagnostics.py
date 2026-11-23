@@ -100,7 +100,8 @@ class FullscreenCapture(QObject):
         watched = [(self.window, 'main'), (self.window.wall, 'wall')]
         sidebar = getattr(self.window, 'sidebar', None)
         if sidebar is not None:
-            watched.extend(((sidebar, 'sidebar'), (sidebar.scroll.viewport(), 'sidebar-cards')))
+            watched.extend(((sidebar, 'sidebar'), (sidebar.scroll.viewport(), 'sidebar-cards'),
+                            (sidebar.account_row, 'sidebar-account'), (sidebar.navigation.rail, 'sidebar-rail')))
         watched += [(pane, 'target' if pane is tile else 'peer') for pane in tiles]
         watched.append((getattr(tile, 'video', None), 'video'))
         watched.append((getattr(tile, 'bottom', None), 'bar'))
@@ -168,7 +169,8 @@ class FullscreenCapture(QObject):
         record = self.record
         if (record is not None and watched in self.geometry_widgets
                 and (event.type() in (QEvent.Move, QEvent.Resize, QEvent.Show, QEvent.Hide)
-                     or (self.geometry_widgets[watched] in ('bar', 'sidebar', 'sidebar-cards')
+                     or (self.geometry_widgets[watched] in ('bar', 'sidebar', 'sidebar-cards',
+                                                           'sidebar-account', 'sidebar-rail')
                          and event.type() == QEvent.Paint))
                 and len(record['geometry']) < 96):
             origin = watched.mapToGlobal(QPoint())

@@ -16,6 +16,7 @@ class FullscreenPresentation(QObject):
         self._owner_hidden = False
         self._windowed_state = None
         self._windowed_geometry = None
+        self._windowed_root_size = None
         self._maximized_frame = None
         window.installEventFilter(self)
 
@@ -73,6 +74,8 @@ class FullscreenPresentation(QObject):
             self._windowed_geometry = self.window.saveGeometry()
             wall_widgets.extend((self.window.sidebar, self.window.empty_hint))
         native_maximized = in_main_window and bool(self._windowed_state & Qt.WindowMaximized)
+        if native_maximized:
+            self._windowed_root_size = self.window.centralWidget().size()
         self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
@@ -191,6 +194,10 @@ class FullscreenPresentation(QObject):
             if self._maximized_frame is not None:
                 window_fullscreen.exit(self.window, self._maximized_frame)
                 self._maximized_frame = None
+                # The native frame is back, but Qt may still be waiting for
+                # the resize that anchors the account and rail to its bottom.
+                self.window.centralWidget().resize(self._windowed_root_size)
+                self._windowed_root_size = None
             else:
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None

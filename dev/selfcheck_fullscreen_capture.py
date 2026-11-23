@@ -134,12 +134,15 @@ class CaptureTests(unittest.TestCase):
         tile.bottom.resize(300, 36)
         sidebar = self.window.sidebar = QWidget(self.window)
         sidebar.scroll = QScrollArea(sidebar)
+        sidebar.account_row = QWidget(sidebar)
+        sidebar.navigation = SimpleNamespace(rail=QWidget(sidebar))
         self.capture.begin('enter', tile)
-        for widget in (tile.bottom, sidebar, sidebar.scroll.viewport()):
+        for widget in (tile.bottom, sidebar, sidebar.scroll.viewport(), sidebar.account_row, sidebar.navigation.rail):
             self.capture.eventFilter(widget, diag.QEvent(diag.QEvent.Paint))
         self.capture.finish()
         events = self.rows()[-1]['geometry']
-        self.assertEqual({e['role'] for e in events if e['event'] == 'Paint'}, {'bar', 'sidebar', 'sidebar-cards'})
+        self.assertEqual({e['role'] for e in events if e['event'] == 'Paint'},
+                         {'bar', 'sidebar', 'sidebar-cards', 'sidebar-account', 'sidebar-rail'})
         self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
 
     def test_explicit_capture_records_known_bars_and_visible_native_windows(self):

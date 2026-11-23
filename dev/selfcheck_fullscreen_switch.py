@@ -100,6 +100,10 @@ def check_window_capture(window):
                 original_video_origin = tile.video.mapToGlobal(QPoint())
                 original_bar = QRect(tile.bottom.geometry())
                 original_origin = wall.mapToGlobal(QPoint())
+                sidebar = window.sidebar
+                original_sidebar_size = sidebar.size()
+                original_account_rect = QRect(sidebar.account_row.geometry())
+                original_rail_rect = QRect(sidebar.navigation.rail.geometry())
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
                 show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
@@ -140,12 +144,20 @@ def check_window_capture(window):
                     assert tile.bottom.isHidden() and not tile.bottom.qt_composited, (
                         'Prepare the ordinary bar before restoring the native frame')
                     assert tile.video.geometry() == tile.rect(), 'The video should still cover the fullscreen frame'
-                    return exit_native(widget, frame)
+                    root = widget.centralWidget()
+                    fullscreen_size = root.size()
+                    result = exit_native(widget, frame)
+                    # The capture shows Win32 returning before Qt delivers the
+                    # restored client height. Reproduce that size at the handoff.
+                    root.resize(fullscreen_size)
+                    return result
 
                 repaint_sidebar = window.sidebar.repaint
 
                 def repaint_sidebar_before_video_shrinks():
-                    sidebar_repaints.append(QRect(tile.video.geometry()))
+                    sidebar_repaints.append((QRect(tile.video.geometry()), sidebar.size(),
+                                             QRect(sidebar.account_row.geometry()),
+                                             QRect(sidebar.navigation.rail.geometry())))
                     return repaint_sidebar()
 
                 events = RestoreEvents()
@@ -200,8 +212,9 @@ def check_window_capture(window):
                 assert exit_bar_modes and all(hidden and not composited and origin == original_video_origin
                     for hidden, composited, origin in exit_bar_modes), (
                     'The normal video must resize directly at its final screen position', exit_bar_modes)
-                assert sidebar_repaints == [QRect(QPoint(), screen.size())], (
-                    'The sidebar must paint before the video shrinks', sidebar_repaints)
+                assert sidebar_repaints == [(QRect(QPoint(), screen.size()), original_sidebar_size,
+                    original_account_rect, original_rail_rect)], (
+                    'The sidebar must paint at its final size before the video shrinks', sidebar_repaints)
                 assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
                     'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state
