@@ -1046,6 +1046,60 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(len(panes.rendered()), 2)
         self.assertEqual(panes.panels[4]._linked_room_id, '')
 
+    def test_custom_grids_merge_adjacent_chat_and_leave_vacant_cells_clear(self):
+        for layout, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+            with self.subTest(layout=layout):
+                window = self.window([dict(room_id='1001', uname='主播', live=True)], offscreen=True)
+                window.layout_presets.select_builtin(layout)
+                wall, panes = window.wall, window.wall.pane_danmaku
+                source = wall.tiles[0]
+                top, bottom = 2, size + 2
+                window.configure_wall_panes({top: source})
+                original, = panes.rendered()
+                client = window._danmaku_clients['1001']
+                client.message.emit(dict(text='合并前消息'))
+
+                window.configure_wall_panes({top: source, bottom: source})
+                merged, = panes.rendered()
+                self.assertIs(merged, original)
+                self.assertTrue(merged.isVisible())
+                self.assertTrue(panes.panels[bottom].isHidden())
+                self.assertEqual(merged.geometry(), panes.rectangles[top].united(panes.rectangles[bottom]))
+                self.assertIs(window._danmaku_clients['1001'], client)
+                client.message.emit(dict(text='合并后消息'))
+                self.assertEqual([event['text'] for event in merged._blocks], ['合并前消息', '合并后消息'])
+
+                window.configure_wall_panes({1: source, top: source, bottom: source})
+                self.assertEqual(len(panes.rendered()), 2)
+                vacant = panes.rectangles[size + 1]
+                self.assertFalse(any(panel.geometry().intersects(vacant) for panel in panes.rendered()))
+
+    def test_delete_removes_only_the_hovered_custom_chat_cell(self):
+        window = self.window([dict(room_id='1001', uname='主播', live=True)], offscreen=True)
+        window.layout_presets.select_builtin('custom_grid9')
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({2: source, 5: source})
+        merged = panes.panels[5]
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(text='保留的弹幕'))
+        self.app.setActiveWindow(window)
+        merged.body.setFocus()
+        self.app.processEvents()
+
+        for clicked, remaining in ((5, {2: source}), (2, {})):
+            point = panes.rectangles[clicked].center()
+            with patch('ddm.app_shortcuts.QCursor.pos', return_value=wall.mapToGlobal(point)):
+                QTest.keyClick(merged.body, Qt.Key_Delete)
+            self.assertEqual(panes.bindings(), remaining)
+            self.assertIsNotNone(wall.snap_grid.vacant_unit_at(point))
+            self.assertTrue(source.isVisible())
+            self.assertEqual(source.room['room_id'], '1001')
+            if remaining:
+                self.assertEqual(panes.rendered(), [merged])
+                self.assertEqual(merged._blocks[-1]['text'], '保留的弹幕')
+        self.assertFalse(panes.rendered())
+
     def test_state_and_named_presets_restore_type_links_and_backing_slots(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku

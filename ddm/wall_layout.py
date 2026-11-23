@@ -228,15 +228,16 @@ class WallLayout:
         area.setWidth(max(area.width(), minimum.width()))
         area.setHeight(max(area.height(), minimum.height()))
         if size := host.snap_grid.size:
-            geometry = snap_grid.geometry(size, host.snap_grid.cells(), area, gap)
-            leaves = {cell: geometry[cell] for cell in widgets}
+            leaves = snap_grid.geometry(size, host.snap_grid.cells(), area, gap)
             dividers = []
         else:
             leaves, dividers = resize_layout.geometry(
                 tree, area, gap, host._preset_minimum,
                 host._layout_ratios[host.layout_id], host._preset_defaults)
         for cell, rect in leaves.items():
-            widget = widgets[cell]
+            widget = widgets.get(cell)
+            if widget is None:
+                continue
             same_size = widget.size() == rect.size()
             widget.setGeometry(rect)
             if isinstance(widget, Tile) and same_size:

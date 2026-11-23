@@ -153,6 +153,17 @@ class PaneDanmaku:
 
         return min(cells, key=distance)
 
+    def remove_at(self, global_point):
+        for panel in self.rendered():
+            if panel in self.floating or not panel.isVisible():
+                continue
+            if panel.rect().contains(panel.mapFromGlobal(global_point)):
+                cell = self.cell_at(panel, global_point)
+                if cell in self.bindings():
+                    self.request(cell, video=True)
+                    return True
+        return False
+
     def reset_preset(self, identifier):
         if identifier == self.wall.layout_id:
             self.return_all_floating()
@@ -180,7 +191,7 @@ class PaneDanmaku:
             room = str(tile.room.get('room_id') or '') if tile is not None else ''
             areas.append(([cell], QRect(rectangles[cell]), room))
         gap = self.wall.grid.spacing() if gap is None else gap
-        changed = not layouts.snap_grid_size(self.wall.layout_id)
+        changed = True
         while changed:
             changed = False
             for first, (cells, rect, room) in enumerate(areas):

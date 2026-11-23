@@ -18,7 +18,7 @@ from .ui import SelectControl, StepperControl, ToggleSwitch, page_header as _pag
 
 
 _SHORTCUT_TITLES = {
-    'focus': '全屏查看', 'restore': '退出全屏', 'close_tile': '关闭直播格',
+    'focus': '全屏查看', 'restore': '退出全屏', 'close_tile': '关闭直播格或弹幕格',
     'danmaku_input': '弹幕输入', 'mute': '静音', 'audio_cycle': '声音轮询',
     'toggle_folders': '全部关注文件夹',
     'record': '录制', 'video_danmaku': '画面弹幕', 'solo': '单路声音',

@@ -176,6 +176,8 @@ class AppShortcuts(QObject):
             if tile is not None:
                 tile.danmaku_button.toggle()
         elif pressed and pressed == shortcuts.get("close_tile"):
+            if host.wall.pane_danmaku.remove_at(QCursor.pos()):
+                return True
             tile = host._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 tile.closeRequested.emit(tile.room)
