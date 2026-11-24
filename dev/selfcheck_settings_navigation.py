@@ -86,7 +86,12 @@ class SettingsNavigationTests(unittest.TestCase):
         self.addCleanup(dialog.deleteLater)
         dialog.auto_save.start()
         sent = []
-        dialog.auto_save.requested.connect(sent.append)
+
+        def receive_save(changes):
+            sent.append(changes)
+            dialog.auto_save.acknowledge()
+
+        dialog.auto_save.requested.connect(receive_save)
         options = {'1001': [{'qn': 400, 'label': '蓝光'}, {'qn': 10000, 'label': '原画'}, {'qn': 15000, 'label': '2K'}],
                    'huya:1001': [{'qn': 2000, 'label': '蓝光'}, {'qn': 1, 'label': '原画'}]}
         dialog.streamerQualityRequested.connect(
@@ -169,7 +174,7 @@ class SettingsNavigationTests(unittest.TestCase):
         APP.processEvents()
         card = page.cards[('huya:1001',)]
         self.assertFalse(card.auto_record_summary.isHidden())
-        dialog.auto_save.flush()
+        self.assertTrue(dialog.auto_save.flush())
         saved = sent[-1]['settings']['streamer_defaults']
         self.assertEqual(set(saved), {'1001', 'huya:1001'})
         self.assertEqual(saved['1001']['playback']['qn'], 10000)
@@ -180,18 +185,16 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertNotIn('auto_record', saved['1001'])
         self.assertNotIn('windows_recording_notice', saved['1001'])
         self.assertNotIn('auto_record_mode', saved['1001'])
-        dialog.auto_save.acknowledge()
         saved_page = type(page)(dialog.settings(), {})
         self.addCleanup(saved_page.deleteLater)
         self.assertEqual(saved_page.values()['streamer_defaults'], saved)
         self.assertIsNone(saved_page.cards[('huya:1001',)].auto_record_mode)
         card.remove_button.click()
-        dialog.auto_save.flush()
+        self.assertTrue(dialog.auto_save.flush())
         self.assertEqual(set(sent[-1]['settings']['streamer_defaults']), {'1001'})
-        dialog.auto_save.acknowledge()
         self.assertEqual(page.undo_notice.undo_button.text(), '撤回')
         page.undo_notice.undo_button.click()
-        dialog.auto_save.flush()
+        self.assertTrue(dialog.auto_save.flush())
         self.assertEqual(sent[-1]['settings']['streamer_defaults'], saved)
         self.assertEqual(list(page.entries), ['huya:1001', '1001'])
 
@@ -313,11 +316,20 @@ class SettingsNavigationTests(unittest.TestCase):
         page.show()
         card = page.cards[('1001',)]
         card.toggle.click()
+        left, right = card.details.section('playback'), card.details.section('capture')
+        capture_fields = (card.auto_record, card.recording, card.auto_record_mode, card.windows_notice)
         for size, columns in (((1040, 700), 2), ((480, 760), 1)):
             page.resize(*size)
-            QTest.qWait(30)
+            # Resizing the outer scroll area and switching the column layout
+            # can post separate layout requests.
+            for _ in range(50):
+                QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+                if card.details.columns == columns and all(
+                        control.isVisible() and right.rect().contains(control.geometry())
+                        for control in capture_fields):
+                    break
+                QTest.qWait(20)
             self.assertEqual(card.details.columns, columns)
-            left, right = card.details.section('playback'), card.details.section('capture')
             self.assertIs(card.monitor_live.parentWidget(), left)
             self.assertIs(card.live_notice.parentWidget(), left)
             live_label = left.layout().labelForField(card.live_notice)
@@ -329,9 +341,10 @@ class SettingsNavigationTests(unittest.TestCase):
             self.assertEqual(recording_label.text(), '录制时发送 Windows 通知')
             self.assertLess(card.auto_record.y(), card.windows_notice.y())
             self.assertLess(card.windows_notice.y(), card.recording.y())
-            for control in (card.auto_record, card.recording, card.auto_record_mode, card.windows_notice):
+            for control in capture_fields:
                 self.assertIs(control.parentWidget(), right)
-                self.assertTrue(right.rect().contains(control.geometry()))
+                self.assertTrue(right.rect().contains(control.geometry()),
+                                (size, control.accessibleName(), right.rect(), control.geometry()))
                 label = right.layout().labelForField(control)
                 self.assertTrue(right.rect().contains(label.geometry()))
                 self.assertFalse(label.geometry().intersects(control.geometry()))
