@@ -432,7 +432,7 @@ def check_snap_grid_and_other_presets(app):
             assert first.geometry() == units[1].united(units[6])
 
             begin_wall_drag(units[6].center())
-            session.position = wall.mapToGlobal(units[15].center())
+            session.position = wall.mapToGlobal(units[12].center())
             session._update_target()
             assert guide.target is None and guide.isVisible()
             session.cancel()
@@ -444,6 +444,47 @@ def check_snap_grid_and_other_presets(app):
             assert session.finish() and not guide.isVisible()
             assert first.geometry() == units[0].united(units[5])
             assert [int(tile.video.winId()) for tile in wall.tiles[:2]] == handles
+
+            # A 2x2 source can swap with an edge 1x1 even where placing its footprint would overflow.
+            first_rect, second_rect = first.geometry(), second.geometry()
+            before = wall.snap_grid.cells()
+            players = {first: Mock(), second: Mock()}
+            with patch.dict(window.players, players), patch.dict(first.room, live=True), \
+                    patch.dict(second.room, live=True), patch.object(window, '_stop_tile') as stop, \
+                    patch.object(window, 'start_tile') as start, patch.object(window.recorder, 'stop') as stop_recording:
+                first.state_control.pending_grid_aspect = wall.layout_id
+                second.state_control.pending_grid_aspect = wall.layout_id
+                window._save_timer.stop()
+                begin_wall_drag(units[0].center())
+                assert not any(marker.isVisible() for marker in guide.swap_markers)
+                session.position = wall.mapToGlobal(second_rect.center())
+                session._update_target()
+                assert guide.isVisible() and (guide.swap_source, guide.target) == (first_rect, second_rect)
+                for marker, rect in zip(guide.swap_markers, (first_rect, second_rect), strict=True):
+                    assert type(marker) is type(first.replace_room_button)
+                    assert marker.kind == first.replace_room_button.kind == 'replace'
+                    assert marker.size() == first.replace_room_button.size()
+                    assert marker.isVisible() and marker.geometry().center() == rect.center()
+                    assert marker.focusPolicy() == Qt.NoFocus and marker.testAttribute(Qt.WA_TransparentForMouseEvents)
+                session.position = wall.mapToGlobal(units[0].center())
+                session._update_target()
+                assert guide.target == first_rect and not any(marker.isVisible() for marker in guide.swap_markers)
+                session.position = wall.mapToGlobal(second_rect.center())
+                assert first.geometry() == first_rect and second.geometry() == second_rect
+                assert session.finish() and not guide.isVisible()
+                assert first.geometry() == second_rect and second.geometry() == first_rect
+                assert wall.snap_grid.cells() == before and window._save_timer.isActive()
+                assert all(window.players[tile] is players[tile] for tile in tiles)
+                assert [int(tile.video.winId()) for tile in tiles] == handles
+                assert all(tile.state_control.pending_grid_aspect is None for tile in tiles)
+                assert not any(getattr(tile, '_card_drop_overlay', None) for tile in tiles)
+                begin_wall_drag(units[15].center())
+                session.position = wall.mapToGlobal(first_rect.center())
+                assert session.finish() and not guide.isVisible()
+                assert first.geometry() == first_rect and second.geometry() == second_rect
+                stop.assert_not_called()
+                start.assert_not_called()
+                stop_recording.assert_not_called()
 
         item = window.sidebar.items()[0]
         mime = QMimeData()
@@ -475,6 +516,13 @@ def check_snap_grid_and_other_presets(app):
                 opacity = .84
                 assert all(abs(result - (original * (1 - opacity) + color * opacity)) <= 2
                            for result, original, color in zip(masked.getRgb()[:3], base.getRgb()[:3], tint.getRgb()[:3]))
+                wall._fullscreen_layout_pending = True
+                try:
+                    assert not wall.snap_grid.interactive()
+                    assert window.grab().toImage().pixelColor(sample) == masked, (
+                        'The wall must keep its tint while fullscreen layout is pending')
+                finally:
+                    wall._fullscreen_layout_pending = False
                 window.settings['skin_mask'] = 70
                 controller.refresh()
                 app.processEvents()
@@ -576,6 +624,48 @@ def check_snap_grid_and_other_presets(app):
     finally:
         window.close()
         app.processEvents()
+
+
+def check_full_snap_grid_swaps(app):
+    from PySide6.QtCore import QMimeData, QPointF
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    from ddm.sidebar_drag import TILE_MIME
+
+    for size in (3, 4):
+        rooms = [dict(room_id=str(800 + i), uname=str(i), live=False) for i in range(size * size)]
+        window = MainWindow(rooms, deepcopy(rooms), layout_id=f'custom_grid{size * size}',
+                            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+        window.resize(1400, 900)
+        window.show()
+        app.processEvents()
+        try:
+            wall = window.wall
+            grid = wall.snap_grid
+            assert len(wall.visible_tiles()) == size * size and len(grid.occupied()) == size * size
+            first, source = wall.tiles[:2]
+            destination = wall.tiles[-1]
+            before = grid.cells()
+            source_rect, destination_rect = source.geometry(), destination.geometry()
+            # Duplicate room IDs can survive in old configurations. Swap the tile actually picked up.
+            with patch.dict(first.room, room_id=source.room['room_id']), patch.dict(source.room, live=True), \
+                    patch.dict(destination.room, live=True), patch.dict(window.players, {source: Mock(), destination: Mock()}):
+                assert window._tile_of(source.room['room_id']) is first
+                mime = QMimeData()
+                mime.setData(TILE_MIME, source.room['room_id'].encode())
+                assert grid.mark_drag(mime, source, source.rect().center())
+                point = destination_rect.center()
+                enter = QDragEnterEvent(point, Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+                QApplication.sendEvent(wall, enter)
+                assert enter.isAccepted()
+                drop = QDropEvent(QPointF(point), Qt.MoveAction, mime, Qt.LeftButton, Qt.NoModifier)
+                QApplication.sendEvent(wall, drop)
+                assert drop.isAccepted()
+                assert wall.tiles[0] is first and wall.tiles[1] is destination and wall.tiles[-1] is source
+                assert source.geometry() == destination_rect and destination.geometry() == source_rect
+                assert grid.cells() == before
+        finally:
+            window.close()
+            app.processEvents()
 
 
 def check_portrait_live_defaults(app):
@@ -842,6 +932,7 @@ def main():
             stack.enter_context(patch.object(MainWindow, method))
         check_layout_only_presets(app, Path(temporary))
         check_snap_grid_and_other_presets(app)
+        check_full_snap_grid_swaps(app)
         check_portrait_live_defaults(app)
         window = MainWindow(deepcopy(fixture), deepcopy(fixture), layout_id='corner',
                             state={'plugins_enabled': [], 'settings': {'auto_update': False,

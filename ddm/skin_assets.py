@@ -2,8 +2,8 @@
 import os
 from pathlib import Path
 import uuid
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QImageReader
+from PySide6.QtCore import QRunnable, QThread, Signal
+from PySide6.QtGui import QImage, QImageReader
 from . import config
 
 
@@ -13,21 +13,48 @@ IMAGES = {'.png', '.jpg', '.jpeg', '.webp', '.bmp'}
 VIDEOS = {'.mp4', '.webm', '.mkv', '.mov'}
 
 
-def validate_asset(path):
+def asset_file(path):
     path = Path(path)
     if not path.is_file() or path.suffix.lower() not in IMAGES | VIDEOS:
         raise ValueError('请选择支持的图片或视频文件')
     if not 0 < path.stat().st_size <= 512 * 1024 * 1024:
         raise ValueError('背景文件必须非空且不超过 512MB')
-    if path.suffix.lower() in IMAGES:
-        reader = QImageReader(str(path))
-        size = reader.size()
-        if not reader.canRead() or not size.isValid() or max(size.width(), size.height()) > 8192:
-            raise ValueError('图片无法读取或尺寸超过 8192 像素')
-        reader.setAutoTransform(True)
-        if reader.read().isNull():
-            raise ValueError('图片内容损坏，无法读取')
     return path
+
+
+def read_image(path):
+    reader = QImageReader(str(path))
+    size = reader.size()
+    if not reader.canRead() or not size.isValid() or max(size.width(), size.height()) > 8192:
+        raise ValueError('图片无法读取或尺寸超过 8192 像素')
+    reader.setAutoTransform(True)
+    image = reader.read()
+    if image.isNull():
+        raise ValueError('图片内容损坏，无法读取')
+    return image
+
+
+def validate_asset(path):
+    path = asset_file(path)
+    if path.suffix.lower() in IMAGES:
+        read_image(path)
+    return path
+
+
+class GalleryImageRead(QRunnable):
+    def __init__(self, path, completed):
+        super().__init__()
+        self.path, self.completed = path, completed
+
+    def run(self):
+        try:
+            image, error = read_image(asset_file(self.path)), ''
+        except (OSError, ValueError) as failure:
+            image, error = QImage(), str(failure)
+        try:
+            self.completed.emit(str(self.path), image, error)
+        except RuntimeError:
+            pass  # The settings page may have closed while the image was decoding.
 
 
 def import_asset(source, cancelled=lambda: False):

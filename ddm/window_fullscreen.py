@@ -9,6 +9,85 @@ from PySide6.QtWidgets import QApplication
 from . import theme
 
 
+# SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOCOPYBITS. The caption moves the
+# client origin, so copied pixels from the previous layout can shift upward.
+_FRAME_SWITCH_FLAGS = 0x0020 | 0x0004 | 0x0100
+
+
+def set_window_topmost(widget, pinned):
+    if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+        position = ctypes.windll.user32.SetWindowPos
+        position.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+        # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE. Keep the window and its owner intact.
+        position(int(widget.winId()), -1 if pinned else -2, 0, 0, 0, 0, 0x13)
+    else:
+        widget.winId()
+        widget.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
+
+
+def raise_below_native_windows(widget, anchors):
+    """Raise an overlay just behind its lowest anchor in the same topmost group."""
+    if not anchors:
+        return False
+    user32 = ctypes.windll.user32
+    user32.GetTopWindow.argtypes = (wintypes.HWND,)
+    user32.GetTopWindow.restype = wintypes.HWND
+    user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+    user32.GetWindowLongW.restype = ctypes.c_long
+    hwnd = int(widget.winId())
+    topmost = user32.GetWindowLongW(hwnd, -20) & 0x8  # GWL_EXSTYLE / WS_EX_TOPMOST
+    remaining = {anchor for anchor in anchors if (user32.GetWindowLongW(anchor, -20) & 0x8) == topmost}
+    if not remaining:
+        return False
+    anchor = user32.GetTopWindow(None)
+    while anchor:
+        remaining.discard(anchor)
+        next_window = user32.GetWindow(anchor, 2)  # GW_HWNDNEXT
+        if not remaining:
+            if next_window == hwnd:
+                return True
+            user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
+                                           ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
+            user32.SetWindowPos.restype = wintypes.BOOL
+            # SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE
+            return bool(user32.SetWindowPos(hwnd, anchor, 0, 0, 0, 0, 0x213))
+        anchor = next_window
+    return False
+
+
+def set_presentation_owner(widget, owner):
+    """Update transient ownership without replacing the window's native handle."""
+    owner_id = int(owner.winId()) if owner is not None else 0
+    widget_id = int(widget.winId())
+    handle = widget.windowHandle()
+    handle.setTransientParent(owner.windowHandle() if owner is not None else None)
+    if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+        # Qt applies transient ownership on show. Update the existing HWND too,
+        # before the previous owner can be destroyed during a fullscreen switch.
+        user32 = ctypes.windll.user32
+        set_window_long = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+        set_window_long.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
+        set_window_long.restype = ctypes.c_ssize_t
+        set_window_long(widget_id, -8, owner_id)  # GWLP_HWNDPARENT
+    if handle.isVisible():
+        widget.raise_()
+
+
+def keyboard_tick_ms() -> int:
+    tick_count = ctypes.windll.kernel32.GetTickCount64
+    tick_count.restype = ctypes.c_uint64
+    return tick_count()
+
+
+def key_message_age_ms(timestamp: int, now: int) -> int | None:
+    # The Qt Windows key mapper uses the 32-bit MSG.time tick for key events.
+    delay = (now - timestamp) & 0xffffffff
+    return delay if timestamp and delay < 0x80000000 else None
+
+
 class _MonitorInfo(ctypes.Structure):
     _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
                 ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
@@ -103,7 +182,7 @@ def enter(widget) -> tuple[int, int, tuple[int, int, int, int], tuple[int | None
         _dwm_set(hwnd, 34, 0xFFFFFFFE)  # DWMWA_BORDER_COLOR: COLOR_NONE
     user32.SetWindowLongW(hwnd, -16, (style & ~0x00CF0000) | 0x80000000)
     user32.SetWindowPos(hwnd, None, area.left, area.top,
-                        area.right - area.left, area.bottom - area.top, 0x0020 | 0x0004)
+                        area.right - area.left, area.bottom - area.top, _FRAME_SWITCH_FLAGS)
     return hwnd, style, (original.left, original.top, original.right, original.bottom), frame
 
 
@@ -112,6 +191,6 @@ def exit(widget, state: tuple[int, int, tuple[int, int, int, int], tuple[int | N
     hwnd, style, (left, top, right, bottom), frame = state
     user32.SetWindowLongW(hwnd, -16, style)
     user32.SetWindowPos(hwnd, None, left, top, right - left, bottom - top,
-                        0x0020 | 0x0004)
+                        _FRAME_SWITCH_FLAGS)
     _dwm_set(hwnd, 33, frame[0])
     _dwm_set(hwnd, 34, frame[1])

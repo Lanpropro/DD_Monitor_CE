@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayou
 from . import theme
 from .pip_geometry import composition_ratio
 from .shortcut_actions import DEFAULT_SHORTCUTS
+from .window_fullscreen import set_window_topmost
 
 
 class PictureInPictureButton(QPushButton):
@@ -576,17 +577,7 @@ class PictureInPictureWindow(QWidget):
             button.update()
 
     def _apply_pin(self, pinned):
-        if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-            import ctypes
-            from ctypes import wintypes
-            user32 = ctypes.windll.user32
-            user32.SetWindowPos.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.c_int,
-                ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT)
-            # Change only native Z order. Recomputing all Qt window flags can
-            # disturb alpha tool surfaces even without a QWidget Hide event.
-            user32.SetWindowPos(int(self.winId()), -1 if pinned else -2, 0, 0, 0, 0, 0x13)
-        else:
-            self.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
+        set_window_topmost(self, pinned)
 
     def return_to_monitor(self):
         self.controller.restore(activate=True)

@@ -1,4 +1,6 @@
 """Chat document formatting, bounded history and emoticon resources; panel owns document and loaders."""
+from html import escape
+
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRectF, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (
     QColor, QCursor, QDrag, QFont, QFontMetrics, QKeySequence, QPainter, QPainterPath, QPalette,
@@ -12,6 +14,7 @@ from .danmaku_format import (_brightness, _medal_chip, _escape)
 class DanmakuDocument:
     def __init__(self, host):
         self.host = host
+        self._medal_style = None
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
         """直接给文本的简写（预览、自检用）。"""
@@ -116,22 +119,34 @@ class DanmakuDocument:
         return content_html(content_runs(entry), host._images, height, fit_line=True)
 
     def medal_html(self, medal: dict) -> str:
-        """粉丝牌：有颜色就画成圆角小色块（图片），没有就退化成[名字等级]。"""
+        """粉丝牌使用同尺寸圆角底图，缺少颜色时使用默认色。"""
         host = self.host
         name = str(medal.get("name") or "")
         if not name:
             return ""
         level = str(medal.get("level") or "")
-        color = str(medal.get("color") or "")
-        if not color:
-            return f'<span style="color:#c792ea">[{_escape(name)}{_escape(level)}]</span>&#160;'
+        color = str(medal.get("color") or "#c792ea")
         size = host._font_size()
-        key = f"medal:{name}|{level}|{color}|{size}"
+        dpr = host.body.viewport().devicePixelRatioF()
+        family = host._font_family
+        style = size, family, dpr
+        if style != self._medal_style:
+            self._medal_style = style
+            for key in tuple(host._images):
+                if key.startswith('medal:'):
+                    del host._images[key]
+        key = f"medal:{name}|{level}|{color}"
         if key not in host._images:
-            host._images[key] = _medal_chip(name, level, color, size)
+            host._images[key] = _medal_chip(name, level, color, size, font_family=family, dpr=dpr)
         chip = host._images[key]
         host._register_image(key, chip)          # 不注册的话新到的弹幕会画成白块
-        return (f'<img src="{key}" width="{chip.width()}" height="{chip.height()}">&#160;')
+        logical = chip.deviceIndependentSize()
+        return (f'<img src="{escape(key, quote=True)}" width="{round(logical.width())}" '
+                f'height="{round(logical.height())}" style="vertical-align:middle">&#160;')
+
+    def refresh_medal_scale(self) -> None:
+        if self._medal_style is not None and self.host._blocks:
+            self.host._render_all()
 
     def register_image(self, key: str, image) -> None:
         """把图片挂到文本文档上，这样富文本里的 <img> 才画得出来。"""

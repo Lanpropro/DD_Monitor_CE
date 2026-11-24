@@ -37,7 +37,8 @@ def icon_color(button):
     if button.property('dockRail') and active(button):
         color = theme.qcolor('#ffffff' if theme.is_light() else theme.BG)
     else:
-        color = theme.qcolor(theme.ACCENT if hovered(button) else theme.TEXT2)
+        accent = hovered(button) or (button.property('accentWhenChecked') and active(button))
+        color = theme.qcolor(theme.ACCENT if accent else theme.TEXT2)
     if not button.isEnabled():
         color.setAlpha(90)
     return color

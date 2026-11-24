@@ -118,7 +118,7 @@ class ScSimulator(QMainWindow):
         self.collapse_delay = QSpinBox()
         self.collapse_delay.setRange(1, 60)
         self.collapse_delay.setSuffix(' 秒')
-        self.collapse_delay.setValue(7)
+        self.collapse_delay.setValue(config.DEFAULT_SETTINGS['super_chat_collapse_delay'])
         self.collapse_delay.valueChanged.connect(lambda value: self.change_sc_settings({'super_chat_collapse_delay': value}))
         form.addRow('SC 自动折叠', self.collapse_delay)
         self.sc_scale = QSlider(Qt.Horizontal)

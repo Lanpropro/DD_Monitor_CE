@@ -1,12 +1,14 @@
 """Main window app notices; window remains the only state and Qt lifetime owner."""
 from pathlib import Path
-from .streamer_defaults import room_defaults
+from uuid import uuid4
+from .streamer_defaults import monitored_streamers, room_defaults
 
 
 class AppNotices:
     def __init__(self, host):
         self.host = host
         self.official_announcement = None
+        self._windows_live = {}
 
     def check_official_announcement(self):
         if self.host._closing or self.official_announcement is not None:
@@ -18,6 +20,35 @@ class AppNotices:
         if self.official_announcement is not None:
             self.official_announcement.cancel()
 
+    def windows_live_rooms(self):
+        settings = self.host.settings
+        if not settings.get('notice_windows_recording'):
+            return {}
+        return {room_id: row for room_id, row in monitored_streamers(settings).items()
+                if row.get('windows_live_notice') is True}
+
+    def apply_live_status(self, status):
+        host = self.host
+        if host._closing:
+            return
+        rooms = self.windows_live_rooms()
+        for room_id in self._windows_live.keys() - rooms.keys():
+            del self._windows_live[room_id]
+        for room_id, profile in rooms.items():
+            info = status.get(room_id)
+            if not info or not info.get('live_known', True) or 'live' not in info:
+                continue
+            was_live, tag = self._windows_live.get(room_id, (None, None))
+            live = bool(info['live'])
+            if not live:
+                tag = None
+            elif was_live is False and host._startup_status_complete:
+                from .windows_recording_notifications import send_recording_notification
+                tag = uuid4().hex[:16]
+                name = info.get('uname') or profile.get('name') or room_id
+                send_recording_notification('开播提醒', f'{name} 开播了', tag=tag)
+            self._windows_live[room_id] = live, tag
+
     def background_recording_transition(self, event: str, room: dict) -> None:
         host = self.host
         if host._closing or not host.settings.get('notice_windows_recording', False):
@@ -26,7 +57,13 @@ class AppNotices:
             return
         from .windows_recording_notifications import send_recording_notification
         title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')
-        send_recording_notification(title, str(room.get('uname') or room['room_id']))
+        name = str(room.get('uname') or room['room_id'])
+        _, tag = self._windows_live.get(str(room['room_id']), (None, None))
+        if event == 'started' and tag is not None:
+            # Keep the opening toast in Notification Center as the recording status changes.
+            send_recording_notification(title, name, tag=tag, suppress_popup=True)
+        else:
+            send_recording_notification(title, name)
 
     def record_notice(self, message: str, room=None) -> None:
         host = self.host

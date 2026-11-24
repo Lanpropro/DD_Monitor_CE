@@ -7,7 +7,8 @@ import time
 from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, QTimer, Qt
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
@@ -78,12 +79,16 @@ def check_window_capture(window):
     user32 = ctypes.windll.user32
     user32.GetAncestor.argtypes = (ctypes.c_void_p, ctypes.c_uint)
     user32.GetAncestor.restype = ctypes.c_void_p
+    user32.GetClassLongW.argtypes = (ctypes.c_void_p, ctypes.c_int)
+    user32.GetClassLongW.restype = ctypes.c_uint
+    user32.SetWindowPos.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+                                    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint)
     main_hwnd, video_hwnd = int(window.winId()), int(tile.video.winId())
     window.players[tile] = player
     try:
         with patch.dict(os.environ):
             os.environ.pop('DDM_FULLSCREEN_WINDOW_CAPTURE', None)
-            for state in (Qt.WindowNoState, Qt.WindowMaximized):
+            for state in (Qt.WindowNoState, Qt.WindowMaximized) * 2:
                 window.setWindowState(state)
                 QTest.qWait(250)
                 original_state = window.windowState()
@@ -92,21 +97,101 @@ def check_window_capture(window):
                 original_saved_geometry = window.current_state()['geometry']
                 original_wall = QRect(wall.geometry())
                 original_panes = [QRect(pane.geometry()) for pane in wall.tiles]
+                original_video = QRect(tile.video.geometry())
+                original_video_origin = tile.video.mapToGlobal(QPoint())
+                original_bar = QRect(tile.bottom.geometry())
+                original_origin = wall.mapToGlobal(QPoint())
+                sidebar = window.sidebar
+                original_sidebar_size = sidebar.size()
+                original_account_rect = QRect(sidebar.account_row.geometry())
+                original_rail_rect = QRect(sidebar.navigation.rail.geometry())
+                original_max_height = sidebar.maximumHeight()
+                original_min_height = sidebar.minimumHeight()
+                root = window.centralWidget()
+                original_root_size = root.size()
+                original_alignment = root.layout().itemAt(root.layout().indexOf(sidebar)).alignment()
                 visible = wall.visible_tiles()
                 panels = [panel for panel in wall.pane_danmaku.all_panels() if panel.isVisible()]
                 show_result(window, '主窗口全屏提示', kind='warning', persistent=True)
                 notice = window._result_notice
 
                 enter_native = window_fullscreen.enter
+                peers = [pane for pane in (*visible, *panels, window.sidebar) if pane is not tile]
+                entry_exposures, old_bar_paints, exit_exposures, restored_sizes = [], [], [], []
+                exit_bar_modes = []
+                sidebar_repaints = []
+                exit_native = window_fullscreen.exit
+
+                class RestoreEvents(QObject):
+                    def eventFilter(self, watched, event):
+                        if watched is tile.video and event.type() == QEvent.Resize and tile.property('fullscreen'):
+                            entry_exposures.append((sum(pane.isVisible() for pane in peers), bool(old_bar_paints)))
+                        elif (watched is tile and event.type() == QEvent.Paint and tile.bottom.isHidden()
+                              and tile.geometry() == original_panes[0]
+                              and event.region().intersects(original_bar)):
+                            old_bar_paints.append(True)
+                        elif watched is window and event.type() == QEvent.Resize:
+                            restored_sizes.append(event.size())
+                        elif watched is tile.video and event.type() == QEvent.Resize:
+                            exit_bar_modes.append((tile.bottom.isHidden(), tile.bottom.qt_composited,
+                                                   tile.video.mapToGlobal(QPoint())))
+                        elif watched in peers and watched is not window.sidebar and event.type() == QEvent.Show:
+                            exit_exposures.append(QRect(tile.video.geometry()))
+                        return False
 
                 def enter_with_prepared_video(widget):
                     assert tile.video.geometry() == QRect(QPoint(), widget.screen().size()), (
                         'The selected video must be ready before changing the native frame', tile.video.geometry())
+                    assert wall.mapToGlobal(QPoint()) == original_origin, (
+                        'The sidebar layout moved the ordinary wall before the native frame changed')
                     return enter_native(widget)
 
-                with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native:
-                    window._on_fullscreen(tile)
-                    assert native.called == (state == Qt.WindowMaximized)
+                def exit_with_prepared_bar(widget, frame):
+                    assert tile.bottom.isHidden() and not tile.bottom.qt_composited, (
+                        'Prepare the ordinary bar before restoring the native frame')
+                    assert tile.video.geometry() == tile.rect(), 'The video should still cover the fullscreen frame'
+                    root = widget.centralWidget()
+                    fullscreen_size = root.size()
+                    result = exit_native(widget, frame)
+                    # The capture shows Win32 returning before Qt delivers the
+                    # restored client height. Reproduce that size at the handoff.
+                    root.resize(fullscreen_size)
+                    return result
+
+                repaint_sidebar = window.sidebar.repaint
+                set_sidebar_visible = sidebar.setVisible
+
+                def show_sidebar_with_late_parent_resize(visible):
+                    if state == Qt.WindowMaximized and visible and sidebar.isHidden():
+                        # QWidget::show can activate the still-fullscreen Qt parent layout.
+                        root.resize(screen.size())
+
+                        def restore_parent_size():
+                            root.resize(original_root_size)
+                            QCoreApplication.sendEvent(window, QResizeEvent(original_root_size, screen.size()))
+
+                        QTimer.singleShot(0, root, restore_parent_size)
+                    return set_sidebar_visible(visible)
+
+                def repaint_sidebar_before_video_shrinks():
+                    sidebar_repaints.append((QRect(tile.video.geometry()), sidebar.size(),
+                                             QRect(sidebar.account_row.geometry()),
+                                             QRect(sidebar.navigation.rail.geometry())))
+                    return repaint_sidebar()
+
+                events = RestoreEvents()
+                tile.video.installEventFilter(events)
+                tile.installEventFilter(events)
+                try:
+                    with patch.object(window_fullscreen, 'enter', side_effect=enter_with_prepared_video) as native, \
+                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as enter_frame:
+                        window._on_fullscreen(tile)
+                        assert native.called == (state == Qt.WindowMaximized)
+                finally:
+                    tile.video.removeEventFilter(events)
+                    tile.removeEventFilter(events)
+                assert entry_exposures and all(count == 0 and painted for count, painted in entry_exposures), (
+                    'Video expanded before hiding the other panes and painting the old bar area', entry_exposures)
                 QTest.qWait(90)
                 assert window.isFullScreen(), 'The capture target must fill the screen itself'
                 assert window.geometry() == window.screen().geometry()
@@ -119,33 +204,49 @@ def check_window_capture(window):
                     tile.video.geometry(), tile.rect(), wall.geometry(), window.rect())
                 assert tile.video.mapToGlobal(QPoint()) == window.mapToGlobal(QPoint())
                 assert tile.bottom.geometry() == tile.bottom._tile_rect.translated(tile.mapToGlobal(QPoint()))
+                assert tile.bottom.windowHandle().transientParent() is window.windowHandle()
+                assert not user32.GetClassLongW(int(tile.bottom.winId()), -26) & 0x0800, (
+                    'Fullscreen controls must not use the CS_SAVEBITS window class')
                 assert not window.sidebar.isVisible() and wall.visible_tiles() == [tile]
                 assert all(not panel.isVisible() for panel in panels)
                 assert window.players[tile] is player
 
-                restored_sizes = []
-
-                class RestoreEvents(QObject):
-                    def eventFilter(self, watched, event):
-                        if event.type() == QEvent.Resize:
-                            restored_sizes.append(event.size())
-                        return False
-
-                events = RestoreEvents()
-                window.installEventFilter(events)
+                for widget in (window, tile.video, *peers):
+                    widget.installEventFilter(events)
                 try:
-                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta:
+                    with patch.object(window, '_refresh_meta', wraps=window._refresh_meta) as refresh_meta, \
+                            patch.object(tile.bottom, 'repaint', wraps=tile.bottom.repaint) as repaint, \
+                            patch.object(user32, 'SetWindowPos', wraps=user32.SetWindowPos) as exit_frame, \
+                            patch.object(window_fullscreen, 'exit', side_effect=exit_with_prepared_bar), \
+                            patch.object(sidebar, 'setVisible', side_effect=show_sidebar_with_late_parent_resize), \
+                            patch.object(window.sidebar, 'repaint', side_effect=repaint_sidebar_before_video_shrinks):
                         next(shortcut for shortcut in window._window_shortcuts
                              if shortcut.key().toString() == window.shortcuts['restore']).activated.emit()
                         refresh_meta.assert_not_called()
+                        repaint.assert_not_called()
                         QTest.qWait(90)
                         refresh_meta.assert_called()
                 finally:
-                    window.removeEventFilter(events)
+                    for widget in (window, tile.video, *peers):
+                        widget.removeEventFilter(events)
+                assert exit_bar_modes and all(hidden and not composited and origin == original_video_origin
+                    for hidden, composited, origin in exit_bar_modes), (
+                    'The normal video must resize directly at its final screen position', exit_bar_modes)
+                assert sidebar_repaints == [(QRect(QPoint(), screen.size()), original_sidebar_size,
+                    original_account_rect, original_rail_rect)], (
+                    'The sidebar must paint at its final size before the video shrinks', sidebar_repaints)
+                assert sidebar.maximumHeight() == original_max_height
+                assert sidebar.minimumHeight() == original_min_height
+                assert root.layout().itemAt(root.layout().indexOf(sidebar)).alignment() == original_alignment
+                assert exit_exposures and all(rect == original_video for rect in exit_exposures), (
+                    'Wall panes were shown before the target video returned to its slot', exit_exposures)
                 assert not window.isFullScreen() and window.windowState() == original_state
                 assert window.geometry() == original_geometry and wall.geometry() == original_wall
                 assert window.normalGeometry() == normal_geometry
                 if state == Qt.WindowMaximized:
+                    for frame in (enter_frame, exit_frame):
+                        assert any(call.args[0] == main_hwnd and call.args[-1] & 0x0100
+                                   for call in frame.call_args_list), 'Native frame change copied old client pixels'
                     normal_size = normal_geometry.size()
                     assert normal_size != original_geometry.size(), 'Fixture needs distinct normal and maximized sizes'
                     assert normal_size not in restored_sizes, f'Exit exposed the normal window size: {restored_sizes}'
@@ -154,7 +255,7 @@ def check_window_capture(window):
                 assert [pane.geometry() for pane in wall.tiles] == original_panes
                 assert int(window.winId()) == main_hwnd and int(tile.video.winId()) == video_hwnd
                 assert user32.GetAncestor(video_hwnd, 2) == main_hwnd
-                assert window.players[tile] is player and tile.bottom.isVisible()
+                assert window.players[tile] is player and tile.bottom.isVisible() and not tile.bottom.isWindow()
                 assert not player.play.called and not player.release.called
                 assert notice.isVisible() and notice.windowHandle().transientParent() is window.windowHandle()
                 notice.dismiss(animate=False)
@@ -162,6 +263,36 @@ def check_window_capture(window):
         window._exit_fullscreen()
         window.players.pop(tile, None)
     print('PASS: capture fullscreen keeps the video under one HWND and restores normal/maximized geometry')
+
+
+def check_queued_fullscreen_key(window):
+    window.showNormal()
+    QTest.qWait(60)
+    tile = window.wall.tiles[0]
+    post_message = ctypes.windll.user32.PostMessageW
+    post_message.argtypes = (ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
+
+    def post_f():
+        hwnd = int(window.winId())
+        assert post_message(hwnd, 0x0100, 0x46, 0x00210001)
+        assert post_message(hwnd, 0x0101, 0x46, 0xc0210001)
+
+    with patch.object(window, '_tile_under_cursor', return_value=tile):
+        post_f()
+        assert window._handle_shortcut(window.shortcuts['focus'])
+        QApplication.setActiveWindow(window)
+        QTest.qWait(90)
+        assert window.isFullScreen(), 'F queued during a toggle was replayed'
+        QApplication.setActiveWindow(window)
+        post_f()
+        QTest.qWait(90)
+        assert not window.isFullScreen(), 'A fresh native F must exit fullscreen'
+        assert window._handle_shortcut(window.shortcuts['focus'])
+        QApplication.setActiveWindow(tile.bottom)
+        assert QApplication.activeWindow() is tile.bottom
+        QTest.keyClick(tile.bottom.windowHandle(), Qt.Key_Escape)
+        assert not window.isFullScreen(), 'Escape must still work while the fullscreen bar is active'
+    print('PASS: stale native fullscreen keys are consumed and fresh keys and Escape remain available')
 
 
 def main():
@@ -177,7 +308,10 @@ def main():
                      'load_cached_covers', '_check_startup_update', '_check_startup_plugins'):
             stack.enter_context(patch.object(MainWindow, name, Mock()))
         window = MainWindow(rooms, [dict(room) for room in rooms], layout_id='3x3',
-                            state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+                            state={'plugins_enabled': [], 'settings': {
+                                'close_behavior': 'exit', 'fullscreen_auto_hide_controls': False,
+                                'windowed_transparent_controls': False, 'windowed_auto_hide_controls': False,
+                                'wall_seamless': False}})
         window.setGeometry(-9000, -9000, 1200, 700)
         window.setAttribute(Qt.WA_ShowWithoutActivating)
         window.setWindowFlag(Qt.WindowDoesNotAcceptFocus, True)
@@ -347,6 +481,7 @@ def main():
                     widget.removeEventFilter(chat_handoff)
             with patch.object(presentation, 'enter', enter):
                 check_window_capture(window)
+                check_queued_fullscreen_key(window)
             window._on_fullscreen(tiles[0])
         finally:
             # Release stored focus while fixture buttons are still alive;

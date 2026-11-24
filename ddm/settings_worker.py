@@ -108,6 +108,13 @@ def run_worker():
             rect = list(self.frameGeometry().getRect()) if self.isVisible() and not self.isMinimized() else []
             send({'kind': 'occlusion', 'rect': rect})
 
+        def select_page(self, page):
+            index = self.PAGE_INDEX.get(page)
+            if index is not None:
+                self.nav.setCurrentRow(index)
+                if page == 'plugins':
+                    send({'kind': 'host-plugin-store'})
+
         def changes(self):
             return {'settings': {key: value for key, value in self.settings().items()
                                  if value != self.initial_settings.get(key)},
@@ -242,7 +249,18 @@ def run_worker():
         def __init__(self):
             super().__init__()
             self.dialog = None
+            self.focus_after_close = None
             self.request.connect(self.handle)
+
+        def activate(self, dialog):
+            if self.dialog is dialog:
+                host_api._activate_dialog(dialog)
+
+        @staticmethod
+        def report_missed_focus(message):
+            serial = message.get('serial')
+            if serial is not None:
+                send({'kind': 'focus-missed', 'serial': serial, 'page': message.get('page')})
 
         def handle(self, message):
             kind = message.get('kind')
@@ -308,11 +326,17 @@ def run_worker():
                 self.dialog._save()
             elif kind == 'host-cancel' and self.dialog is not None:
                 self.dialog.reject()
-            elif kind == 'focus' and self.dialog is not None:
+            elif kind == 'focus':
+                dialog = self.dialog
+                if dialog is None:
+                    self.report_missed_focus(message)
+                    return
+                if dialog.pending_close_result is not None or dialog.auto_save.closing is not None:
+                    self.focus_after_close = message
                 if 'portrait' in message:
-                    self.dialog.set_host_layout(bool(message['portrait']), message.get('work_area'))
-                QTimer.singleShot(0, self.dialog,
-                                  lambda dialog=self.dialog: host_api._activate_dialog(dialog))
+                    dialog.set_host_layout(bool(message['portrait']), message.get('work_area'))
+                dialog.select_page(message.get('page'))
+                QTimer.singleShot(0, dialog, lambda: self.activate(dialog))
             elif kind == 'open' and self.dialog is None:
                 mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
                 theme.configure_appearance(message['settings'])
@@ -321,8 +345,8 @@ def run_worker():
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
                 send({'kind': 'window', 'hwnd': int(dialog.winId())})
-                QTimer.singleShot(0, dialog,
-                                  lambda dialog=dialog: host_api._activate_dialog(dialog))
+                dialog.select_page(message.get('page'))
+                QTimer.singleShot(0, dialog, lambda: self.activate(dialog))
 
         def finished(self, accepted):
             dialog, self.dialog = self.dialog, None
@@ -332,6 +356,9 @@ def run_worker():
             send({'kind': 'result', 'accepted': accepted == SettingsDialog.Accepted,
                   'changes': dialog.changes() if accepted == SettingsDialog.Accepted else {},
                   'host_saved': dialog.host_saved})
+            if self.focus_after_close is not None:
+                self.report_missed_focus(self.focus_after_close)
+                self.focus_after_close = None
             if started is not None:
                 host_api._save_trace('worker.result.sent', started)
             dialog.deleteLater()

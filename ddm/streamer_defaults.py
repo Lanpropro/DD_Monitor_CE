@@ -15,7 +15,10 @@ def room_defaults(settings, room_id):
     row = saved.get(str(room_id)) if isinstance(saved, dict) else None
     if not isinstance(row, dict):
         return {}
-    values = {key: True for key in ('auto_record', 'windows_recording_notice') if row.get(key) is True}
+    values = {key: True for key in ('auto_record', 'windows_recording_notice', 'windows_live_notice')
+              if row.get(key) is True}
+    if isinstance(row.get('monitor_live'), bool) or monitors_live(row):
+        values['monitor_live'] = monitors_live(row)
     mode = row.get('auto_record_mode')
     if mode in ('normal', 'clip'):
         values['auto_record_mode'] = mode
@@ -33,6 +36,21 @@ def room_defaults(settings, room_id):
     return values
 
 
+def monitors_live(row):
+    enabled = row.get('monitor_live')
+    if isinstance(enabled, bool):
+        return enabled
+    return row.get('auto_record') is True or row.get('windows_live_notice') is True
+
+
+def monitored_streamers(settings):
+    saved = settings.get('streamer_defaults')
+    if not isinstance(saved, dict):
+        return {}
+    return {room_id: row for room_id, row in saved.items()
+            if isinstance(room_id, str) and room_id and isinstance(row, dict) and monitors_live(row)}
+
+
 def streamer_profile_group(row):
     """Match the settings cards by their displayed quality and recording preferences."""
     qualities = []
@@ -40,8 +58,9 @@ def streamer_profile_group(row):
         value = row.get(key)
         label = value['label'] if isinstance(value, dict) else QUALITY_LABELS.get(value, '继承')
         qualities.append(label.strip().casefold() if key in row else None)
-    return (*qualities, row.get('volume'), bool(row.get('auto_record')),
-            bool(row.get('windows_recording_notice')), row.get('auto_record_mode'))
+    return (*qualities, row.get('volume'), monitors_live(row), bool(row.get('auto_record')),
+            bool(row.get('windows_recording_notice')), bool(row.get('windows_live_notice')),
+            row.get('auto_record_mode'))
 
 
 def source_quality_option(options):

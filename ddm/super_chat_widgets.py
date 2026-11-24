@@ -269,9 +269,14 @@ class SuperChatStack(QWidget):
                 if watched is card.close_button:
                     return False
                 if card is watched or card.isAncestorOf(watched):
-                    if self.presentation.is_collapsed(self._events[index]):
-                        self.presentation.expand(self._events[index]['id'])
+                    chat_id = self._events[index]['id']
+                    if self.presentation.is_collapsed(chat_id):
+                        self.presentation.expand(chat_id, manual=True)
                         self._scroll_to(max(self._scroll_offset, card.geometry().bottom() + 1 - self.height()))
+                        return True
+                    if self.presentation.stays_expanded(chat_id) and (
+                            watched is card.header or card.header.isAncestorOf(watched)):
+                        self.presentation.collapse(chat_id)
                         return True
         return super().eventFilter(watched, event)
 

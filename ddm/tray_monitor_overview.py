@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from . import images, theme
 from .avatar_widgets import Avatar, FollowAvatar
 from .streamer_monitor_panel import (StreamerMonitorPanel, monitor_elapsed, monitor_identifier,
-                                     monitor_platform_badge, monitor_status_badge)
+                                     monitor_platform_badge, monitor_status_badge, monitored_live_label)
 
 
 class _ProfileStack(QWidget):
@@ -70,6 +70,8 @@ class _ProfileStack(QWidget):
         lines = []
         for entry in self.shown:
             line = f'{escape(entry.name)} · {escape(monitor_identifier(entry))}'
+            if live_label := monitored_live_label(entry):
+                line += f' · {live_label}'
             if now is not None and entry.started_at:
                 line += f' · {monitor_elapsed(entry.started_at, now)}'
             lines.append(line)

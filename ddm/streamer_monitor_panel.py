@@ -52,6 +52,12 @@ def monitor_identifier(entry):
     return f'房间号 {entry.display_room_id or entry.room_id}'
 
 
+def monitored_live_label(entry):
+    if entry.state in ('monitoring', 'failed') and entry.live is not None:
+        return '直播中' if entry.live else '未开播'
+    return ''
+
+
 class _MonitorRow(QWidget):
     def __init__(self, entry, *, compact=False):
         super().__init__()
@@ -99,6 +105,8 @@ class _MonitorRow(QWidget):
         status_box.setAlignment(Qt.AlignVCenter)
         status_box.setSpacing(2)
         self.status = monitor_status_badge(entry.state)
+        if live_label := monitored_live_label(entry):
+            self.status.setText(f'{self.status.text()} · {live_label}')
         status_box.addWidget(self.status, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.elapsed = QLabel(self, objectName='AppSubtitle')
         self.elapsed.setAccessibleName('录制时长')

@@ -123,6 +123,12 @@ def child(mode, directory):
         if mode == 'notices':
             records = [json.loads(line) for line in (Path(directory) / 'notice-close.jsonl').read_text().splitlines()]
             assert any(row['stage'] == 'manual-snapshot' for row in records)
+        if mode == 'fullscreen':
+            assert not (Path(directory) / 'fullscreen.jsonl').exists()
+            trace = Path(directory) / f"fullscreen-session-{ready['run']}.jsonl"
+            records = [json.loads(line) for line in trace.read_text(encoding='utf-8').splitlines()]
+            assert any(row['phase'] == 'start' and row['session'] == ready['linked_sessions'][mode]
+                       for row in records)
         if mode == 'dock-hover':
             misses = [row for row in metadata if row['stage'] == 'dock-hover-mismatch']
             assert [row['reason'] for row in misses] == ['missing-on-entry', 'lost-while-inside']

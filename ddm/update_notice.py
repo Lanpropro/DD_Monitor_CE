@@ -1,16 +1,14 @@
 """Update indicators and update notification presentation."""
-import ctypes
-from ctypes import wintypes
 import os
-import sys
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QRectF, Qt, QTimer, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QApplication, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStyledItemDelegate, QVBoxLayout, QWidget
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .update_version import release_label
 from .widget_support import BRAND_ASSETS_DIR, _repolish
+from .window_fullscreen import set_presentation_owner
 
 
 class UpdateDot(QLabel):
@@ -221,21 +219,9 @@ class UpdateNotice(QFrame):
         self._fullscreen_owner = fullscreen_owner
         if fullscreen_owner is not None:
             fullscreen_owner.installEventFilter(self)
-        owner.winId()
-        handle = self.windowHandle()
-        handle.setTransientParent(owner.windowHandle())
+        set_presentation_owner(self, owner)
         if not self.isVisible():
             return
-        if handle.isVisible():
-            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
-                # Qt applies the new transient owner on show. Update an already
-                # visible HWND in place so the card keeps its timer and history.
-                user32 = ctypes.windll.user32
-                set_window_long = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
-                set_window_long.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
-                set_window_long.restype = ctypes.c_ssize_t
-                set_window_long(int(handle.winId()), -8, int(owner.winId()))  # GWLP_HWNDPARENT
-            self.raise_()
         self._resize_to_content()
         self.reposition()
 

@@ -4,6 +4,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from . import theme
+from .sidebar_navigation import NavigationButton
 
 
 class SnapGridGuide(QWidget):
@@ -15,13 +16,27 @@ class SnapGridGuide(QWidget):
         self.wall = wall
         self.units = ()
         self.target = None
+        self.swap_source = None
+        self.swap_markers = tuple(NavigationButton('交换画面', 'replace', self) for _ in range(2))
+        for marker in self.swap_markers:
+            marker.setFixedSize(24, 24)
+            marker.setCheckable(True)
+            marker.setChecked(True)
+            marker.setFocusPolicy(Qt.NoFocus)
+            marker.setAttribute(Qt.WA_TransparentForMouseEvents)
+            marker.setToolTip('')
+            marker.hide()
 
-    def present(self, units, target):
+    def present(self, units, target, *, swap_source=None):
         bounds = QRect(self.wall.mapToGlobal(QPoint()), self.wall.size())
         if self.geometry() != bounds:
             self.setGeometry(bounds)
-        if (units, target) != (self.units, self.target):
-            self.units, self.target = units, target
+        if (units, target, swap_source) != (self.units, self.target, self.swap_source):
+            self.units, self.target, self.swap_source = units, target, swap_source
+            for marker, rect in zip(self.swap_markers, (swap_source, target if swap_source is not None else None)):
+                if rect is not None:
+                    marker.move(rect.center() - marker.rect().center())
+                marker.setVisible(rect is not None)
             self.update()
         if not self.isVisible():
             self.show()
@@ -35,9 +50,11 @@ class SnapGridGuide(QWidget):
                 painter.setPen(pen)
                 for rect in self.units:
                     painter.drawRect(QRectF(rect).adjusted(2, 2, -2, -2))
-            if self.target is not None:
-                accent = theme.qcolor(theme.ACCENT)
-                painter.setPen(QPen(accent, 2))
-                accent.setAlpha(56)
-                painter.setBrush(accent)
-                painter.drawRoundedRect(QRectF(self.target).adjusted(1, 1, -1, -1), 8, 8)
+            accent = theme.qcolor(theme.ACCENT)
+            painter.setPen(QPen(accent, 2))
+            fill = QColor(accent)
+            fill.setAlpha(56)
+            painter.setBrush(fill)
+            for rect in (self.target, self.swap_source):
+                if rect is not None:
+                    painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 8, 8)

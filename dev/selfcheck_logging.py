@@ -213,6 +213,40 @@ runpy.run_path(root + '/main.py', run_name='__main__')
                                         capture_output=True, timeout=20)
                 self.assertEqual(result.returncode, 17, result.stderr)
 
+    @unittest.skipUnless(sys.platform == "win32", "Windows OpenSSL DLL search order")
+    def test_source_startup_prefers_the_python_openssl_pair(self):
+        program = """
+import os, runpy, sys, types
+from pathlib import Path
+root, fixture = map(Path, sys.argv[1:])
+sys.path.insert(0, str(root))
+sys.base_prefix = str(fixture)
+python_dlls = fixture / 'DLLs'
+python_dlls.mkdir()
+foreign_path = str(fixture / 'foreign-runtime') + os.pathsep + os.environ['PATH']
+os.environ['PATH'] = foreign_path
+
+config = types.ModuleType('ddm.config')
+config.initialize_paths = lambda: None
+sys.modules['ddm.config'] = config
+app = types.ModuleType('ddm.app')
+app.main = lambda: None
+sys.modules['ddm.app'] = app
+entry = str(root / 'main.py')
+
+(python_dlls / 'libssl-3-x64.dll').touch()
+runpy.run_path(entry, run_name='bootstrap')
+assert os.environ['PATH'] == foreign_path
+
+(python_dlls / 'libcrypto-3-x64.dll').touch()
+for _ in range(2):
+    runpy.run_path(entry, run_name='bootstrap')
+    assert os.environ['PATH'] == str(python_dlls) + os.pathsep + foreign_path
+"""
+        result = subprocess.run([sys.executable, "-c", program, str(ROOT), str(self.directory)],
+                                capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_bad_data_location_keeps_error_and_writes_fallback_log(self):
         program = """
 import runpy, sys, tempfile, types

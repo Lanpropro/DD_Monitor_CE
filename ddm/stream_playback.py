@@ -56,8 +56,8 @@ class StreamPlayback:
         for tile in host.wall.tiles:
             host.start_tile(tile)
 
-    def apply_quality_policy(self, *, restart: bool = True) -> list:
-        """有主次布局时：主画面自动用原画，其余用 720P。"""
+    def apply_quality_policy(self, *, restart: bool = True, tiles=None) -> list:
+        """按画面墙主次设置画质，可限定到本次需要启动的格子。"""
         host = self.host
         changed = []
         if not host.settings.get("auto_quality", True):
@@ -66,6 +66,8 @@ class StreamPlayback:
         if main is None:
             return changed
         for index, tile in enumerate(host.wall.tiles):
+            if tiles is not None and tile not in tiles:
+                continue
             if not tile.room.get("room_id"):
                 continue
             if not str(tile.room["room_id"]).isdigit():

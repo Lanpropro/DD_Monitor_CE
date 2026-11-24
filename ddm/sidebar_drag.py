@@ -49,7 +49,7 @@ class SidebarDrag(QObject):
         self.source, self.mime = source, mime
         self.plugin_owner, self.on_finished = plugin_owner, on_finished
         self.area = source if isinstance(source, QAbstractScrollArea) else self.sidebar.scroll
-        if not pixmap.isNull() and (mime.hasFormat(ROOM_MIME) or mime.hasFormat(TILE_MIME)):
+        if not pixmap.isNull() and mime.hasFormat(ROOM_MIME):
             remember_card(mime, pixmap, hotspot)
         self.position = QPoint(global_pos)
         self.hotspot = QPoint(hotspot)

@@ -13,8 +13,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QApplication, QScrollArea, QWidget
 from ddm import fullscreen_diagnostics as diag
 
 APP = QApplication.instance() or QApplication([])
@@ -105,16 +106,64 @@ class CaptureTests(unittest.TestCase):
     def rows(self):
         return [json.loads(line) for line in self.path.read_text(encoding='utf-8').splitlines()]
 
-    def test_bar_first_paint_is_part_of_handoff_evidence(self):
+    def test_explicit_capture_records_only_fullscreen_shortcut_edges(self):
+        self.window.shortcuts = {'focus': 'F', 'restore': 'Esc'}
+        self.window.winId()
+        receiver = self.window.windowHandle()
+        with patch.object(diag, '_key_queue_ms', return_value=160):
+            for enabled, key, repeat, event_type in (
+                    (False, Qt.Key_F, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_A, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, True, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, False, QEvent.ShortcutOverride),
+                    (True, Qt.Key_F, False, QEvent.KeyRelease),
+                    (True, Qt.Key_Escape, False, QEvent.ShortcutOverride)):
+                self.capture.native_windows = enabled
+                event = QKeyEvent(event_type, key, Qt.NoModifier, 'private-text', repeat)
+                event.setTimestamp(1234)
+                self.assertFalse(self.capture.eventFilter(receiver, event))
+        rows = self.rows()
+        self.assertEqual([(row['action'], row['edge']) for row in rows],
+                         [('focus', 'press'), ('focus', 'release'), ('restore', 'press')])
+        self.assertTrue(all(row['phase'] == 'fullscreen-key' and row['queue_ms'] == 160 for row in rows))
+        self.assertNotIn('private-text', self.path.read_text(encoding='utf-8'))
+
+    def test_bar_and_sidebar_first_paint_are_part_of_handoff_evidence(self):
         tile = self.window.wall.tiles[0]
         tile.bottom = QWidget(self.window)
         tile.bottom.resize(300, 36)
+        sidebar = self.window.sidebar = QWidget(self.window)
+        sidebar.scroll = QScrollArea(sidebar)
+        sidebar.account_row = QWidget(sidebar)
+        sidebar.navigation = SimpleNamespace(rail=QWidget(sidebar))
         self.capture.begin('enter', tile)
-        self.capture.eventFilter(tile.bottom, diag.QEvent(diag.QEvent.Paint))
+        for widget in (tile.bottom, sidebar, sidebar.scroll.viewport(), sidebar.account_row, sidebar.navigation.rail):
+            self.capture.eventFilter(widget, diag.QEvent(diag.QEvent.Paint))
         self.capture.finish()
         events = self.rows()[-1]['geometry']
-        self.assertTrue(any(e['role'] == 'bar' and e['event'] == 'Paint' for e in events))
+        self.assertEqual({e['role'] for e in events if e['event'] == 'Paint'},
+                         {'bar', 'sidebar', 'sidebar-cards', 'sidebar-account', 'sidebar-rail'})
         self.assertNotIn('private-', self.path.read_text(encoding='utf-8'))
+
+    def test_explicit_capture_records_known_bars_and_visible_native_windows(self):
+        tile = self.window.wall.tiles[0]
+        tile.bottom = QWidget(self.window)
+        self.capture.native_windows = True
+        snapshot = {'available': True, 'truncated': False, 'cursor': [100, 200], 'windows': [
+            dict(hwnd='0x123', parent='0x0', cls='Qt', rect=[1, 2, 3, 4], visible=False),
+            dict(hwnd='0x456', parent='0x0', cls='Qt', rect=[10, 20, 30, 40], visible=True),
+            dict(hwnd='0x789', parent='0x0', cls='Qt', visible=False),
+        ]}
+        with patch('ddm.on_demand_diagnostics.native_snapshot', return_value=snapshot), \
+                patch.object(tile.bottom, 'internalWinId', return_value=0x123):
+            self.capture.begin('enter', tile)
+            self.capture.capture_native_windows(self.capture.record, 'returned')
+            self.capture.finish('interrupted')
+        entries = self.rows()[-1]['native_windows']
+        self.assertEqual([entry['stage'] for entry in entries], ['before', 'returned', 'interrupted'])
+        self.assertEqual(entries[-1]['bars'], {'0x123': 0})
+        self.assertEqual([row['hwnd'] for row in entries[-1]['windows']], ['0x123', '0x456'])
+        self.assertNotIn('cursor', entries[-1])
 
     def test_idle_capture_records_animation_without_content_and_stops(self):
         from ddm.widgets import Tile as RuntimeTile

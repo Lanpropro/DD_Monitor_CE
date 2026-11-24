@@ -16,6 +16,8 @@ class FullscreenPresentation(QObject):
         self._owner_hidden = False
         self._windowed_state = None
         self._windowed_geometry = None
+        self._windowed_sidebar_height = None
+        self._sidebar_height_limit = None
         self._maximized_frame = None
         window.installEventFilter(self)
 
@@ -28,6 +30,27 @@ class FullscreenPresentation(QObject):
         self.window.centralWidget().layout().activate()
         self.window._content.layout().activate()
 
+    def _limit_sidebar_height(self, fullscreen_height, restored_height):
+        sidebar = self.window.sidebar
+        if sidebar.side != 'left' or fullscreen_height == restored_height:
+            return
+        layout = self.window.centralWidget().layout()
+        alignment = layout.itemAt(layout.indexOf(sidebar)).alignment()
+        self._sidebar_height_limit = (fullscreen_height, sidebar.minimumHeight(), sidebar.maximumHeight(), alignment)
+        # QWidget::show can reapply a parent layout still using the old height.
+        layout.setAlignment(sidebar, (alignment & ~Qt.AlignVertical_Mask) | Qt.AlignTop)
+        sidebar.setFixedHeight(restored_height)
+
+    def _release_sidebar_height(self):
+        if self._sidebar_height_limit is None:
+            return
+        _, minimum_height, maximum_height, alignment = self._sidebar_height_limit
+        self._sidebar_height_limit = None
+        sidebar = self.window.sidebar
+        sidebar.setMinimumHeight(minimum_height)
+        sidebar.setMaximumHeight(maximum_height)
+        self.window.centralWidget().layout().setAlignment(sidebar, alignment)
+
     def _set_comments_changing(self, active):
         wall = self.window.wall
         if wall._quick_danmaku_layer is not None:
@@ -35,7 +58,25 @@ class FullscreenPresentation(QObject):
         for pane in wall.tiles:
             pane.video_danmaku.super_chat_overlay.set_presentation_changing(active)
 
+    def _hide_wall(self, tile):
+        for pane, visible in self._visible:
+            if pane is not tile and visible:
+                pane.hide()
+        for border in self._borders:
+            border.hide()
+
+    def _restore_wall(self, tile, *, repaint_covered_bars=False):
+        for pane, visible in self._visible:
+            if pane is not tile:
+                pane.setVisible(visible)
+                if repaint_covered_bars and visible and pane in self.window.wall.tiles:
+                    # Paint native bars before the independent fullscreen window uncovers them.
+                    pane.bottom.repaint()
+        for border in self._borders:
+            border.show()
+
     def enter(self, tile, geometry=None):
+        self._release_sidebar_height()
         wall = self.window.wall
         in_main_window = (geometry is None and QApplication.platformName() == 'windows'
                           and os.environ.get('DDM_FULLSCREEN_WINDOW_CAPTURE') != '0')
@@ -56,6 +97,8 @@ class FullscreenPresentation(QObject):
             self._windowed_geometry = self.window.saveGeometry()
             wall_widgets.extend((self.window.sidebar, self.window.empty_hint))
         native_maximized = in_main_window and bool(self._windowed_state & Qt.WindowMaximized)
+        if native_maximized:
+            self._windowed_sidebar_height = self.window.sidebar.height()
         self._visible = [(pane, pane.isVisible()) for pane in (*wall.tiles, *wall_widgets)]
         self._borders = [border for border in wall._pane_borders.values() if border.isVisible()]
         self._owner_hidden = False
@@ -73,13 +116,20 @@ class FullscreenPresentation(QObject):
         try:
             bar.hide()
             if in_main_window:
-                self.window.sidebar.hide()
-                self.window.empty_hint.hide()
+                # The expanded video shares the wall HWND hierarchy. Hide the
+                # ordinary panes before it can overlap their native controls.
+                self._hide_wall(tile)
+                if native_maximized and bar_visible and not bar.qt_composited:
+                    # Flush the strip the native child bar used to cover before
+                    # Windows can expose it at a different client origin.
+                    tile.repaint(bar.geometry())
                 # Keep the video in its original HWND hierarchy for window capture.
-                if not native_maximized:
+                if native_maximized:
+                    geometry = QRect(QPoint(), geometry.size())
+                else:
                     self.window.setWindowState(Qt.WindowFullScreen)
-                self._activate_main_layout()
-                geometry = QRect(QPoint(), geometry.size()) if native_maximized else wall.rect()
+                    self._activate_main_layout()
+                    geometry = wall.rect()
             else:
                 flags = Qt.Window | Qt.FramelessWindowHint
                 background = (self._show_without_activating
@@ -110,7 +160,7 @@ class FullscreenPresentation(QObject):
         if bar.qt_composited:
             bar.setWindowOpacity(0.0)
         bar.setVisible(bar_visible)
-        # Exposing a new Tool bar can dispatch the owner's old native resize.
+        # Exposing a new native bar can dispatch the owner's old native resize.
         if bar.qt_composited and bar_visible:
             bar.prepare_fullscreen_frame()
             if tile.geometry() != geometry:
@@ -131,12 +181,10 @@ class FullscreenPresentation(QObject):
             dialog.set_presentation_owner(tile.window())
             if dialog.isVisible():
                 dialog.raise_()
-        # Keep the other panes visible until the selected video is ready.
-        for pane, visible in self._visible:
-            if pane is not tile and visible:
-                pane.hide()
-        for border in self._borders:
-            border.hide()
+        panes.set_floating_fullscreen_owner(tile.window())
+        if not in_main_window:
+            # Keep the wall visible until the independent video covers it.
+            self._hide_wall(tile)
         layer = wall._quick_danmaku_layer
         if layer is not None:
             if in_main_window:
@@ -155,32 +203,42 @@ class FullscreenPresentation(QObject):
         layer = wall._quick_danmaku_layer
         self._set_comments_changing(True)
         if in_main_window:
-            tile.bottom.hide()
+            # Rebuild the hidden bar while the existing video still fills the
+            # main window, so the restored video needn't wait for its controls.
+            tile._presentation_changing = True
+            try:
+                tile._bar_clock.stop()
+                tile._bar_animation.stop()
+                tile.bottom.hide()
+                tile.bottom.set_fullscreen(False,
+                    windowed_overlay=tile.presentation_control.windowed_bar_over_video())
+            finally:
+                tile._presentation_changing = False
             if self._maximized_frame is not None:
+                fullscreen_height = self.window.centralWidget().height()
                 window_fullscreen.exit(self.window, self._maximized_frame)
                 self._maximized_frame = None
+                self._limit_sidebar_height(fullscreen_height, self._windowed_sidebar_height)
+                self._windowed_sidebar_height = None
             else:
                 self.window.setWindowState(self._windowed_state)
             self._windowed_state = self._windowed_geometry = None
-        # The independent presentation still covers the wall during restoration.
-        for pane, visible in self._visible:
-            if pane is not tile:
-                pane.setVisible(visible)
-                if not in_main_window and native_bar and visible and pane in wall.tiles:
-                    # show() queues painting; flush bars while fullscreen still
-                    # covers the wall, rather than exposing empty backing stores.
-                    pane.bottom.repaint()
-        for border in self._borders:
-            border.show()
+            # Commit the sidebar's space before resizing the video. Otherwise
+            # the restored-size video is first exposed at the fullscreen origin.
+            sidebar = self.window.sidebar
+            sidebar.setVisible(next(visible for pane, visible in self._visible if pane is sidebar))
+            self._activate_main_layout()
+            if sidebar.isVisible():
+                sidebar._refresh_visible_covers()
+                sidebar.repaint()
+        else:
+            wall.pane_danmaku.set_floating_fullscreen_owner(None)
+            self._restore_wall(tile, repaint_covered_bars=native_bar)
         dialog = getattr(self.window, '_stream_info_dialogs', {}).get(tile)
         if dialog is not None:
             # Detach before changing the tile's native window flags on exit.
             dialog.set_presentation_owner(self.window)
-        if in_main_window:
-            self._activate_main_layout()
-            if layer is not None:
-                layer.resize()
-        elif layer is not None:
+        if not in_main_window and layer is not None:
             layer.set_presentation_window(None)
         tile.removeEventFilter(self)
         self.tile = None
@@ -204,11 +262,24 @@ class FullscreenPresentation(QObject):
                     break
         finally:
             tile._presentation_changing = False
+        if in_main_window:
+            # The normal wall can now show without the fullscreen-sized video.
+            self._restore_wall(tile)
+            self._activate_main_layout()
+            if self._sidebar_height_limit is not None:
+                fullscreen_height = self._sidebar_height_limit[0]
+                root_height = self.window.centralWidget().height()
+                if root_height == self.window.height() and root_height != fullscreen_height:
+                    self._release_sidebar_height()
+            if layer is not None:
+                layer.resize()
+            wall.update()
+            wall.pane_danmaku.set_floating_fullscreen_owner(None)
         wall.fullscreen_tile = None
         wall._sync_danmaku_controls()
         tile._layout_areas()
         tile.bottom.setUpdatesEnabled(True)
-        if native_bar:
+        if native_bar and (not in_main_window or tile.bottom.qt_composited):
             tile.bottom.repaint()
         wall._fullscreen_layout_pending = False
         wall.grid.setEnabled(self._grid_enabled)
@@ -220,6 +291,10 @@ class FullscreenPresentation(QObject):
         self._set_comments_changing(False)
 
     def eventFilter(self, watched, event):
+        if (watched is self.window and event.type() == QEvent.Resize
+                and self._sidebar_height_limit is not None
+                and event.size().height() != self._sidebar_height_limit[0]):
+            self._release_sidebar_height()
         tile = self.tile
         if tile is not None:
             if watched is tile and event.type() == QEvent.Close:

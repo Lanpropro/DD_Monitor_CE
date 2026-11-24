@@ -524,13 +524,13 @@ class WorkspaceControlTests(unittest.TestCase):
         host._pending_capture.clear()
         self.assertEqual(next(row.state for row in capture.monitor_rows() if row.room_id == '1'), 'monitoring')
         host.settings['recording_enabled'] = False
-        self.assertEqual(capture.monitor_rows(), ())
+        self.assertEqual({row.room_id for row in capture.monitor_rows()}, {'1', '2', 'off-wall'})
 
     def test_sidebar_monitor_popup_shows_updates_and_closes(self):
         navigation = self.sidebar.navigation
         button, menu = navigation.monitor_button, navigation.monitor_menu
         panel = menu.panel
-        rows = [MonitorEntry('fixture:1', '一位主播', 'monitoring', 'bilibili', '1024'),
+        rows = [MonitorEntry('fixture:1', '一位主播', 'monitoring', 'bilibili', '1024', live=True),
                 MonitorEntry('fixture:2', '另一位主播', 'recording', 'douyin', display_room_id='77')]
         menu.read_rows = lambda: tuple(rows)
         available = button.screen().availableGeometry()
@@ -555,7 +555,7 @@ class WorkspaceControlTests(unittest.TestCase):
         first_row = panel.rows.itemAt(0).widget()
         self.assertEqual(first_row.name.accessibleName(), '一位主播')
         self.assertEqual(first_row.identifier.text(), 'ID 1024')
-        self.assertEqual(first_row.status.text(), '监控中')
+        self.assertEqual(first_row.status.text(), '监控中 · 直播中')
         badge = first_row.status.grab().toImage()
         blue = badge.pixelColor(6, badge.height() // 2)
         self.assertGreater(blue.blue() - blue.red(), 45)

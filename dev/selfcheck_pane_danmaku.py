@@ -18,19 +18,30 @@ if NATIVE:
     os.environ['DDM_QTQUICK_DANMAKU'] = '1'
 
 import selfcheck_main_notices as fixtures
-from PySide6.QtCore import QAbstractAnimation, QMimeData, QPoint, QPointF, QSize, Qt
-from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QPixmap
+from PySide6.QtCore import QAbstractAnimation, QEvent, QMimeData, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QColor, QContextMenuEvent, QDragEnterEvent, QDropEvent, QImage, QMouseEvent, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit, QPushButton, QTabBar, QWidget
 from ddm import config, layouts, room_presets, theme
 from ddm.app import MainWindow
 from ddm.bili_interaction.composer import DanmakuComposer
+from ddm.danmaku_float_snap import snapped_position
+from ddm.danmaku_float_window import DanmakuFloatWindow
+from ddm.sidebar_navigation import NavigationButton
 from ddm.widget_support import TILE_MIME
 from ddm.widgets import DanmakuPanel, WallGrid
 from selfcheck_video_danmaku import Client, Snapshot
 
 
 REAL_SYNC = MainWindow.sync_danmaku
+FLOAT_SHOW = DanmakuFloatWindow.show
+FULLSCREEN_RECT = QRect(-10000, -10000, 960, 620)
+
+
+def show_float_offscreen(floating):
+    floating.setAttribute(Qt.WA_ShowWithoutActivating)
+    floating.move(FULLSCREEN_RECT.topLeft() + QPoint(20, 50))
+    FLOAT_SHOW(floating)
 
 
 class PaneDanmakuTests(unittest.TestCase):
@@ -65,6 +76,36 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(enter.isAccepted())
         self.app.sendEvent(panel, drop)
         self.assertTrue(drop.isAccepted())
+
+    def drag_float_tab(self, bar, index, point, target=None, *, cancel=False, highlight=None):
+        dock = highlight is not None
+        receiver = bar.floating.dock if dock else bar
+        if dock:
+            bar.setCurrentIndex(index)
+        initial = receiver.rect().center() if dock else bar.tabRect(index).center()
+        QTest.mousePress(receiver, Qt.LeftButton, pos=initial)
+        target_tabs = getattr(target, 'tabs', None)
+        grid = bar.floating.controller.wall.snap_grid
+        with patch('ddm.danmaku_float_tabs.widget_at', return_value=target):
+            for kind, button, buttons in ((QEvent.MouseMove, Qt.NoButton, Qt.LeftButton),
+                                          (QEvent.MouseButtonRelease, Qt.LeftButton, Qt.NoButton)):
+                event = QMouseEvent(kind, QPointF(receiver.mapFromGlobal(point)), QPointF(point),
+                                    button, buttons, Qt.NoModifier)
+                self.app.sendEvent(receiver, event)
+                if kind == QEvent.MouseMove:
+                    self.assertIsNotNone(bar._ghost)
+                    if target_tabs is not None:
+                        self.assertIsNotNone(target_tabs._insertion)
+                    if highlight is not None:
+                        self.assertTrue(grid.guide.isVisible())
+                        self.assertEqual(grid.guide.target, highlight)
+                    if cancel:
+                        QTest.keyClick(receiver, Qt.Key_Escape)
+        self.assertIsNone(bar._ghost)
+        if target_tabs is not None:
+            self.assertIsNone(target_tabs._insertion)
+        if grid.guide is not None:
+            self.assertFalse(grid.guide.isVisible())
 
     def test_live_source_capability_preserves_offline_rooms(self):
         from ddm import plugins as api
@@ -196,6 +237,530 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(panes.panels[1].isVisible())
         panes.floating[diagonal].window.close()
 
+    def test_drag_floating_tabs_preserves_history_and_original_slots(self):
+        window = self.wall_window()
+        wall, panes = window.wall, window.wall.pane_danmaku
+        first, second, third = wall.tiles[:3]
+        window.configure_wall_panes({3: first})
+        docked = panes.panels[3]
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            docked.float_button.click()
+            panes.open_for_tile(second)
+            panes.open_for_tile(third)
+        grouped = panes.floating[docked].window
+        incoming, last = [panel for panel in panes.floating if panel is not docked]
+        source, extra = (panes.floating[panel].window for panel in (incoming, last))
+        grouped.resize(430, 240)
+        source.move(grouped.x() - 500, grouped.y())
+        extra.move(grouped.x() - 500, grouped.y() - 350)
+        self.app.processEvents()
+
+        client = window._danmaku_clients['1001']
+        for number in range(32):
+            client.message.emit(dict(kind='danmaku', text=f'历史消息 {number}'))
+        self.app.processEvents()
+        scroll = docked.body.verticalScrollBar()
+        self.assertGreater(scroll.maximum(), 90)
+        scroll.setValue(64)
+        docked.scroll_control.on_user_scroll()
+        document = docked.body.document()
+        with patch.object(window, '_sync_tile_playback') as playback:
+            end = grouped.tabs.mapToGlobal(QPoint(grouped.tabs.width()-4, 14))
+            self.drag_float_tab(source.tabs, 0, end, grouped, cancel=True)
+            self.assertEqual(grouped.tabs.panels(), [docked])
+            self.drag_float_tab(source.tabs, 0, end, grouped)
+            self.app.processEvents()
+            end = grouped.tabs.mapToGlobal(QPoint(grouped.tabs.width()-4, 14))
+            self.drag_float_tab(extra.tabs, 0, end, grouped)
+            playback.assert_not_called()
+        self.assertEqual(panes.floating_windows(), (grouped,))
+        self.assertEqual(grouped.tabs.panels(), [docked, incoming, last])
+        self.assertIs(grouped.stack.currentWidget(), last)
+        self.assertFalse(docked.isVisible())
+        self.assertTrue(last.isVisible())
+        client.message.emit(dict(kind='danmaku', text='后台标签仍接收'))
+        QTest.mouseClick(grouped.tabs, Qt.LeftButton, pos=grouped.tabs.tabRect(0).center())
+        self.app.processEvents()
+        self.assertIs(docked.body.document(), document)
+        self.assertEqual(docked._blocks[-1]['text'], '后台标签仍接收')
+        self.assertEqual(scroll.value(), 64)
+        self.assertIs(window._danmaku_clients['1001'], client)
+
+        left = grouped.tabs.mapToGlobal(QPoint(2, 14))
+        self.drag_float_tab(grouped.tabs, 2, left, grouped)
+        self.assertEqual(grouped.tabs.panels(), [last, docked, incoming])
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            self.drag_float_tab(grouped.tabs, 0, grouped.frameGeometry().bottomLeft() + QPoint(20, 60))
+        detached = panes.floating[last].window
+        self.assertIsNot(detached, grouped)
+        self.assertEqual(detached.tabs.panels(), [last])
+        self.assertEqual(grouped.tabs.panels(), [docked, incoming])
+
+        incoming.source_picker.choose(first)
+        self.assertEqual(grouped.tabs.tabText(1), '主播 1')
+        wall._fullscreen_layout_pending = True
+        grouped.select_panel(docked)
+        QTest.mouseClick(grouped.tabs.tabButton(0, QTabBar.RightSide), Qt.LeftButton)
+        self.assertEqual(grouped.tabs.panels(), [incoming])
+        self.assertTrue(grouped.isVisible())
+        self.assertIn(docked, panes.floating)
+        wall._fullscreen_layout_pending = False
+        panes.finish_pending_returns()
+        self.assertIs(panes.panels[3], docked)
+        self.assertIs(docked.parentWidget(), wall)
+        self.assertIs(panes.target(docked), first)
+        panes.move_floating_tab(last, grouped, 1)
+        grouped.close()
+        self.assertFalse(panes.floating)
+        self.app.processEvents()
+
+    def test_crowded_floating_tabs_show_avatars_and_restore_labels_when_widened(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            for tile in host.wall.tiles:
+                panes.open_for_tile(tile)
+        first, *others = panes.floating
+        floating = panes.floating[first].window
+        for panel in others:
+            panes.move_floating_tab(panel, floating, floating.tabs.count())
+        floating.resize(270, 210)
+        self.app.processEvents()
+        tabs = floating.tabs
+        self.assertTrue(all(not tabs.tabText(index) and not tabs.tabIcon(index).isNull()
+                            for index in range(tabs.count())))
+        self.assertTrue(all(tabs.rect().contains(tabs.tabRect(index)) for index in range(tabs.count())))
+        self.assertEqual(tabs.tabToolTip(1), '主播 2')
+        self.assertEqual(tabs.accessibleTabName(1), '主播 2')
+        self.assertIsNone(tabs.tabButton(tabs.currentIndex(), QTabBar.RightSide))
+        QTest.mouseClick(tabs, Qt.LeftButton, pos=tabs.tabRect(1).center())
+        self.assertIs(floating.stack.currentWidget(), others[0])
+        floating.resize(640, 210)
+        self.app.processEvents()
+        self.assertEqual(tabs.tabText(1), '主播 2')
+        self.assertIsInstance(tabs.tabButton(1, QTabBar.RightSide), NavigationButton)
+        self.assertTrue(all(isinstance(button, NavigationButton)
+                            for button in (floating.dock, floating.pin, floating.more)))
+
+    def test_drag_floating_tab_into_an_empty_cell_only_moves_that_tab(self):
+        host = self.wall_window()
+        wall, panes = host.wall, host.wall.pane_danmaku
+        first, second, occupied, vacant = wall.tiles
+        vacant.set_room(None)
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(first)
+            panes.open_for_tile(second)
+        original, incoming = panes.floating
+        floating = panes.floating[original].window
+        panes.move_floating_tab(incoming, floating, 1)
+        floating.move(-11500, -11300)
+        floating.resize(420, 230)
+        self.app.processEvents()
+        document = incoming.body.document()
+        client = host._danmaku_clients['1002']
+        client.message.emit(dict(kind='danmaku', text='停回前的消息'))
+        wall._fullscreen_layout_pending = True
+        try:
+            self.assertIsNone(floating.tabs._wall_point(host, vacant.mapToGlobal(vacant.rect().center())))
+        finally:
+            wall._fullscreen_layout_pending = False
+        self.drag_float_tab(floating.tabs, 1, occupied.mapToGlobal(occupied.rect().center()), host,
+                            highlight=occupied.geometry(), cancel=True)
+        self.assertEqual(floating.tabs.panels(), [original, incoming])
+        with patch.dict(host._pending_capture, {vacant: True}):
+            self.assertFalse(panes.dock_floating_tab(incoming, vacant.geometry().center()))
+        self.drag_float_tab(floating.tabs, 1, vacant.mapToGlobal(vacant.rect().center()), host,
+                            highlight=vacant.geometry())
+        self.assertEqual(floating.tabs.panels(), [original])
+        self.assertIs(panes.panels[3], incoming)
+        self.assertIs(incoming.parentWidget(), wall)
+        self.assertIs(incoming.body.document(), document)
+        self.assertIs(panes.target(incoming), second)
+        self.assertEqual(incoming._blocks[-1]['text'], '停回前的消息')
+        self.assertIs(host._danmaku_clients['1002'], client)
+        self.assertEqual(occupied.room['room_id'], '1003')
+
+    def test_dock_icon_can_replace_its_own_live_video_in_a_custom_grid(self):
+        host = self.wall_window()
+        wall, panes = host.wall, host.wall.pane_danmaku
+        wall.set_layout('custom_grid9')
+        tile = wall.tiles[0]
+        for empty in wall.tiles[1:]:
+            empty.set_room(None)
+        wall.snap_grid.resize_tile(tile, 1)
+        area = tile.geometry()
+        self.assertGreater(area.width(), wall.snap_grid.drag_units()[0].width())
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(tile)
+        panel, = panes.floating
+        floating = panes.floating[panel].window
+        document = panel.body.document()
+        client = host._danmaku_clients['1001']
+        point = tile.mapToGlobal(tile.rect().center())
+        self.drag_float_tab(floating.tabs, 0, point, host)
+        self.assertIn(panel, panes.floating)
+        with patch.dict(host._pending_capture, {tile: True}):
+            self.assertFalse(panes.dock_floating_tab(panel, area.center()))
+        self.drag_float_tab(floating.tabs, 0, point, host, highlight=area)
+        cell = panes.cell_for_tile(tile)
+        self.assertIs(panes.panels[cell], panel)
+        self.assertFalse(tile.isVisible())
+        self.assertEqual(panel.geometry(), area)
+        self.assertIs(panes.target(panel), tile)
+        self.assertIs(panel.body.document(), document)
+        self.assertIs(host._danmaku_clients['1001'], client)
+        panes.request(cell, video=True)
+        self.assertTrue(tile.isVisible())
+        self.assertEqual(tile.room['room_id'], '1001')
+
+    def test_floating_tab_can_move_from_a_reserved_slot_to_a_hidden_custom_grid_vacancy(self):
+        host = self.wall_window()
+        wall, panes = host.wall, host.wall.pane_danmaku
+        wall.set_layout('custom_grid9')
+        first = wall.tiles[0]
+        for tile in wall.tiles[1:]:
+            tile.set_room(None)
+        # The two adjacent cells originally shared one chat and one return placeholder.
+        host.configure_wall_panes({1: first, 2: first})
+        panel, = panes.rendered()
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panel.float_button.click()
+        floating = panes.floating[panel].window
+        floating.move(-11500, -11300)
+        self.app.processEvents()
+        unit_rect = wall.snap_grid.drag_units()[-1]
+        self.assertIsNotNone(wall.snap_grid.vacant_unit_at(unit_rect.center()))
+        self.assertFalse(wall.tiles[8].isVisible())
+        self.drag_float_tab(floating.tabs, 0, wall.mapToGlobal(unit_rect.center()), host, highlight=unit_rect)
+        self.assertFalse(panes.floating)
+        self.assertEqual(panes.bindings(), {8: first})
+        self.assertIs(panes.panels[8], panel)
+        self.assertEqual(panel.geometry(), unit_rect)
+        self.assertIsNotNone(wall.snap_grid.vacant_unit_at(wall.snap_grid.drag_units()[1].center()))
+
+    def test_touching_floats_follow_each_pointer_sample_and_independent_handle_detaches(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            for tile in host.wall.tiles:
+                panes.open_for_tile(tile)
+        first, second, third, detached = panes.floating_windows()
+        area = QRect(-12000, -11500, 1600, 1200)
+        offsets = [QPoint(100, 140), QPoint(340, 140), QPoint(580, 140), QPoint(580, 420)]
+        for floating, offset in zip(panes.floating_windows(), offsets):
+            floating.resize(240, 180)
+            floating.move(area.topLeft() + offset)
+        stationary = detached.pos()
+        with patch.object(QApplication, 'screenAt', return_value=Mock(availableGeometry=lambda: area)), \
+                patch.object(second.windowHandle(), 'startSystemMove', return_value=True):
+            start = first.mapToGlobal(QPoint(50, 10))
+            self.assertTrue(first.start_move(start))
+            point = start + QPoint(40, -134)
+            self.app.sendEvent(first, QMouseEvent(QEvent.MouseMove, QPointF(), QPointF(point),
+                                                 Qt.NoButton, Qt.LeftButton, Qt.NoModifier))
+            self.assertFalse(first._move_frame.isActive())
+            self.assertEqual(second.pos(), first.pos() + QPoint(240, 0))
+            self.assertEqual(third.pos(), first.pos() + QPoint(480, 0))
+            self.assertEqual(detached.pos(), stationary)
+            self.app.sendEvent(first, QMouseEvent(QEvent.MouseButtonRelease, QPointF(), QPointF(point),
+                                                 Qt.LeftButton, Qt.NoButton, Qt.NoModifier))
+            self.assertEqual(first.y(), area.top())
+            self.assertEqual(second.y(), area.top())
+            self.assertEqual(third.y(), area.top())
+
+            starts = [item.pos() for item in (first, second, third)]
+            self.assertTrue(second.start_move(second.mapToGlobal(QPoint(50, 10))))
+            second._move_group(QPoint(0, 45))
+            self.assertEqual(first.pos(), starts[0] + QPoint(0, 45))
+            QTest.keyClick(second, Qt.Key_Escape)
+            self.assertEqual([item.pos() for item in (first, second, third)], starts)
+
+            QTest.mousePress(second.move_handle, Qt.LeftButton)
+            self.assertFalse(second._drag_snapping)
+            second.move(starts[1] + QPoint(0, 6))
+            second._finish_move()
+            QTest.mouseRelease(second.move_handle, Qt.LeftButton)
+            self.assertEqual(second.pos(), starts[1] + QPoint(0, 6))
+            self.assertEqual((first.pos(), third.pos()), (starts[0], starts[2]))
+
+    def test_floating_window_snaps_on_release_and_independent_move_skips_snapping(self):
+        area = QRect(-1200, -600, 1200, 570)
+        other = QRect(-800, -450, 260, 230)
+        frame = QRect(-531, -420, 240, 200)
+        self.assertEqual(snapped_position(frame, area, [other]),
+                         (QPoint(-540, -420), Qt.LeftEdge | Qt.BottomEdge))
+        self.assertEqual(snapped_position(frame.translated(0, 215), area, [other]),
+                         (QPoint(-531, -205), Qt.Edge(0)))
+        corner = QRect(-1194, -595, 240, 200)
+        self.assertEqual(snapped_position(corner, area, []), (area.topLeft(), Qt.LeftEdge | Qt.TopEdge))
+
+        peer = QRect(-800, -400, 240, 160)
+        with self.subTest(alignment='same row'):
+            self.assertEqual(snapped_position(QRect(-553, -368, 240, 160), area, [peer]),
+                             (QPoint(-560, -400), Qt.LeftEdge | Qt.TopEdge))
+        with self.subTest(alignment='same column'):
+            self.assertEqual(snapped_position(QRect(-772, -233, 240, 160), area, [peer]),
+                             (QPoint(-800, -240), Qt.TopEdge | Qt.LeftEdge))
+        with self.subTest(alignment='moving a connected group'):
+            companion = QRect(-553, -368, 240, 160)
+            lead = companion.translated(companion.width(), 0)
+            self.assertEqual(snapped_position(lead, area, [peer], companions=[companion]),
+                             (QPoint(-320, -400), Qt.LeftEdge | Qt.TopEdge))
+        with self.subTest(alignment='avoid overlapping another window'):
+            obstacle = QRect(-500, -435, 100, 50)
+            self.assertEqual(snapped_position(QRect(-553, -368, 240, 160), area, [peer, obstacle]),
+                             (QPoint(-560, -368), Qt.LeftEdge))
+        with self.subTest(alignment='keep the group within the screen'):
+            screen_peer = QRect(-800, -595, 240, 150)
+            frame = QRect(-553, -556, 240, 240)
+            above = frame.translated(0, -20).adjusted(0, 0, 0, -220)
+            self.assertEqual(snapped_position(frame, area, [screen_peer], companions=[above]),
+                             (QPoint(-560, -556), Qt.LeftEdge))
+
+        window = self.wall_window()
+        panes = window.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(window.wall.tiles[0])
+        floating, = panes.floating_windows()
+        with patch.object(floating.windowHandle(), 'startSystemMove', return_value=True), \
+                patch.object(floating, '_snap_candidate', side_effect=lambda: snapped_position(
+                    floating.frameGeometry(), area, [])):
+            floating.move(area.topLeft() + QPoint(25, 30))
+            self.assertTrue(floating.start_move(corner.topLeft()))
+            floating.move(corner.topLeft())
+            floating._flush_move()
+            self.assertEqual(floating._snap_edges, Qt.LeftEdge | Qt.TopEdge)
+            if NATIVE:
+                import ctypes
+                from ctypes import wintypes
+                send_message = ctypes.windll.user32.SendMessageW
+                send_message.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+                send_message(int(floating.winId()), 0x0232, 0, 0)  # WM_EXITSIZEMOVE
+                self.app.processEvents()
+            else:
+                floating._finish_move()
+            self.assertEqual(floating.pos(), area.topLeft())
+            self.assertFalse(floating._snap_edges)
+            self.assertTrue(floating.start_move(corner.topLeft(), independent=True))
+            floating.move(corner.topLeft())
+            floating._finish_move()
+            self.assertEqual(floating.pos(), corner.topLeft())
+
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(window.wall.tiles[1])
+        _, neighbor = panes.floating_windows()
+        neighbor.setGeometry(peer)
+        floating.setGeometry(QRect(-520, -350, 240, 160))
+        with patch.object(QApplication, 'screenAt', return_value=Mock(availableGeometry=lambda: area)), \
+                patch.object(floating.windowHandle(), 'startSystemMove', return_value=True):
+            self.assertTrue(floating.start_move(floating.pos()))
+            floating.move(-553, -368)
+            floating._finish_move()
+        self.assertEqual(floating.pos(), QPoint(-560, -400))
+        self.assertEqual(neighbor.geometry(), peer)
+
+    def test_active_float_keeps_playback_shortcuts_targeted_at_hovered_tile(self):
+        host = self.wall_window()
+        source, target = host.wall.tiles[:2]
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(source)
+        floating, = panes.floating_windows()
+        panel, = floating.tabs.panels()
+        self.app.setActiveWindow(floating)
+        panel.body.setFocus()
+        self.assertTrue(floating.isActiveWindow())
+        original_mute = target.muted
+        original_source_mute = source.muted
+        point = target.video.mapToGlobal(target.video.rect().center())
+        with patch('ddm.app_shortcuts.QCursor.pos', return_value=point), \
+                patch('ddm.app_shortcuts.widget_at', return_value=target.video) as hit:
+            QTest.keyClick(panel.body, Qt.Key_M)
+            self.assertNotEqual(target.muted, original_mute)
+            self.assertEqual(source.muted, original_source_mute)
+            self.assertTrue(floating.isActiveWindow())
+
+            host.shortcuts['mute'] = 'Ctrl+K, Ctrl+M'
+            host._refresh_shortcuts()
+            QTest.keyClick(panel.body, Qt.Key_M)
+            self.assertNotEqual(target.muted, original_mute)
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+
+            hit.return_value = panel.body
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+            hit.return_value = None
+            QTest.keyClick(panel.body, Qt.Key_K, Qt.ControlModifier)
+            QTest.keyClick(panel.body, Qt.Key_M, Qt.ControlModifier)
+            self.assertEqual(target.muted, original_mute)
+            hit.return_value = target.video
+            with patch.object(host, '_handle_shortcut', return_value=True) as handle:
+                QTest.keyClick(panel.body, Qt.Key_Delete)
+                handle.assert_called_once_with(host.shortcuts['close_tile'])
+            self.assertEqual(floating.tabs.panels(), [panel])
+
+            hit.return_value = target.bottom
+            with patch.object(host, '_handle_shortcut', return_value=True) as handle:
+                for key in (Qt.Key_F, Qt.Key_R, Qt.Key_B, Qt.Key_Return):
+                    QTest.keyClick(panel.body, key)
+                self.assertEqual([item.args[0] for item in handle.call_args_list], [
+                    host.shortcuts[key] for key in ('focus', 'record', 'video_danmaku', 'danmaku_input')])
+            hit.return_value = target.video
+            host.shortcuts['mute'] = 'M'
+            host._refresh_shortcuts()
+            editor = QLineEdit(floating)
+            editor.show()
+            editor.setFocus()
+            QTest.keyClick(editor, Qt.Key_M)
+            self.assertEqual(editor.text(), 'm')
+            self.assertEqual(target.muted, original_mute)
+
+            editor.hide()
+            hit.return_value = panel.body
+            host.shortcuts['mute'] = 'Right'
+            host._refresh_shortcuts()
+            panel.font_slider.setFocus()
+            original_size = panel.font_slider.value()
+            QTest.keyClick(panel.font_slider, Qt.Key_Right)
+            self.assertEqual(panel.font_slider.value(), original_size + 1)
+            self.assertEqual(target.muted, original_mute)
+
+    def test_delete_closes_only_the_selected_float_tab_and_respects_editing_and_remapping(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            for tile in host.wall.tiles[:2]:
+                panes.open_for_tile(tile)
+        first, second = panes.floating
+        floating = panes.floating[first].window
+        panes.move_floating_tab(second, floating, 1)
+        self.app.setActiveWindow(floating)
+        editor = QLineEdit(floating)
+        editor.setText('ab')
+        editor.setCursorPosition(0)
+        editor.show()
+        editor.setFocus()
+        QTest.keyClick(editor, Qt.Key_Delete)
+        self.assertEqual(editor.text(), 'b')
+        self.assertEqual(floating.tabs.panels(), [first, second])
+        editor.hide()
+        second.body.setFocus()
+        QTest.keyClick(second.body, Qt.Key_Delete)
+        self.assertEqual(floating.tabs.panels(), [first])
+        self.assertFalse(second in panes.floating)
+
+        host.shortcuts['close_tile'] = 'Ctrl+K'
+        host._refresh_shortcuts()
+        first.body.setFocus()
+        QTest.keyClick(first.body, Qt.Key_Delete)
+        self.assertEqual(floating.tabs.panels(), [first])
+        with patch('ddm.app_shortcuts.widget_at', return_value=first.body):
+            self.assertTrue(host._handle_shortcut('Ctrl+K'))
+        self.assertFalse(panes.floating)
+
+    def test_float_glass_settings_update_the_background_without_tinting_foreground(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(host.wall.tiles[0])
+        floating, = panes.floating_windows()
+        handle = int(floating.winId())
+        point = floating.rect().center() + QPoint(0, 35)
+        outer = QPoint(4, 42)
+
+        def pixel(image, at):
+            return image.pixelColor(at * image.devicePixelRatio())
+
+        self.app.processEvents()
+        self.assertEqual(pixel(floating.grab().toImage(), point).alpha(), 255)
+        dialog = host._create_settings_dialog()
+        self.addCleanup(dialog.deleteLater)
+        self.addCleanup(dialog.auto_save.stop)
+        page = dialog.danmaku_page
+        self.assertFalse(page.float_glass.isChecked())
+        self.assertFalse(page.float_glass_opacity.isEnabled())
+        dialog.auto_save.start()
+        with patch.object(config, 'save') as save:
+            page.float_glass.click()
+            page.float_glass_opacity.setValue(60)
+            self.assertTrue(dialog.auto_save.flush())
+            saved = save.call_args.args[0]['settings']
+            self.assertTrue(saved['danmaku_float_glass_enabled'])
+            self.assertEqual(saved['danmaku_float_glass_opacity'], 60)
+        self.app.processEvents()
+        self.assertTrue(floating.property('danmakuFloatGlass'))
+        panel = floating.stack.currentWidget()
+        panel.body.setHtml('<span style="color:white; font-size:24px">████</span>')
+        self.addCleanup(theme.apply, 'dark')
+        self.addCleanup(theme.set_skin_active, False)
+        theme.set_skin_active(True)
+        for mode in ('light', 'dark'):
+            theme.apply(mode)
+            self.app.processEvents()
+            image = floating.grab().toImage()
+            self.assertEqual(pixel(image, outer).alpha(), 153)
+            self.assertAlmostEqual(pixel(image, point).alpha(), 183, delta=1)
+            self.assertAlmostEqual(pixel(image, QPoint(4, point.y())).alpha(), 183, delta=1,
+                                   msg='The text scrim should reach the rounded shell without a side seam')
+            body_top = panel.body.viewport().mapTo(floating, QPoint()).y()
+            scrim_top = QPoint(floating.width() - 45, body_top)
+            self.assertLess(pixel(image, scrim_top + QPoint(0, 2)).alpha(),
+                            pixel(image, scrim_top + QPoint(0, 14)).alpha(),
+                            'The text scrim should fade in below the header')
+            for x in (0, image.width() - 1):
+                for y in (0, image.height() - 1):
+                    self.assertEqual(image.pixelColor(x, y).alpha(), 0, (x, y))
+            self.assertTrue(any(0 < image.pixelColor(x, y).alpha() < 153
+                                for x in range(1, 14) for y in range(1, 14)))
+        self.assertFalse(panel.body.viewport().autoFillBackground())
+        floating.set_material({**saved, 'danmaku_float_glass_opacity': 18})
+        self.app.processEvents()
+        dimmer = floating.grab().toImage()
+        self.assertAlmostEqual(pixel(dimmer, point).alpha(), 108, delta=1)
+        self.assertLess(pixel(dimmer, outer).alpha(), pixel(image, outer).alpha())
+        text = panel.body.viewport().mapTo(floating, QPoint(8, 8))
+        self.assertTrue(any(pixel(dimmer, text + QPoint(x, y)) == QColor('white')
+                            for x in range(80) for y in range(28)), 'Text should stay opaque')
+        self.assertEqual(floating.windowOpacity(), 1.0)
+        self.assertEqual(int(floating.winId()), handle)
+        from ddm.settings_backdrop import blur_available
+        if blur_available():
+            import ctypes
+            from ctypes import wintypes
+            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
+            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
+            gdi32.CreateRectRgn.restype = wintypes.HRGN
+            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
+            gdi32.GetRgnBox.argtypes = (wintypes.HRGN, ctypes.POINTER(wintypes.RECT))
+            gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
+            region = gdi32.CreateRectRgn(0, 0, 0, 0)
+            self.addCleanup(gdi32.DeleteObject, region)
+            self.assertTrue(floating._native_glass)
+            self.assertTrue(floating.mask().isEmpty(), 'Do not cut the antialiased Qt surface with a logical mask')
+            floating.resize(floating.width() + 17, floating.height() + 13)
+            self.app.processEvents()
+            scale = floating.devicePixelRatioF()
+            self.assertGreater(user32.GetWindowRgn(handle, region), 0)
+            self.assertFalse(gdi32.PtInRegion(region, 0, 0))
+            self.assertTrue(gdi32.PtInRegion(region, round(point.x() * scale), round(point.y() * scale)))
+            bounds = wintypes.RECT()
+            gdi32.GetRgnBox(region, ctypes.byref(bounds))
+            sized = floating.grab()
+            self.assertEqual((bounds.right, bounds.bottom),
+                             (sized.width(), sized.height()))
+        with patch.object(config, 'save'):
+            page.reset()
+            self.assertTrue(dialog.auto_save.flush())
+        self.assertFalse(floating.property('danmakuFloatGlass'))
+        self.assertEqual(page.float_glass_opacity.value(), 75)
+        self.assertFalse(panel.property('customControlSurface'))
+        if blur_available():
+            self.assertEqual(user32.GetWindowRgn(handle, region), 0)
+
     def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
         window = self.wall_window()
         window.settings['danmaku_float_reuse_cell'] = True
@@ -226,6 +791,46 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertTrue(slot.isVisible())
         self.assertEqual(slot.room['room_id'], '7001')
         self.assertFalse(panel.isVisible())
+
+    def test_fullscreen_float_can_change_room_without_syncing_wall_playback(self):
+        window = self.wall_window()
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other = wall.tiles[:2]
+        window.configure_wall_panes({3: source})
+        panel = panes.panels[3]
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panel.float_button.click()
+        floated = panes.floating[panel]
+        enter = window._fullscreen_presentation.enter
+        with patch.object(window._fullscreen_presentation, 'enter',
+                          side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
+            window._on_fullscreen(source)
+        self.app.processEvents()
+        try:
+            self.assertTrue(floated.slot.isHidden())
+            self.assertTrue(other.isHidden())
+            picker = panel.source_picker
+            with patch('ddm.motion.enabled', return_value=False), \
+                    patch.object(window, '_sync_tile_playback') as playback:
+                QTest.mouseClick(picker.anchor, Qt.LeftButton)
+                self.assertTrue(picker.expanded)
+                QTest.mouseClick(picker.buttons[other], Qt.LeftButton)
+                playback.assert_not_called()
+            self.assertFalse(picker.expanded)
+            self.assertIs(panes.target(panel), other)
+            self.assertEqual(panel._linked_room_id, '1002')
+            window._danmaku_clients['1002'].message.emit(dict(kind='danmaku', text='换源成功'))
+            self.assertEqual(panel._blocks[-1]['text'], '换源成功')
+            self.assertTrue(floated.slot.isHidden())
+            self.assertTrue(other.isHidden())
+            self.assertIs(wall.fullscreen_tile, source)
+        finally:
+            window._exit_fullscreen()
+        self.assertIs(panes.target(panel), other)
+        floated.window.close()
+        self.app.processEvents()
+        self.assertIs(panes.target(panes.panels[3]), other)
 
     def test_close_can_keep_the_empty_video_cells_created_by_a_merged_float(self):
         window = self.wall_window()
@@ -1046,6 +1651,60 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(len(panes.rendered()), 2)
         self.assertEqual(panes.panels[4]._linked_room_id, '')
 
+    def test_custom_grids_merge_adjacent_chat_and_leave_vacant_cells_clear(self):
+        for layout, size in (('custom_grid9', 3), ('custom_grid16', 4)):
+            with self.subTest(layout=layout):
+                window = self.window([dict(room_id='1001', uname='主播', live=True)], offscreen=True)
+                window.layout_presets.select_builtin(layout)
+                wall, panes = window.wall, window.wall.pane_danmaku
+                source = wall.tiles[0]
+                top, bottom = 2, size + 2
+                window.configure_wall_panes({top: source})
+                original, = panes.rendered()
+                client = window._danmaku_clients['1001']
+                client.message.emit(dict(text='合并前消息'))
+
+                window.configure_wall_panes({top: source, bottom: source})
+                merged, = panes.rendered()
+                self.assertIs(merged, original)
+                self.assertTrue(merged.isVisible())
+                self.assertTrue(panes.panels[bottom].isHidden())
+                self.assertEqual(merged.geometry(), panes.rectangles[top].united(panes.rectangles[bottom]))
+                self.assertIs(window._danmaku_clients['1001'], client)
+                client.message.emit(dict(text='合并后消息'))
+                self.assertEqual([event['text'] for event in merged._blocks], ['合并前消息', '合并后消息'])
+
+                window.configure_wall_panes({1: source, top: source, bottom: source})
+                self.assertEqual(len(panes.rendered()), 2)
+                vacant = panes.rectangles[size + 1]
+                self.assertFalse(any(panel.geometry().intersects(vacant) for panel in panes.rendered()))
+
+    def test_delete_removes_only_the_hovered_custom_chat_cell(self):
+        window = self.window([dict(room_id='1001', uname='主播', live=True)], offscreen=True)
+        window.layout_presets.select_builtin('custom_grid9')
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source = wall.tiles[0]
+        window.configure_wall_panes({2: source, 5: source})
+        merged = panes.panels[5]
+        client = window._danmaku_clients['1001']
+        client.message.emit(dict(text='保留的弹幕'))
+        self.app.setActiveWindow(window)
+        merged.body.setFocus()
+        self.app.processEvents()
+
+        for clicked, remaining in ((5, {2: source}), (2, {})):
+            point = panes.rectangles[clicked].center()
+            with patch('ddm.app_shortcuts.QCursor.pos', return_value=wall.mapToGlobal(point)):
+                QTest.keyClick(merged.body, Qt.Key_Delete)
+            self.assertEqual(panes.bindings(), remaining)
+            self.assertIsNotNone(wall.snap_grid.vacant_unit_at(point))
+            self.assertTrue(source.isVisible())
+            self.assertEqual(source.room['room_id'], '1001')
+            if remaining:
+                self.assertEqual(panes.rendered(), [merged])
+                self.assertEqual(merged._blocks[-1]['text'], '保留的弹幕')
+        self.assertFalse(panes.rendered())
+
     def test_state_and_named_presets_restore_type_links_and_backing_slots(self):
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
@@ -1074,13 +1733,180 @@ class PaneDanmakuTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             room_presets.validate(invalid)
 
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_bottom_bar_stays_below_float_when_controls_reappear(self):
+        import ctypes
+        from ctypes import wintypes
+
+        window = self.wall_window()
+        window.settings.update(windowed_transparent_controls=True, windowed_auto_hide_controls=True,
+                               danmaku_float_glass_enabled=True, danmaku_float_glass_opacity=60)
+        panes = window.wall.pane_danmaku
+        tile = window.wall.tiles[0]
+        tile._layout_areas()
+        tile.set_controls_visible(True)
+        bar = tile.bottom
+        self.assertTrue(bar.isVisible() and bar.qt_composited)
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(tile)
+        floating, = panes.floating_windows()
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+
+        def assert_bar_behind_float(window):
+            handle = int(window.winId())
+            above = user32.GetWindow(int(bar.winId()), 3)  # GW_HWNDPREV
+            while above and above != handle:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, handle, 'Native controls were raised over the floating chat')
+
+        floating.resize(max(200, bar.width() // 2), 180)
+        floating.move(bar.geometry().topLeft() - QPoint(30, 130))
+        self.app.processEvents()
+        self.assertTrue(floating.geometry().intersects(bar.geometry()))
+        floating.raise_()
+        assert_bar_behind_float(floating)
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(window.wall.tiles[1])
+        other, = (item for item in panes.floating_windows() if item is not floating)
+        other.move(floating.pos() + QPoint(40, 18))
+        other.raise_()
+        tile.set_controls_visible(False)
+        self.assertTrue(bar.isHidden())
+        tile.set_controls_visible(True)
+        self.app.processEvents()
+        self.assertTrue(bar.isVisible())
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        self.assertTrue(bar.mask().contains(QPoint(bar.width() - 18, bar.height() // 2)))
+        bar.hide()
+        bar.show()
+        self.app.processEvents()
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        QTest.mouseClick(other.pin, Qt.LeftButton)
+        tile.raise_overlays()
+        assert_bar_behind_float(floating)
+        assert_bar_behind_float(other)
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.GetWindowLongW.restype = ctypes.c_long
+        self.assertFalse(user32.GetWindowLongW(int(bar.winId()), -20) & 0x8)
+
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_detached_fullscreen_keeps_only_pinned_floats_above_video(self):
+        self.check_native_fullscreen_float_layer(detached=True)
+
+    @unittest.skipUnless(NATIVE, 'Windows native floating window ownership check')
+    def test_native_main_window_fullscreen_keeps_only_pinned_floats_above_video(self):
+        self.check_native_fullscreen_float_layer(detached=False)
+
+    def check_native_fullscreen_float_layer(self, *, detached):
+        import ctypes
+        from ctypes import wintypes
+        from types import SimpleNamespace
+        from ddm.video_danmaku_quick import QuickDanmakuLayer
+
+        window = self.wall_window()
+        window.setAttribute(Qt.WA_ShowWithoutActivating)
+        wall, panes = window.wall, window.wall.pane_danmaku
+        source, other = wall.tiles[:2]
+        overlay = SimpleNamespace(parent=wall, _presentation_window=None)
+
+        user32 = ctypes.windll.user32
+        user32.GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+        user32.GetWindow.restype = wintypes.HWND
+        user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
+        user32.GetWindowLongW.restype = ctypes.c_long
+
+        def assert_above(upper, lower):
+            above = user32.GetWindow(lower, 3)  # GW_HWNDPREV
+            while above and above != upper:
+                above = user32.GetWindow(above, 3)
+            self.assertEqual(above, upper)
+
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(source)
+            panel, = panes.floating
+            floating = panes.floating[panel].window
+            handle = int(floating.winId())
+            self.assertFalse(user32.GetWindowLongW(handle, -20) & 0x8)  # GWL_EXSTYLE / WS_EX_TOPMOST
+            QTest.mouseClick(floating.pin, Qt.LeftButton)
+            self.assertTrue(user32.GetWindowLongW(handle, -20) & 0x8)
+            self.assertEqual(int(floating.winId()), handle)
+            enter = window._fullscreen_presentation.enter
+            if detached:
+                with patch.object(window._fullscreen_presentation, 'enter',
+                                  side_effect=lambda tile: enter(tile, FULLSCREEN_RECT)):
+                    window._on_fullscreen(source)
+            else:
+                with patch.dict(os.environ, DDM_FULLSCREEN_WINDOW_CAPTURE='1'):
+                    window._on_fullscreen(source)
+            try:
+                video = int(source.window().winId())
+                self.assertEqual(source.isWindow(), detached)
+                self.assertTrue(user32.GetWindowLongW(handle, -20) & 0x8)
+                self.assertEqual(user32.GetWindow(handle, 4), video)  # GW_OWNER
+                assert_above(handle, video)
+                self.assertIn(floating, QuickDanmakuLayer._occluding_widgets(overlay))
+                source.bottom.raise_()
+                assert_above(handle, int(source.bottom.winId()))
+                picker = panel.source_picker
+                with patch('ddm.motion.enabled', return_value=False):
+                    QTest.mouseClick(picker.anchor, Qt.LeftButton)
+                    QTest.mouseClick(picker.buttons[other], Qt.LeftButton)
+                self.assertIs(panes.target(panel), other)
+                QTest.mouseClick(floating.pin, Qt.LeftButton)
+                self.assertFalse(user32.GetWindowLongW(handle, -20) & 0x8)
+                floating.raise_()
+                self.assertTrue(floating.isVisible())
+                assert_above(video, handle)
+                self.assertNotIn(floating, QuickDanmakuLayer._occluding_widgets(overlay))
+                panes.open_for_tile(source)
+                extra, = (entry.window for item, entry in panes.floating.items() if item is not panel)
+                self.app.processEvents()
+                assert_above(video, int(extra.winId()))
+                panes.open_for_tile(source)  # Reopening an existing float must keep its layer.
+                self.app.processEvents()
+                assert_above(video, int(extra.winId()))
+                if not detached:
+                    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+                    user32.IsWindowVisible.restype = wintypes.BOOL
+                    window.hide()
+                    self.app.processEvents()
+                    self.assertFalse(user32.IsWindowVisible(handle))
+                    window.show()
+                    self.app.processEvents()
+                    self.assertTrue(user32.IsWindowVisible(handle))
+                    assert_above(video, handle)
+                    state = window.windowState()
+                    window.setWindowState(state | Qt.WindowMinimized)
+                    self.app.processEvents()
+                    self.assertFalse(user32.IsWindowVisible(handle))
+                    window.setWindowState(state)
+                    self.app.processEvents()
+                    self.assertTrue(user32.IsWindowVisible(handle))
+                    assert_above(video, handle)
+                QTest.mouseClick(extra.pin, Qt.LeftButton)
+                assert_above(int(extra.winId()), video)
+                self.assertIn(extra, QuickDanmakuLayer._occluding_widgets(overlay))
+            finally:
+                window._exit_fullscreen()
+            self.assertEqual(int(floating.winId()), handle)
+            for entry in panes.floating.values():
+                self.assertEqual(user32.GetWindow(int(entry.window.winId()), 4), int(window.winId()))
+
     @unittest.skipUnless(NATIVE, 'Windows native window stacking check')
     def test_native_quick_layer_stays_below_moving_chat_without_mask_holes(self):
         import ctypes
         from ctypes import wintypes
+        import PySide6
         from ddm.danmaku_float_window import DanmakuFloatWindow
         from selfcheck_mpv import pump
 
+        qt_dir = Path(PySide6.__file__).parent
+        with os.add_dll_directory(str(qt_dir)):
+            ctypes.WinDLL(str(qt_dir / 'Qt6QuickEffects.dll'))
         window = self.wall_window()
         wall, panes = window.wall, window.wall.pane_danmaku
         origin = wall.mapToGlobal(QPoint())

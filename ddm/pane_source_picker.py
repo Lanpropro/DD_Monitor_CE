@@ -145,7 +145,9 @@ class SourcePicker(QWidget):
         else:
             self.anchor.sync('选择弹幕来源', 0, '', None)
         self.anchor.setChecked(selected is not None)
-        self.panel.float_button.setVisible(selected is not None or self.panel in controller.floating)
+        floating = controller.floating.get(self.panel)
+        show_float_button = selected is not None if floating is None else floating.window.tabs.count() <= 1
+        self.panel.float_button.setVisible(show_float_button)
         self.empty.setVisible(not tiles)
         self._place()
 

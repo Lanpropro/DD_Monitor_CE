@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from time import monotonic
 
-from PySide6.QtWidgets import QMenu
+from PySide6.QtWidgets import QMenu, QWidget
 
 from . import layouts, snap_grid
 from .sidebar_drag import GRID_GRAB_MIME, ROOM_MIME, TILE_MIME
@@ -16,6 +16,12 @@ class _Placement:
     cells: list
     changed: bool
     new_room: str | None
+
+
+@dataclass
+class _TileSwap:
+    source: QWidget
+    destination: QWidget
 
 
 class WallSnapGrid:
@@ -206,6 +212,22 @@ class WallSnapGrid:
         result = snap_grid.place(self.size, cells, index, unit, self.occupied())
         return self._place_room(_Placement(index, unit, result, result != cells, room_id), assign)
 
+    def floating_chat_target(self, point):
+        unit = self._unit_at(point)
+        vacancy = self._vacancy(unit)
+        if vacancy is None:
+            return None
+        index, cells = vacancy
+        planned = snap_grid.place(self.size, cells, index, unit, self.occupied())
+        if planned[index] == unit:
+            wall = self.wall
+            rect = snap_grid.geometry(self.size, [unit], wall._corner_area(), wall.grid.spacing())[0]
+            return index, rect, planned
+
+    def drag_units(self):
+        wall = self.wall
+        return tuple(snap_grid.geometry(self.size, wall._cells(), wall._corner_area(), wall.grid.spacing()).values())
+
     def mark_drag(self, mime, tile, press):
         if not self.interactive():
             return False
@@ -224,16 +246,22 @@ class WallSnapGrid:
         if not self.interactive():
             self.hide_drag_guide()
             return
+        wall = self.wall
+        area, gap = wall._corner_area(), wall.grid.spacing()
+        units = self.drag_units()
+        plan = self._placement(mime, point)
+        if isinstance(plan, _TileSwap):
+            self.present_drag_guide(units, plan.destination.geometry(), swap_source=plan.source.geometry())
+            return
+        target = (snap_grid.geometry(self.size, [plan.target], area, gap)[0]
+                  if plan and plan.new_room not in self._orientation_checks else None)
+        self.present_drag_guide(units, target)
+
+    def present_drag_guide(self, units, target, *, swap_source=None):
         if self.guide is None:
             from .snap_grid_guide import SnapGridGuide
             self.guide = SnapGridGuide(self.wall)
-        wall = self.wall
-        area, gap = wall._corner_area(), wall.grid.spacing()
-        units = tuple(snap_grid.geometry(self.size, wall._cells(), area, gap).values())
-        plan = self._placement(mime, point)
-        target = (snap_grid.geometry(self.size, [plan.target], area, gap)[0]
-                  if plan and plan.new_room not in self._orientation_checks else None)
-        self.guide.present(units, target)
+        self.guide.present(units, target, swap_source=swap_source)
 
     def hide_drag_guide(self):
         if self.guide is not None:
@@ -271,6 +299,8 @@ class WallSnapGrid:
             else:
                 index = next((i for i, tile in tiles.items() if not tile.isHidden()
                               and str(tile.room.get('room_id') or '') == room_id), None)
+            if kind == TILE_MIME and index is not None and (swap := self._swap_at(tiles, index, point)):
+                return swap
         else:
             return None
         row, column, height, width = unit
@@ -290,6 +320,15 @@ class WallSnapGrid:
             return _Placement(index, target, result, changed, None)
         return None
 
+    def _swap_at(self, tiles, source_index, point):
+        chat_cells = self.wall.pane_danmaku.bindings()
+        if source_index not in chat_cells:
+            for index, tile in tiles.items():
+                if (index != source_index and index not in chat_cells and not tile.isHidden()
+                        and tile.room.get('room_id') and tile.geometry().contains(point)):
+                    return _TileSwap(tiles[source_index], tile)
+        return None
+
     def _new_room_placement(self, room_id, unit, cells, occupied):
         index = next((i for i in range(len(cells)) if i not in occupied), None)
         if index is None:
@@ -306,6 +345,12 @@ class WallSnapGrid:
         plan = self._placement(mime, point)
         if plan is None:
             return False
+        if isinstance(plan, _TileSwap):
+            # An explicit swap keeps both slots, even if either first video frame is still pending.
+            for tile in (plan.source, plan.destination):
+                tile.state_control.pending_grid_aspect = None
+            self.wall.tilePairSwapRequested.emit(plan.source, plan.destination)
+            return True
         if plan.new_room is not None:
             if plan.new_room in self._orientation_checks:
                 self._pending_drops[plan.new_room] = self._unit_at(point)
