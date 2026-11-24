@@ -703,6 +703,13 @@ class PaneDanmakuTests(unittest.TestCase):
             image = floating.grab().toImage()
             self.assertEqual(pixel(image, outer).alpha(), 153)
             self.assertAlmostEqual(pixel(image, point).alpha(), 183, delta=1)
+            self.assertAlmostEqual(pixel(image, QPoint(4, point.y())).alpha(), 183, delta=1,
+                                   msg='The text scrim should reach the rounded shell without a side seam')
+            body_top = panel.body.viewport().mapTo(floating, QPoint()).y()
+            scrim_top = QPoint(floating.width() - 45, body_top)
+            self.assertLess(pixel(image, scrim_top + QPoint(0, 2)).alpha(),
+                            pixel(image, scrim_top + QPoint(0, 14)).alpha(),
+                            'The text scrim should fade in below the header')
             for x in (0, image.width() - 1):
                 for y in (0, image.height() - 1):
                     self.assertEqual(image.pixelColor(x, y).alpha(), 0, (x, y))

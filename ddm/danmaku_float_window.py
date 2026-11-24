@@ -3,7 +3,7 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QCursor, QKeySequence, QPainter, QPen, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QMenu, QPlainTextEdit,
                                QSizeGrip, QStackedLayout, QTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
@@ -507,16 +507,19 @@ class DanmakuFloatWindow(QWidget):
         color = theme.qcolor(theme.CONTENT)
         if self.property('danmakuFloatGlass'):
             color.setAlpha(max(1, round(255 * self._glass_opacity / 100)))
-        painter.setBrush(color)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
-        painter.drawPath(continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5),
-                                         self.CORNER_RADIUS))
+        outline = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.CORNER_RADIUS)
+        painter.fillPath(outline, color)
         panel = self.stack.currentWidget()
         if self.property('danmakuFloatGlass') and panel is not None:
-            viewport = panel.body.viewport()
-            text_area = QRectF(QRect(viewport.mapTo(self, QPoint()), viewport.size()))
+            text_top = panel.body.viewport().mapTo(self, QPoint()).y()
+            # Fade under the header and share the outer contour so the scrim cannot draw an inner box.
+            scrim = QLinearGradient(0, text_top, 0, text_top + self.CORNER_RADIUS)
+            color.setAlpha(0)
+            scrim.setColorAt(0, color)
             color.setAlpha(self.TEXT_MASK_ALPHA)
-            painter.fillPath(continuous_path(text_area, 10, corners=(0, 0, 10, 10)), color)
+            scrim.setColorAt(1, color)
+            painter.fillPath(outline, scrim)
+        painter.strokePath(outline, QPen(theme.qcolor(theme.BORDER_STRONG), 1))
         if self._snap_edges:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2, Qt.SolidLine, Qt.RoundCap))
             right, bottom = self.width()-2, self.height()-2
