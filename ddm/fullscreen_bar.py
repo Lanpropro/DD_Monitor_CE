@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from .corner_geometry import continuous_path
 from .theme import VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS
+from .window_fullscreen import raise_below_native_windows
 
 
 class FullscreenBar(QWidget):
@@ -97,7 +98,13 @@ class FullscreenBar(QWidget):
             # the complete interactive bar its own Qt-managed alpha backing store.
             self.setAttribute(Qt.WA_TranslucentBackground, over_video)
             self.setAttribute(Qt.WA_NoSystemBackground, over_video)
-            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint if over_video else Qt.Widget)
+            if over_video:
+                # Qt.Tool uses CS_SAVEBITS on Windows. A fullscreen-width bar
+                # must not ask Windows to restore the pixels it covered.
+                window_type = Qt.Dialog if enabled and not self.parentWidget().isWindow() else Qt.Tool
+                self.setWindowFlags(window_type | Qt.FramelessWindowHint)
+            else:
+                self.setWindowFlags(Qt.Widget)
             self.set_tile_geometry(local.x(), local.y(), local.width(), local.height())
         for widget in (self, *self.findChildren(QWidget)):
             widget.setProperty('fullscreen', enabled)
@@ -186,6 +193,9 @@ class FullscreenBar(QWidget):
                     region -= QRegion(settings.occlusion.translated(-self.geometry().topLeft()))
                 else:
                     region = QRegion()
+            dialog = getattr(owner, '_local_settings_dialog', None) if composited else None
+            if dialog is not None and dialog.isVisible() and not dialog.isMinimized():
+                region -= QRegion(dialog.frameGeometry().translated(-self.geometry().topLeft()))
             # Qt treats an empty window mask as unmasked, so hide a fully covered bar.
             visible = not region.isEmpty()
             mask_changed = visible and region != self.mask()
@@ -199,6 +209,24 @@ class FullscreenBar(QWidget):
 
     def refresh_theme(self):
         self.update()
+
+    def _raise_below_floating_chat(self):
+        if not self.qt_composited or not self.isVisible():
+            return False
+        owner = self._owner_window.windowHandle()
+        anchors = []
+        for widget in QApplication.topLevelWidgets():
+            if (not widget.property('floatingDanmaku') or not widget.isVisible()
+                    or widget.isMinimized() or widget.testAttribute(Qt.WA_DontShowOnScreen)):
+                continue
+            window = widget.windowHandle()
+            if window is not None and window.transientParent() is owner:
+                anchors.append(int(window.winId()))
+        return raise_below_native_windows(self, anchors)
+
+    def raise_(self):
+        if not self._raise_below_floating_chat():
+            super().raise_()
 
     def _render_badge(self, painter):
         shade = QLinearGradient(0, 0, 0, self.height())
@@ -275,6 +303,9 @@ class FullscreenBar(QWidget):
     def event(self, event):
         if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
             event.child().installEventFilter(self)
+        elif event.type() in (QEvent.Show, QEvent.WindowActivate) and self.qt_composited:
+            # Qt and Windows can raise an owned HWND when mapping or activating it.
+            QTimer.singleShot(0, self, self._raise_below_floating_chat)
         return QWidget.event(self, event)
 
     def eventFilter(self, watched, event):

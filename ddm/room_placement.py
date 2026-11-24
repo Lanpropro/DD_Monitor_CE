@@ -73,14 +73,16 @@ class RoomPlacement:
                 other.sync_audio_ui()
                 tile.sync_audio_ui()
         to_start.append(tile)
-        restarted = host.apply_quality_policy()
+        host.apply_quality_policy(restart=False, tiles=to_start)
         for candidate in to_start:
-            if candidate not in restarted:
-                host.start_tile(candidate)
+            host.start_tile(candidate)
         host._refresh_meta()
         print(f"{room.get('uname')} → 第 {position} 个格子")
 
     def swap_tiles(self, source_room_id: str, target_tile) -> None:
+        self.swap_tile_widgets(self.host._tile_of(source_room_id), target_tile)
+
+    def swap_tile_widgets(self, source, target_tile) -> None:
         """把来源格子里的直播间和目标格子互换（也包括拖到空格子上）。
 
         两边都在播的时候走**秒切**：播放器和它绑定的原生窗口都还在，只是换个
@@ -88,7 +90,6 @@ class RoomPlacement:
         （空格子、取流还没回来）或者要换音频输出路径时，退回「停掉再各自起」。
         """
         host = self.host
-        source = host._tile_of(source_room_id)
         if source is None or source is target_tile:
             return
         if host._hot_swap(source, target_tile):
@@ -108,10 +109,10 @@ class RoomPlacement:
             source.sync_audio_ui()
             target_tile.sync_audio_ui()
         host.wall.pane_danmaku.swap_sources(source, target_tile)
-        restarted = host.apply_quality_policy()
-        for tile in (source, target_tile):
-            if tile.room.get("room_id") and tile not in restarted:
-                host.start_tile(tile)
+        to_start = [tile for tile in (source, target_tile) if tile.room.get("room_id")]
+        host.apply_quality_policy(restart=False, tiles=to_start)
+        for tile in to_start:
+            host.start_tile(tile)
         host._refresh_meta()
         print("两个格子的直播间已互换")
 

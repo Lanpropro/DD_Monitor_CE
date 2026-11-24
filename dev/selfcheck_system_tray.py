@@ -560,7 +560,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
                                  MonitorEntry('1003', '同组录制乙', 'recording', started_at=150, profile_group=group),
                                  MonitorEntry('failed', '启动失败示例', 'failed', profile_group=group),
                                  *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring', 'douyin',
-                                                profile_group=group) for index in range(8)),
+                                                profile_group=group, live=index == 0) for index in range(8)),
                                  MonitorEntry('other', '其他分类', 'monitoring', profile_group=another_group))
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=161):
             tray.menu.popup(QPoint(30, 30))
@@ -594,7 +594,10 @@ class TrayMenuChoicesTests(unittest.TestCase):
         self.assertIn('同组录制乙 · 房间号 1003 · 00:00:11', QToolTip.text())
         QToolTip.hideText()
         self.assertEqual(panel.rows.itemAt(4).widget().status.text(), '录制启动失败')
-        stack = panel.rows.itemAt(5).widget().findChild(QWidget, 'TrayMonitorAvatars')
+        monitored_group = panel.rows.itemAt(5).widget()
+        self.assertIn('监控示例 0 · 房间号 fixture:0 · 直播中', monitored_group.toolTip())
+        self.assertIn('监控示例 1 · 房间号 fixture:1 · 未开播', monitored_group.toolTip())
+        stack = monitored_group.findChild(QWidget, 'TrayMonitorAvatars')
         rims = stack.findChildren(QWidget, 'TrayMonitorAvatarRim')
         self.assertEqual(len(rims), 5)
         self.assertTrue(rims[0].geometry().intersects(rims[1].geometry()))

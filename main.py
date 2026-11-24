@@ -11,6 +11,16 @@ import sys
 if sys.platform == "win32":
     import platform
 
+    if not getattr(sys, "frozen", False):
+        from pathlib import Path
+
+        # Qt searches PATH for OpenSSL. Prefer the pair shipped with Python.
+        openssl_dir = Path(sys.base_prefix) / "DLLs"
+        if all((openssl_dir / name).is_file() for name in ("libcrypto-3-x64.dll", "libssl-3-x64.dll")):
+            dll_path = os.environ.get("PATH", "")
+            if dll_path.split(os.pathsep, 1)[0] != str(openssl_dir):
+                os.environ["PATH"] = str(openssl_dir) + os.pathsep + dll_path
+
     def _skip_wmi_query(*_args):
         raise OSError("WMI metadata queries are disabled in the app process")
 
@@ -95,8 +105,9 @@ if __name__ == "__main__":
             install_theme_animation_capture(theme_probe)
         if os.environ.get('DDM_FULLSCREEN_CAPTURE') == '1' or '--diagnose-fullscreen' in sys.argv:
             from ddm.fullscreen_diagnostics import install as install_fullscreen_capture
+            fullscreen_diagnostics = '--diagnose-fullscreen' in sys.argv
             install_fullscreen_capture(os.path.join(config.data_root(), 'logs', 'fullscreen.jsonl'),
-                                       profile_calls='--diagnose-fullscreen' in sys.argv)
+                                       profile_calls=fullscreen_diagnostics, native_windows=fullscreen_diagnostics)
         if '--diagnose-responsiveness' in sys.argv:
             from ddm.responsiveness import install
             install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))

@@ -48,8 +48,12 @@ class StreamerDefaultsPage(QWidget):
         self.scroll.setWidget(content)
         layout = QVBoxLayout(content)
         layout.addLayout(page_header(
-            '主播监控', '按主播设置画质、音量和自动录制。开启后，主播未上墙也会后台录制。'
+            '主播监控', '按主播设置开播监控、自动录制和播放偏好。主播未上墙也可监控或自动录制。'
             '\n同平台的直播间也可能提供不同的画质档位，合并卡片只显示共有档位。'))
+        self.windows_notice_hint = QLabel('在「设置 → 通知」开启 Windows 通知后生效。', objectName='SettingsHint')
+        self.windows_notice_hint.setWordWrap(True)
+        self.windows_notice_hint.setVisible(not self.windows_notice_available)
+        layout.addWidget(self.windows_notice_hint)
         add_section = SettingsSection('添加主播')
         layout.addWidget(add_section)
         self.picker = StreamerPicker(self.rooms)
@@ -126,7 +130,7 @@ class StreamerDefaultsPage(QWidget):
         room = self.rooms.get(room_id)
         if room is None or not room['followed'] or room_id in self.entries:
             return
-        self.entries[room_id] = {'name': room['name']}
+        self.entries[room_id] = {'name': room['name'], 'monitor_live': True}
         self.expanded.add(room_id)
         self.picker.set_occupied(self.entries)
         self._render_profiles()
@@ -155,6 +159,7 @@ class StreamerDefaultsPage(QWidget):
 
     def set_windows_notice_available(self, enabled):
         self.windows_notice_available = enabled
+        self.windows_notice_hint.setVisible(not enabled)
         for card in self.cards.values():
             card.update_summary()
 

@@ -67,7 +67,7 @@ def install(mode, directory):
         install_theme_animation_capture(metadata.probe)
     elif mode == 'fullscreen':
         from .fullscreen_diagnostics import install as install_fullscreen
-        metadata.probe = install_fullscreen(directory / 'fullscreen.jsonl')
+        metadata.probe = install_fullscreen(directory / f'fullscreen-session-{metadata.run}.jsonl', native_windows=True)
 
     original = MainWindow.__init__
     def initialize(window, *args, **kwargs):

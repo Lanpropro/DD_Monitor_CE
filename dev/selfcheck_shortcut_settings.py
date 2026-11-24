@@ -49,6 +49,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(set(before), {item[0] for item in SHORTCUT_ACTIONS})
         for query, expected in (('全屏查看', 'focus'), ('quanpingchakan', 'focus'),
                                 ('qpck', 'focus'), ('audio_cycle', 'audio_cycle'),
+                                ('关闭直播格', 'close_tile'), ('移除弹幕格', 'close_tile'),
                                 ('Ctrl+K', 'focus'), ('画中画 音量', 'pip_volume_up')):
             page.search.setText(query)
             settle()

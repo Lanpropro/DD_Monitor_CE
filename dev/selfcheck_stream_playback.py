@@ -511,6 +511,23 @@ class StreamPlaybackTests(unittest.TestCase):
         self.assertEqual([t.quality for t in self.host.wall.tiles], [10000, 250, 250])
         self.assertEqual(self.host._resolvers, {})
 
+    def test_drop_quality_policy_ignores_existing_players_and_resolvers(self):
+        old_main = self.tile
+        old_main.quality = 10000
+        player, resolver = Mock(), Mock()
+        self.host.players[old_main] = player
+        self.host._resolvers[old_main] = resolver
+        new_main = Tile(self.host)
+        new_main.room['room_id'] = '1002'
+        self.host.wall.tiles.append(new_main)
+        self.host.wall.main_index = lambda: 1
+
+        self.assertEqual(self.host.apply_quality_policy(restart=False, tiles=[new_main]), [new_main])
+        self.assertEqual((old_main.quality, new_main.quality), (10000, 10000))
+        self.assertIs(self.host.players[old_main], player)
+        self.assertIs(self.host._resolvers[old_main], resolver)
+        resolver.cancel.assert_not_called()
+
     def test_login_failure_and_capture_cleanup_keep_existing_decisions(self):
         self.tile.room['room_id'] = 'fixture:1'
         self.host._accounts['fixture'] = {}

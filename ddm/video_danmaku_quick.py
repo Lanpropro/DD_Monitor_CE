@@ -364,7 +364,8 @@ class QuickDanmakuLayer(QObject):
                 and watched is not self._presentation_window):
             if (isinstance(watched, QWidget) and watched.isWindow()
                     and _owned_by(watched, self.parent.window())
-                    and kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)):
+                    and (kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)
+                         or (kind == QEvent.DynamicPropertyChange and bytes(event.propertyName()) == b'behindFullscreen'))):
                 if not (self._floating_stacked and watched.property('floatingDanmaku')
                         and kind in (QEvent.Move, QEvent.Resize)):
                     self._occlusion_timer.start(0)
@@ -460,6 +461,7 @@ class QuickDanmakuLayer(QObject):
         owner = self.parent.window()
         return [widget for widget in QApplication.topLevelWidgets()
                 if widget is not owner and widget is not self._presentation_window
+                and not widget.property('behindFullscreen')
                 and widget.isVisible() and not widget.isMinimized() and _owned_by(widget, owner)]
 
     def _stack_below_floats(self, widgets, settings):

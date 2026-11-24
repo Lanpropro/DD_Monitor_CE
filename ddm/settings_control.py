@@ -22,15 +22,15 @@ class SettingsControl:
             self._streamer_catalog = StreamerSettingsCatalog(self.host)
         self._streamer_catalog.request(room_id, reply)
 
-    def open_sidebar_settings(self):
+    def _open_process(self, page):
         host = self.host
-        if os.environ.get("DDM_SETTINGS_PROCESS") != "1":
-            return host.open_settings()
         session = getattr(host, '_settings_host', None)
         if session is not None:
             session.sync()
-        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(),
-                                          streamer_rooms=self.streamer_rooms())
+        options = {'streamer_rooms': self.streamer_rooms()}
+        if page is not None:
+            options['page'] = page
+        host._get_settings_process().open(host.settings, host.shortcuts, host._sc_preview_context(), **options)
         return False
 
     def sc_preview_context(self):
@@ -66,6 +66,7 @@ class SettingsControl:
             host._settings_process.autoSaveRequested.connect(lambda message: handle_request(host, message))
             host._settings_process.hostRequest.connect(host._settings_host_request)
             host._settings_process.closed.connect(host._close_settings_host)
+            host._settings_process.reopenRequested.connect(host._open_sidebar_settings)
             host._settings_process.occlusionChanged.connect(self._sync_settings_occlusion)
             host._settings_process.failed.connect(lambda message: host._show_notice(
                 "独立设置窗口未能启动；点击此通知使用原设置窗口", kind="error", on_click=host.open_settings))
@@ -190,27 +191,48 @@ class SettingsControl:
         bind_dialog(host, dialog)
         return dialog
 
-    def open_settings(self, page: str = "general", *, dialog_class) -> bool:
+    def open_settings(self, page: str | None, *, dialog_class, prefer_process=False) -> bool:
+        """Route all settings requests through the active local or isolated window."""
         host = self.host
-        SettingsDialog = dialog_class
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+        if host._closing:
+            return False
+        dialog = getattr(host, '_local_settings_dialog', None)
+        if dialog is not None:
+            from .settings_process import _activate_dialog
+            self._select_page(dialog, page)
+            _activate_dialog(dialog)
+            return False
+        client = getattr(host, '_settings_process', None)
+        if client is not None and client.focus(page):
+            return False
+        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page == 'updates'):
+            return self._open_process(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
                           dict(host.plugins._platform_owner), set(host.plugins._removed))
         dialog = host._create_settings_dialog()
+        host._local_settings_dialog = dialog
+        dialog.occlusionChanged.connect(self._sync_settings_occlusion)
         try:
             print(f"[设置耗时] 准备窗口 {(time.perf_counter() - started) * 1000:.1f}ms", file=sys.stderr, flush=True)
-            for index, (key, _label) in enumerate(dialog.PAGES):
-                if key == page:
-                    dialog.nav.setCurrentRow(index)
-                    break
-            if page == "plugins":
-                dialog.plugin_page.tabs.setCurrentIndex(1)
-            if dialog.exec() != SettingsDialog.Accepted:
+            self._select_page(dialog, page or 'general')
+            if dialog.exec() != dialog_class.Accepted:
                 return False
+            host._local_settings_dialog = None
             return host._apply_settings_dialog(dialog, plugins_before)
         finally:
+            if host._local_settings_dialog is dialog:
+                host._local_settings_dialog = None
+            self._sync_settings_occlusion()
             dialog.deleteLater()
+
+    @staticmethod
+    def _select_page(dialog, page):
+        index = dialog.PAGE_INDEX.get(page)
+        if index is not None:
+            dialog.nav.setCurrentRow(index)
+        if page == 'plugins':
+            dialog.plugin_page.tabs.setCurrentIndex(1)
 
     def apply_plugin_selection(self, enabled_plugins):
         from .settings_performance import measure
@@ -246,10 +268,13 @@ class SettingsControl:
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
         windowed_bar_settings = {'windowed_transparent_controls', 'windowed_auto_hide_controls'}
         presentation_only = bool(changed_keys) and changed_keys <= (
-            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys()
+            MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | config_module.FLOAT_GLASS_KEYS
             | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu',
                                        'settings_wheel_speed', 'wall_seamless'})
         host.settings.update(updated_settings)
+        if changed_keys & config_module.FLOAT_GLASS_KEYS:
+            for window in host.wall.pane_danmaku.floating_windows():
+                window.set_material(host.settings)
         if 'wall_seamless' in changed_keys:
             host.wall.set_seamless(host.settings['wall_seamless'])
         elif changed_keys & windowed_bar_settings:
@@ -361,14 +386,17 @@ class SettingsControl:
         host._save_timer.start()
 
     def set_skin(self, values):
+        from .settings_performance import measure
+
         host = self.host
         active = host.plugins.active_skin()
         if active is not None and active['version'] == 1:
             host.refresh_skin()
             return
         host.settings.update(values)
-        host.refresh_skin()
-        config_module.save(host.current_state())
+        measure('skin.refresh', host.refresh_skin)
+        state = measure('skin.collect_state', host.current_state)
+        measure('skin.save', config_module.save, state)
 
     def set_skin_parts(self, values):
         host = self.host

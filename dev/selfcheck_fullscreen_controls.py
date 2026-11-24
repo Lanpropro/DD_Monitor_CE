@@ -119,8 +119,12 @@ def check_transparent_bar(app, tile):
             tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground | QWidget.DrawChildren)
             painter.end()
             assert editor.paints > 0, 'Transparent composition must include the live editor'
-            sample_x = tile.bottom.width() // 2 + 120
-            check_gradient(image, sample_x)
+            background = QImage(tile.bottom.size(), QImage.Format_ARGB32_Premultiplied)
+            background.fill(Qt.transparent)
+            painter = QPainter(background)
+            tile.bottom.render(painter, QPoint(), QRegion(), QWidget.DrawWindowBackground)
+            painter.end()
+            check_gradient(background, background.width() // 2)
             assert _icon_color(tile.pause_button).name() == '#ffffff', 'Icons must stay white in both themes'
             clicked = []
             tile.pause_button.clicked.connect(lambda: clicked.append(True))
@@ -480,6 +484,31 @@ def check_windowed_overlay(app):
             settings._set_occlusion(QRect(), force=True)
             check_bar(first)
             check_bar(second)
+
+            from ddm.dialogs import SettingsDialog
+            dialog = SettingsDialog(window.settings, {}, window, preview=True)
+            covered = QPoint(3 * bar.width() // 4, bar.height() // 2)
+            exposed = QPoint(bar.width() // 4, bar.height() // 2)
+
+            def show_local_settings():
+                dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+                dialog.move(bar.mapToGlobal(QPoint(bar.width() // 2, -100)))
+                dialog.show()
+                app.processEvents()
+                assert bar.isVisible() and not bar.mask().contains(covered), 'Local settings must clip the native bar'
+                assert bar.mask().contains(exposed), 'Uncovered controls must remain available'
+                first.raise_overlays()
+                assert not bar.mask().contains(covered), 'Raising controls must keep settings clear'
+                dialog.move(dialog.pos() + QPoint(0, -dialog.height()))
+                app.processEvents()
+                assert bar.mask().contains(covered), 'Moving the local dialog must expose the controls immediately'
+                dialog.hide()
+                return SettingsDialog.DialogCode.Rejected
+
+            with patch.object(window, '_create_settings_dialog', return_value=dialog), \
+                    patch.object(dialog, 'exec', side_effect=show_local_settings):
+                assert not window.open_settings()
+            check_bar(first)
 
             enter = window._fullscreen_presentation.enter
             with patch.object(window, '_upgrade_fullscreen_quality'), \

@@ -18,6 +18,7 @@ from ddm.auto_recording import AutoRecording
 from ddm.app_notices import AppNotices
 from ddm.bili_workers import RecordingStreamResolver, StreamResolver
 from ddm.capture_control import CaptureControl
+from ddm.recording_session import BackgroundRecordingSource
 from ddm.tile_widgets import Tile
 from ddm.windows_recording_notifications import toast_xml
 from ddm.plugins import PluginContext, PluginManager
@@ -137,6 +138,45 @@ class RecordingServiceTests(unittest.TestCase):
                 auto.settings_changed()
                 self.assertFalse(service.sources())
                 self.assertFalse(auto.monitored_rooms())
+
+    def test_monitor_only_refreshes_status_and_pause_lets_an_existing_recording_finish(self):
+        watched = {'name': '仅监控', 'monitor_live': True}
+        recording = {'name': '自动录制', 'auto_record': True, 'windows_recording_notice': True}
+        settings = {'recording_enabled': False, 'streamer_defaults': {
+            '1001': watched, '1002': recording, '1003': {'name': '仅播放', 'playback': 720}}}
+        recorder = SimpleNamespace(sessions={}, background_directory=Mock(return_value='capture'),
+                                   start_background=Mock(return_value=True), stop=Mock())
+        host = SimpleNamespace(settings=settings, recorder=recorder, _closing=False, _pending_capture={},
+                               sidebar=SimpleNamespace(rooms=list), refresh_status=Mock())
+        auto = host.auto_recording = AutoRecording(host)
+        live = {'1001': {'live': True, 'face': 'fixture-avatar'}, '1002': {'live': True}}
+        auto.settings_changed()
+        self.assertEqual(set(auto.watched_rooms()), {'1001', '1002'})
+        self.assertEqual(auto.apply_status(live), {'1001': 'fixture-avatar'})
+        self.assertEqual([row.live for row in CaptureControl(host).monitor_rows()], [True, True])
+        recorder.start_background.assert_not_called()
+        auto.apply_status({'1001': {'live': False, 'live_known': False}})
+        self.assertTrue(auto.room_details['1001']['live'])
+
+        settings['recording_enabled'] = True
+        auto.settings_changed()
+        auto.apply_status(live)
+        source = recorder.start_background.call_args.args[0]
+        self.assertIsInstance(source, BackgroundRecordingSource)
+        self.assertEqual(source.room['room_id'], '1002')
+        recorder.sessions[source] = SimpleNamespace(room_id='1002', recording_started_at=10, stopping=False)
+        recording['monitor_live'] = False
+        auto.settings_changed()
+        self.assertIn('1002', auto.watched_rooms())
+        self.assertTrue(auto.controls_room('1002'))
+        recorder.stop.assert_not_called()
+        auto.apply_status({'1002': {'live': False}})
+        recorder.stop.assert_called_once_with(source, confirmed_offline=True)
+        recorder.sessions.clear()
+        auto.apply_status(live)
+        self.assertFalse(auto.controls_room('1002'))
+        self.assertNotIn('1002', auto.room_details)
+        recorder.start_background.assert_called_once()
 
     def test_only_opted_in_recording_transitions_use_windows(self):
         host = SimpleNamespace(settings={}, _closing=False, _show_notice=Mock())

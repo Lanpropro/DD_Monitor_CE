@@ -1,14 +1,17 @@
 """Status orchestration with synthetic signals; no live requests or application window."""
+from base64 import b64decode
+import json
 from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from ddm.room_status import RoomStatus
+from ddm.app_notices import AppNotices
 
 
 class Signal:
@@ -48,6 +51,7 @@ class Poller:
 
 class Host:
     def __init__(self, rooms=None, tiles=None):
+        self.settings = {}
         self._closing = self._refresh_queued = self._startup_status_complete = False
         self._poller = self._stats_poller = None
         self.wall = SimpleNamespace(tiles=tiles or [])
@@ -96,10 +100,77 @@ class RoomStatusTests(unittest.TestCase):
 
     def test_monitored_rooms_are_polled_even_without_follow_or_wall_tiles(self):
         host = Host()
-        host.auto_recording = SimpleNamespace(monitored_rooms=lambda: {'1001': {}, 'fixture:2': {}})
+        host.auto_recording = SimpleNamespace(watched_rooms=lambda: {'1001': {}, 'fixture:2': {}})
         host.refresh_status()
         self.assertEqual(host._poller.room_ids, ['1001', 'fixture:2'])
         self.assertEqual(host._poller.kwargs['platforms'], host.plugins.platforms)
+
+    def test_windows_opening_reminders_poll_independent_rooms_and_merge_record_start(self):
+        host = Host()
+        host.sidebar._items = []
+        host.hover_preview = SimpleNamespace(_room_id=lambda: '')
+        host._load_room_banners = Mock()
+        host.settings = {'notice_windows_recording': False, 'notifications_enabled': False,
+                         'live_alert': False, 'streamer_defaults': {
+                             'fixture:2': {'name': '场外主播', 'windows_live_notice': True},
+                             '1001': {'windows_live_notice': True, 'windows_recording_notice': True},
+                             '1003': {'windows_recording_notice': True},
+                             '1004': {'monitor_live': True},
+                             '1005': {'monitor_live': False, 'windows_live_notice': True, 'auto_record': True},
+                         }}
+        host.notice_control = AppNotices(host)
+        host.refresh_status()
+        self.assertEqual(host._poller.room_ids, ['fixture:2', '1001', '1004'])
+        host._poller.finish()
+        host.settings['notice_windows_recording'] = True
+        host.refresh_status()
+        poller = host._poller
+        self.assertEqual(poller.room_ids, ['fixture:2', '1001', '1004'])
+        self.assertEqual(poller.kwargs['platforms'], host.plugins.platforms)
+        host._on_status_updated.side_effect = host.room_status.apply_status
+        both = {'room_id': '1001', 'uname': '同时录制'}
+        with patch('ddm.windows_recording_notifications.send_recording_notification') as send:
+            # Initial status and unknown offline results must not replay an opening alert.
+            poller.updated.emit({'fixture:2': {'live': True}, '1001': {'live': False}})
+            poller.finish()
+            host.refresh_status()
+            poller = host._poller
+            poller.updated.emit({'fixture:2': {'live': False, 'live_known': False}})
+            poller.updated.emit({'fixture:2': {'live': True}, '1003': {'live': True}})
+            send.assert_not_called()
+
+            poller.updated.emit({'fixture:2': {'live': False}, '1001': {'live': True, 'uname': both['uname']}})
+            tag = send.call_args.kwargs['tag']
+            send.assert_called_once_with('开播提醒', '同时录制 开播了', tag=tag)
+            host.notice_control.background_recording_transition('started', both)
+            send.assert_called_with('开播 · 已开启自动录制', '同时录制', tag=tag, suppress_popup=True)
+            poller.updated.emit({'1001': {'live': True}, 'fixture:2': {'live': True}})
+            self.assertEqual(send.call_count, 3)
+            self.assertEqual(send.call_args.args, ('开播提醒', '场外主播 开播了'))
+            host.notice_control.background_recording_transition('stopped_offline', both)
+            send.assert_called_with('下播 · 已停止自动录制', '同时录制')
+
+            poller.updated.emit({'1001': {'live': False}})
+            poller.updated.emit({'1001': {'live': True}})
+            self.assertNotEqual(send.call_args.kwargs['tag'], tag)
+            host.settings['streamer_defaults']['1001']['monitor_live'] = False
+            poller.updated.emit({'1001': {'live': False}})
+            poller.updated.emit({'1001': {'live': True}})
+            self.assertEqual(send.call_count, 5)
+            host.settings['notice_windows_recording'] = False
+            poller.updated.emit({'fixture:2': {'live': False}})
+            poller.updated.emit({'fixture:2': {'live': True}})
+            self.assertEqual(send.call_count, 5)
+
+    def test_windows_recording_update_preserves_tag_and_suppresses_second_popup(self):
+        from ddm import windows_recording_notifications as windows
+
+        with patch.object(windows.subprocess, 'run') as launch, \
+                patch.object(windows.subprocess, 'CREATE_NO_WINDOW', 0, create=True):
+            windows._send('开播 · 已开启自动录制', '示例主播', tag='same-opening', suppress_popup=True)
+        payload = json.loads(b64decode(launch.call_args.kwargs['env']['DDM_RECORDING_TOAST']))
+        self.assertEqual(payload['tag'], 'same-opening')
+        self.assertIs(payload['suppressPopup'], True)
 
     def test_repeated_refresh_queues_one_round_and_old_ready_cannot_stop_it(self):
         host = Host([{'room_id': '1001'}])

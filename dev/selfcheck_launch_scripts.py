@@ -33,9 +33,10 @@ def main():
             'Path(__file__).with_name("quick.txt").write_text(os.environ.get("DDM_QTQUICK_DANMAKU", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("settings.txt").write_text(os.environ.get("DDM_SETTINGS_PROCESS", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
-            'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
+            'Path(__file__).with_name("no-save.txt").write_text(os.environ.get("DDM_NO_SAVE", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("fullscreen-input.txt").write_text(os.environ.get("DDM_FULLSCREEN_INPUT_CAPTURE", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("arguments.txt").write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n'
+            'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
         (root / 'dev').mkdir()
         (root / 'dev/diagnose_drag_windows.py').write_text(
@@ -59,7 +60,14 @@ def main():
         deps = root / 'work/deps/PySide6'
         deps.mkdir(parents=True)
         (deps / 'QtCore.pyd').touch()
-        result = invoke(root / "run.cmd", env)
+        foreign = root / 'external test runtime'
+        foreign.mkdir()
+        (foreign / 'sitecustomize.py').write_text(
+            'import os\nfrom pathlib import Path\n'
+            'Path(__file__).with_name("injected.txt").write_text(os.environ.get("DDM_NO_SAVE", ""))\n',
+            encoding='utf-8')
+        inherited = dict(env, PYTHONPATH=str(foreign), DDM_NO_SAVE='1')
+        result = invoke(root / "run.cmd", inherited)
         assert result.returncode == 0, result.stderr
         deadline = time.monotonic() + 10
         while not (root / "started.txt").exists() and time.monotonic() < deadline:
@@ -68,16 +76,19 @@ def main():
         assert (root / "settings.txt").read_text(encoding="utf-8") == "1"
         assert (root / "quick.txt").read_text(encoding="utf-8") == "1", \
             "run.cmd must enable Quick in the launched Python process"
-        assert (root / 'pythonpath.txt').read_text(encoding='utf-8').startswith(str(deps.parent)), \
-            'Daily launcher must select the same work/deps used by freezing'
+        assert not (foreign / 'injected.txt').exists(), 'Normal startup must ignore inherited Python startup hooks'
+        assert Path((root / 'pythonpath.txt').read_text(encoding='utf-8')) == deps.parent, \
+            'Daily launcher must only use its own work/deps'
+        assert (root / 'no-save.txt').read_text(encoding='utf-8') == '1', 'Keep an explicit no-save request'
         assert (root / 'trace-enabled.txt').read_text() == '1', 'run.cmd must enable temporary drag tracing'
         (root / 'fullscreen-input.txt').unlink()
-        result = invoke(root / 'run.cmd', env, ('--diagnose-fullscreen-input',))
+        result = invoke(root / 'run.cmd', inherited, ('--diagnose-fullscreen-input',))
         assert result.returncode == 0
         deadline = time.monotonic() + 10
         while not (root / 'fullscreen-input.txt').exists() and time.monotonic() < deadline:
             time.sleep(.05)
         assert (root / 'fullscreen-input.txt').read_text() == '1'
+        assert (foreign / 'injected.txt').read_text() == '1', 'Explicit diagnostics allow isolated fixtures'
         (root / 'trace-enabled.txt').unlink()
         (root / 'started.txt').unlink()
         result = invoke(root / 'run.cmd', env, ('--diagnose-session=drag',))
@@ -112,14 +123,17 @@ def main():
         assert not (root / 'trace-enabled.txt').exists(), 'Simulator keeps its independent entry'
         (root / 'dev/run_checks.py').write_text(
             'from pathlib import Path\nimport sys\n'
-            'Path(__file__).resolve().parents[1].joinpath("cache-check.txt").write_text(" ".join(sys.argv[1:]))\n',
+            'with Path(__file__).resolve().parents[1].joinpath("checks.txt").open("a") as record:\n'
+            '    record.write(" ".join(sys.argv[1:]) + "\\n")\n',
             encoding='utf-8')
+        checks = root / 'checks.txt'
         result = invoke(root / 'run.cmd', env, ('--check-image-cache',))
         assert result.returncode == 0
-        assert (root / 'cache-check.txt').read_text() == '--script selfcheck_image_cache'
+        assert checks.read_text().splitlines() == ['--script selfcheck_image_cache', '--script selfcheck_extra_cache']
+        checks.unlink()
         result = invoke(root / 'run.cmd', env, ('--check-qt-log',))
         assert result.returncode == 0
-        assert (root / 'cache-check.txt').read_text() == '--script selfcheck_qt_log'
+        assert checks.read_text().splitlines() == ['--script selfcheck_logging', '--script selfcheck_qt_log']
         # Missing interpreter errors must also be readable and report failure.
         for name in ("run.cmd", "run-console.cmd"):
             text = (root / name).read_text(encoding="utf-8").replace(

@@ -120,8 +120,10 @@ class FunctionalModulesTests(unittest.TestCase):
             state = {key: value for key, value in vars(controller).items()
                      if key not in ('destroyed', 'objectNameChanged')}
             expected = {'host': host}
+            if module == 'app_shortcuts':
+                expected.update(_fullscreen_toggle_finished=None, _queued_fullscreen_toggle=False)
             if module == 'app_notices':
-                expected['official_announcement'] = None
+                expected.update(official_announcement=None, _windows_live={})
             self.assertEqual(state, expected)
 
     def test_super_chat_model_is_independent_and_legacy_exports_keep_identity(self):
@@ -233,7 +235,10 @@ class FunctionalModulesTests(unittest.TestCase):
         for owner, fields in ((panel, ('document_control', 'scroll_control')),
                 (video, ('raster_control', 'surface_control'))):
             for name in fields:
-                self.assertEqual(vars(getattr(owner, name)), {'host': owner})
+                expected = {'host': owner}
+                if name == 'document_control':
+                    expected['_medal_style'] = None
+                self.assertEqual(vars(getattr(owner, name)), expected)
         self.assertIs(VideoDanmaku._paint_super_chat, _paint_super_chat)
         self.assertIs(video.timer.parent(), video)
 

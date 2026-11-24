@@ -29,6 +29,7 @@ class WallGrid(QWidget):
     tileCreated = Signal(object)
     roomDropped = Signal(object, str)      # 目标格子, 房间号
     tileSwapped = Signal(str, object)      # 来源房间号, 目标格子
+    tilePairSwapRequested = Signal(object, object)  # 自定义布局中实际拖起的格子、目标格子
     cornerRatiosChanged = Signal()         # 松开或重置后通知外层保存，不在拖动帧中写配置
     layoutRatiosChanged = Signal()
     paneEditRequested = Signal(int)
@@ -556,7 +557,8 @@ class WallGrid(QWidget):
         # 原生视频移动后重绘空隙；皮肤启用时保留背景层的透明通路。
         if theme._skin_active:
             controller = getattr(self.window(), 'skin_controller', None)
-            if self.snap_grid.interactive() and controller is not None and controller.layer.mask > 0:
+            if (self.snap_grid.size and self.picture_in_picture_tiles is None
+                    and controller is not None and controller.layer.mask > 0):
                 with QPainter(self) as painter:
                     backdrop = theme.qcolor(theme.BG)
                     backdrop.setAlphaF(.84)  # Same theme tint as the clip workspace.

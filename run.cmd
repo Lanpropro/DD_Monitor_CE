@@ -28,6 +28,7 @@ if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
 if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
+if /i "%~1"=="--check-background-switch" goto backgroundSwitchCheck
 if /i "%~1"=="--check-portrait-ui" goto portraitUiCheck
 if /i "%~1"=="--check-tray-menu" goto trayMenuCheck
 if /i "%~1"=="--check-browser-accounts" goto browserAccountsCheck
@@ -106,6 +107,11 @@ if /i "%~1"=="--diagnose-window-dpi-profile" (
     set "DDM_WINDOW_DPI_PROFILE=1"
 )
 if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
+rem Keep inherited Python test hooks out of the normal launch.
+if /i not "%DIAG_ARG:~0,11%"=="--diagnose-" (
+    set "PYTHONPATH="
+    if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
+)
 rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
 start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
 exit /b 0
@@ -250,6 +256,8 @@ if errorlevel 1 exit /b %errorlevel%
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_diagnostic_session
 if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_fullscreen_capture.py"
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_development_hang
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_diagnostics.py"
@@ -377,6 +385,8 @@ exit /b %errorlevel%
 
 :streamPlaybackCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_placement
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_codec_control
@@ -475,6 +485,10 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_general_settings
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --reuse-navigation
 exit /b %errorlevel%
 
 :updatePreview
@@ -588,6 +602,10 @@ exit /b %errorlevel%
 
 :danmakuSettingsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\check_medal_size.py"
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_danmaku_blocking
@@ -624,7 +642,18 @@ exit /b 0
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_settings
 if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_control
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_update_download_progress -- UpdateDownloadTests.test_app_update_action_keeps_its_left_anchor_through_transfer_states UpdateDownloadTests.test_plugin_expansion_moves_only_its_column_and_keeps_one_footer UpdateDownloadTests.test_plugin_cards_keep_text_inside_at_large_font_and_narrow_width UpdateDownloadTests.test_plugin_columns_resize_filter_sort_and_keep_download_controls UpdateDownloadTests.test_plugin_controls_use_shared_library_and_preserve_actions_and_check_signals
+if errorlevel 1 exit /b %errorlevel%
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_settings_process.py" --update-retry-native
+exit /b %errorlevel%
+
+:backgroundSwitchCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_appearance_options -- AppearanceOptionsTests.test_local_gallery_selection_and_mask_keep_saved_strength AppearanceOptionsTests.test_gallery_decodes_off_thread_and_default_wins_over_an_inflight_image AppearanceOptionsTests.test_gallery_covers_thumbnail_and_keeps_import_drop_contract
 exit /b %errorlevel%
 
 :settingsControlsCheck

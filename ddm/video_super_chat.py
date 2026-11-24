@@ -40,7 +40,7 @@ class SuperChatOverlay(BadgeSurface):
         self._follow_timer.timeout.connect(self._refresh)
         self.setMouseTracking(True)
         self.setCursor(Qt.OpenHandCursor)
-        self.setToolTip('拖动标题移动，拖动边角缩放；点击紧凑标题展开，滚动正文阅读全文；多条超出格子时滚动标题切换')
+        self.setToolTip('拖动标题移动，拖动边角缩放；点击标题展开或收起持续展开的留言，滚动正文阅读全文；多条超出格子时滚动标题切换')
         self.chats = []
         self.opacity = 0.8
         self._video_danmaku = None
@@ -320,12 +320,15 @@ class SuperChatOverlay(BadgeSurface):
             return
         for index, rect in enumerate(rects):
             if rect.contains(point):
-                if self.presentation.is_collapsed(self.chats[index]):
-                    self.presentation.expand(self.chats[index]['id'])
+                chat_id = self.chats[index]['id']
+                if self.presentation.is_collapsed(chat_id):
+                    self.presentation.expand(chat_id, manual=True)
                     expanded = self.card_rects()[index]
                     if expanded.bottom() > self._stack_viewport.bottom():
                         self._stack_offset += expanded.bottom() - self._stack_viewport.bottom()
                         self._refresh()
+                elif self.presentation.stays_expanded(chat_id) and point.y() < rect.top() + round(56 * self._paint_scale):
+                    self.presentation.collapse(chat_id)
                 return
 
     def animate_dismiss(self, chat_id):
@@ -398,7 +401,7 @@ class SuperChatOverlay(BadgeSurface):
                 key = str(chat['id'])
                 current = min(maximum, self._body_offsets.get(key, 0))
                 self._body_offsets[key] = max(0, min(maximum, current - delta))
-                self.presentation.expand(key)  # Reading refreshes the existing collapse deadline.
+                self.presentation.expand(key)  # Reading refreshes only the initial collapse deadline.
                 self.update()
                 event.accept()
                 return

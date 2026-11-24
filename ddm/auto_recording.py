@@ -4,7 +4,7 @@ import sys
 from . import media_sources
 from .bili_workers import RecordingStreamResolver
 from .recording_session import BackgroundRecordingSource
-from .streamer_defaults import room_defaults
+from .streamer_defaults import monitored_streamers, room_defaults
 
 
 class AutoRecording:
@@ -14,21 +14,31 @@ class AutoRecording:
         self.attempted = {}
         self.failed_to_start = set()
         self.room_details = {}
+        self._watched_ids = set()
 
     def configured_rooms(self):
-        saved = self.host.settings.get('streamer_defaults')
-        if not isinstance(saved, dict):
-            return {}
         return {room_id: {'name': row.get('name'), **room_defaults(self.host.settings, room_id)}
-                for room_id, row in saved.items()
-                if isinstance(room_id, str) and room_id and isinstance(row, dict)
-                and row.get('auto_record') is True}
+                for room_id, row in monitored_streamers(self.host.settings).items()
+                if row.get('auto_record') is True}
 
     def monitored_rooms(self):
         return self.configured_rooms() if self.host.settings.get('recording_enabled', True) else {}
 
     def controls_room(self, room_id):
-        return room_defaults(self.host.settings, room_id).get('auto_record') is True
+        profile = room_defaults(self.host.settings, room_id)
+        return ((profile.get('monitor_live') is True and profile.get('auto_record') is True)
+                or self.source_for(str(room_id)) is not None)
+
+    def watched_rooms(self):
+        # A capture already on disk still needs a confirmed offline status after monitoring is paused.
+        return dict.fromkeys((*monitored_streamers(self.host.settings),
+                              *(session.room_id for source, session in self.host.recorder.sessions.items()
+                                if isinstance(source, BackgroundRecordingSource))))
+
+    def _finishing_paused_capture(self, session):
+        profile = room_defaults(self.host.settings, session.room_id)
+        return (self.host.settings.get('recording_enabled', True) and session.recording_started_at
+                and profile.get('monitor_live') is False and profile.get('auto_record') is True)
 
     def _settings_key(self, rooms):
         recorder = self.host.recorder
@@ -56,12 +66,15 @@ class AutoRecording:
                 host._restore_capture_quality(tile)
         for source, session in tuple(host.recorder.sessions.items()):
             background = isinstance(source, BackgroundRecordingSource)
-            if (background and session.room_id not in rooms
+            if (background and session.room_id not in rooms and not self._finishing_paused_capture(session)
                     or not background and session.recording and session.room_id in rooms):
                 host.recorder.stop(source)
         self.attempted = {room: started for room, started in self.attempted.items() if room in rooms}
-        self.room_details = {room: details for room, details in self.room_details.items() if room in rooms}
-        if self._sync_settings_key(rooms) and rooms and not host._closing:
+        watched = set(self.watched_rooms())
+        self.room_details = {room: details for room, details in self.room_details.items() if room in watched}
+        changed = self._sync_settings_key(rooms) or watched != self._watched_ids
+        self._watched_ids = watched
+        if changed and watched and not host._closing:
             host.refresh_status(force=True)
 
     def source_for(self, room_id):
@@ -76,7 +89,9 @@ class AutoRecording:
         rooms = self.monitored_rooms()
         self._sync_settings_key(rooms)
         faces = {}
-        for room_id, profile in rooms.items():
+        watched = self.watched_rooms()
+        self.room_details = {room: details for room, details in self.room_details.items() if room in watched}
+        for room_id in watched:
             info = status.get(room_id)
             if info:
                 details = self.room_details.setdefault(room_id, {})
@@ -84,6 +99,15 @@ class AutoRecording:
                     faces[room_id] = info['face']
                 details.update({key: info[key] for key in ('uname', 'uid', 'anchor_uid', 'display_room_id',
                                                           'platform', 'face') if info.get(key)})
+                if info.get('live_known', True) and 'live' in info:
+                    details['live'] = bool(info['live'])
+        for source, session in tuple(host.recorder.sessions.items()):
+            info = status.get(session.room_id, {})
+            if (isinstance(source, BackgroundRecordingSource) and session.room_id not in rooms
+                    and not session.stopping and info.get('live_known', True) and info.get('live') is False):
+                host.recorder.stop(source, confirmed_offline=True)
+        for room_id, profile in rooms.items():
+            info = status.get(room_id)
             if not info or not info.get('live_known', True) or 'live' not in info:
                 continue
             if not info['live']:

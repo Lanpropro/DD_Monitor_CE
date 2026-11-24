@@ -1,9 +1,11 @@
 """Main window app shortcuts; window remains the only state and Qt lifetime owner."""
 import sys
 from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QCursor, QKeySequence, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QShortcut, QWindow
 from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QTextEdit
+from . import window_fullscreen
 from .playback_controls import VolumeButton
+from .sidebar_hit_test import widget_at
 from .shortcut_actions import (
     DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_SHORTCUTS, FULLSCREEN_VOLUME_SHORTCUTS,
     LAYOUT_HEIGHT_SHORTCUTS, LAYOUT_RESIZE_SHORTCUTS, WHEEL_SHORTCUTS,
@@ -12,10 +14,15 @@ from .shortcut_actions import (
 from .video_surface import VideoSurface
 
 
+FLOAT_PLAYBACK_ACTIONS = ('focus', 'mute', 'audio_cycle', 'record', 'video_danmaku', 'solo', 'danmaku_input')
+
+
 class AppShortcuts(QObject):
     def __init__(self, host):
         super().__init__(host)
         self.host = host
+        self._fullscreen_toggle_finished = None
+        self._queued_fullscreen_toggle = False
 
     def refresh_shortcuts(self) -> None:
         host = self.host
@@ -43,23 +50,67 @@ class AppShortcuts(QObject):
         presets = getattr(host, 'layout_presets', None)
         layout_sequences = presets.shortcuts() if presets is not None else {}
         sequences.extend(layout_sequences)
+        tile = host._fullscreen_tile
+        owners = (tile or host,)
+        if tile is not None and tile.bottom.windowType() == Qt.Dialog:
+            owners += (tile.bottom,)
         for sequence in dict.fromkeys(sequences):
             if not sequence:
                 continue
-            shortcut = QShortcut(QKeySequence(sequence), host._fullscreen_tile or host)
-            shortcut.setContext(Qt.WindowShortcut)
-            shortcut.setAutoRepeat(False)
-            shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
-            shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
-            shortcut.setProperty('layoutPreset', sequence in layout_sequences)
-            shortcut.setProperty("danmakuInput", sequence in (
-                host.shortcuts.get("danmaku_input"),
-                "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
-            shortcut.activated.connect(lambda key=sequence: host._handle_shortcut(key))
-            host._window_shortcuts.append(shortcut)
+            for owner in owners:
+                shortcut = QShortcut(QKeySequence(sequence), owner)
+                shortcut.setContext(Qt.WindowShortcut)
+                shortcut.setAutoRepeat(False)
+                shortcut.setProperty('folderToggle', sequence == host.shortcuts.get('toggle_folders'))
+                shortcut.setProperty('fullscreenVolume', sequence in fullscreen_volume)
+                shortcut.setProperty('layoutPreset', sequence in layout_sequences)
+                shortcut.setProperty("danmakuInput", sequence in (
+                    host.shortcuts.get("danmaku_input"),
+                    "Enter" if host.shortcuts.get("danmaku_input") == "Return" else ""))
+                shortcut.activated.connect(lambda key=sequence: self._activate_shortcut(key))
+                host._window_shortcuts.append(shortcut)
+        for floating in host.wall.pane_danmaku.floating_windows():
+            self.refresh_floating_shortcuts(floating)
         host._sync_input_shortcuts()
 
+    def refresh_floating_shortcuts(self, floating):
+        shortcuts = getattr(self.host, 'shortcuts', DEFAULT_SHORTCUTS)
+        actions = FLOAT_PLAYBACK_ACTIONS
+        if self.host._fullscreen_tile is not None:
+            actions += ('restore',) + FULLSCREEN_VOLUME_SHORTCUTS
+        sequences = [shortcuts.get(action, DEFAULT_SHORTCUTS[action]) for action in actions]
+        if shortcuts.get('danmaku_input') == 'Return':
+            sequences.append('Enter')
+        floating.configure_shortcuts(shortcuts.get('close_tile', DEFAULT_SHORTCUTS['close_tile']),
+                                     sequences, self._forward_floating_shortcut)
+
+    def _floating_shortcuts_target_tile(self):
+        focused = QApplication.focusWidget()
+        if (isinstance(focused, (QLineEdit, QPlainTextEdit, QTextEdit)) and not focused.isReadOnly()
+                or QApplication.activePopupWidget() is not None or QApplication.activeModalWidget() is not None):
+            return False
+        tile = self.host._tile_under_cursor()
+        if tile is None or not tile.room.get('room_id'):
+            return False
+        # A video rectangle can be underneath the chat itself or another app.
+        hit = widget_at(QCursor.pos())
+        return hit is not None and hit.window() in (tile.window(), tile.bottom)
+
+    def _forward_floating_shortcut(self, sequence):
+        if not self._floating_shortcuts_target_tile():
+            return False
+        self._activate_shortcut(sequence)
+        return True
+
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.ShortcutOverride:
+            if isinstance(watched, QWindow):
+                self._queued_fullscreen_toggle = self._is_queued_fullscreen_toggle(watched, event)
+            floating = QApplication.activeWindow()
+            if (floating is not None and floating.property('floatingDanmaku')
+                    and floating.parentWidget() is self.host):
+                # Leave keys such as arrows to the floating widgets before Qt matches them.
+                floating.enable_playback_shortcuts(self._floating_shortcuts_target_tile())
         if event.type() != QEvent.Wheel:
             return False
         host = self.host
@@ -106,6 +157,29 @@ class AppShortcuts(QObject):
             pip_window.audio_feedback.display(tile)
         event.accept()
         return True
+
+    def _is_queued_fullscreen_toggle(self, receiver, event):
+        finished = self._fullscreen_toggle_finished
+        if finished is None or event.isAutoRepeat():
+            return False
+        host = self.host
+        shortcut = QKeySequence(host.shortcuts.get('focus', ''))
+        if shortcut.count() != 1 or shortcut[0] != event.keyCombination():
+            return False
+        now = window_fullscreen.keyboard_tick_ms()
+        age = window_fullscreen.key_message_age_ms(event.timestamp(), now)
+        if age is None or now - age >= finished:
+            return False
+        return receiver is host.windowHandle() or any(
+            receiver is tile.windowHandle() or receiver is tile.bottom.windowHandle()
+            for tile in host.wall.tiles) or any(
+            receiver is floating.windowHandle() for floating in host.wall.pane_danmaku.floating_windows())
+
+    def _activate_shortcut(self, sequence):
+        # Qt can match the shortcut again when it forwards the key to a QWidget.
+        queued, self._queued_fullscreen_toggle = self._queued_fullscreen_toggle, False
+        if not queued or sequence != self.host.shortcuts.get('focus'):
+            self.host._handle_shortcut(sequence)
 
     def _matches_volume_wheel(self, pressed, delta):
         key = 'volume_up' if delta > 0 else 'volume_down'
@@ -161,8 +235,11 @@ class AppShortcuts(QObject):
                 host._exit_fullscreen()
             else:
                 tile = host._tile_under_cursor()
-                if tile is not None and tile.room.get("room_id"):
-                    host._on_fullscreen(tile)
+                if tile is None or not tile.room.get("room_id"):
+                    return True
+                host._on_fullscreen(tile)
+            if sys.platform == 'win32' and QApplication.platformName() == 'windows':
+                self._fullscreen_toggle_finished = window_fullscreen.keyboard_tick_ms()
         elif pressed and pressed == shortcuts.get("mute"):
             host._toggle_mute_under_cursor()
         elif pressed and pressed == shortcuts.get("audio_cycle"):
@@ -176,6 +253,13 @@ class AppShortcuts(QObject):
             if tile is not None:
                 tile.danmaku_button.toggle()
         elif pressed and pressed == shortcuts.get("close_tile"):
+            point = QCursor.pos()
+            panes = host.wall.pane_danmaku
+            floats = panes.floating_windows()
+            if floats and (widget := widget_at(point)) is not None and widget.window() in floats:
+                return widget.window().close_selected_tab()
+            if panes.remove_at(point):
+                return True
             tile = host._tile_under_cursor()
             if tile is not None and tile.room.get("room_id"):
                 tile.closeRequested.emit(tile.room)

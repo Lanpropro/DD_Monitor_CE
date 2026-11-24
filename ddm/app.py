@@ -403,6 +403,7 @@ class MainWindow(QMainWindow):
         self.wall.addRoomRequested.connect(self.open_add_room)
         self.wall.roomDropped.connect(self._on_room_dropped)
         self.wall.tileSwapped.connect(self._on_tile_swapped)
+        self.wall.tilePairSwapRequested.connect(self._on_grid_tile_swap)
         self.wall.tileCreated.connect(self._wire_tile)
         for tile in self.wall.tiles:
             self._wire_tile(tile)
@@ -705,8 +706,8 @@ class MainWindow(QMainWindow):
     def set_appearance(self, mode: str) -> None:
         return self.settings_control.set_appearance(mode)
 
-    def _open_sidebar_settings(self):
-        return self.settings_control.open_sidebar_settings()
+    def _open_sidebar_settings(self, page=None):
+        return self.settings_control.open_settings(page, dialog_class=SettingsDialog, prefer_process=True)
 
     def _sidebar_card_mode_changed(self, enabled):
         return self.settings_control.sidebar_card_mode_changed(enabled)
@@ -733,8 +734,8 @@ class MainWindow(QMainWindow):
         return self.settings_control.create_settings_dialog(
             settings, shortcuts, dialog_class=SettingsDialog, hosted=hosted)
 
-    def open_settings(self, page: str = "general") -> bool:
-        """一个窗口里选类别（常规 / 快捷键），和 Adobe 那类设置一样。"""
+    def open_settings(self, page: str | None = None) -> bool:
+        """打开设置，或在已经打开的窗口中切换类别。"""
         return self.settings_control.open_settings(page, dialog_class=SettingsDialog)
 
     def _apply_settings_dialog(self, dialog, plugins_before):
@@ -1008,9 +1009,9 @@ class MainWindow(QMainWindow):
     def start_all(self) -> None:
         return self.stream_playback.start_all()
 
-    def apply_quality_policy(self, *, restart: bool = True) -> list:
+    def apply_quality_policy(self, *, restart: bool = True, tiles=None) -> list:
         """有主次布局时：主画面自动用原画，其余用 720P。"""
-        return self.stream_playback.apply_quality_policy(restart=restart)
+        return self.stream_playback.apply_quality_policy(restart=restart, tiles=tiles)
 
     def start_tile(self, tile, *, stream_quality: int | None = None, wall_quality=None) -> None:
         return self.stream_playback.start_tile(tile, stream_quality=stream_quality,
@@ -1150,6 +1151,10 @@ class MainWindow(QMainWindow):
 
     def _on_tile_swapped(self, source_room_id: str, target_tile) -> None:
         return self.room_placement.swap_tiles(source_room_id, target_tile)
+
+    def _on_grid_tile_swap(self, source_tile, target_tile) -> None:
+        self.room_placement.swap_tile_widgets(source_tile, target_tile)
+        self._save_timer.start()
 
     def _hot_swap(self, source, target) -> bool:
         return self.room_placement.hot_swap(source, target)

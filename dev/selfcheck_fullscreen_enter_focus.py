@@ -36,6 +36,7 @@ class FullscreenEnterTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.object(PluginManager, 'load'))
+        self.stack.enter_context(patch.object(PluginManager, 'load_bili_interaction'))
         for name in ('start_all', 'start_tile', 'refresh_status', 'refresh_stats',
                      'refresh_account', 'sync_danmaku', 'load_avatars_for',
                      'load_room_avatars', 'load_cached_covers', 'load_cached_avatars',

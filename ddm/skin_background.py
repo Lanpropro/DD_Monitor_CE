@@ -2,11 +2,11 @@
 from pathlib import Path
 import time
 from PySide6.QtCore import QEvent, QRunnable, QRectF, Qt, QThreadPool, QUrl, Signal, Slot
-from PySide6.QtGui import QImage, QImageReader, QPainter
+from PySide6.QtGui import QImage, QPainter
 from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 from . import theme
-from .skin_assets import IMAGES, VIDEOS, validate_asset
+from .skin_assets import IMAGES, VIDEOS, asset_file, read_image
 
 
 class _FrameImage(QRunnable):
@@ -32,6 +32,7 @@ class BackgroundLayer(QWidget):
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self._window = window
         self.image = None
+        self.prepared_image = None
         self.mask = 35
         self.video_enabled = True
         self.path = ''
@@ -55,6 +56,8 @@ class BackgroundLayer(QWidget):
         self.update()
 
     def load(self, path, *, video_enabled=True):
+        # A gallery selection already decoded the matching image off the GUI thread.
+        prepared, self.prepared_image = self.prepared_image, None
         if path == self.path and video_enabled == self.video_enabled:
             return
         self._generation += 1
@@ -72,11 +75,10 @@ class BackgroundLayer(QWidget):
         self.error = ''
         if path:
             try:
-                asset = validate_asset(path)
+                asset = asset_file(path)
                 if asset.suffix.lower() in IMAGES:
-                    reader = QImageReader(str(asset))
-                    reader.setAutoTransform(True)
-                    self.image = reader.read()
+                    self.image = (prepared[1] if prepared is not None and prepared[0] == asset.resolve()
+                                  else read_image(asset))
                 else:
                     if self.player is None:
                         self.player = QMediaPlayer(self)

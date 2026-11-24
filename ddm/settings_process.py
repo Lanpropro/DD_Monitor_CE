@@ -67,6 +67,7 @@ class SettingsProcess(QObject):
     saved = Signal(dict)
     autoSaveRequested = Signal(dict)
     hostRequest = Signal(dict)
+    reopenRequested = Signal(object)
     closed = Signal()
     failed = Signal(str)
     received = Signal(dict)
@@ -84,6 +85,7 @@ class SettingsProcess(QObject):
         self.buffer = b''
         self.ready = self.visible = self.closing = False
         self.pending = None
+        self._focus_serial = 0
         self.worker_pid = None
         self.window_hwnd = 0
         self.occlusion = QRect()
@@ -123,22 +125,31 @@ class SettingsProcess(QObject):
         self.process.start()
         self.start_timer.start(10000)
 
-    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None):
+    def focus(self, page=None):
         if self.closing:
-            return
-        context = host_layout_context(self.parent())
-        if self.visible:
-            _allow_foreground(self.worker_pid)
-            self._send({'kind': 'focus', **context})
-            return
+            return False
         if self.pending is not None:
+            if page is not None:
+                self.pending['page'] = page
+            return True
+        # A newer request wins even when the controller opens it locally.
+        self._focus_serial += 1
+        if not self.visible:
+            return False
+        _allow_foreground(self.worker_pid)
+        self._send({'kind': 'focus', 'page': page, 'serial': self._focus_serial,
+                    **host_layout_context(self.parent())})
+        return True
+
+    def open(self, settings, shortcuts, sc_preview_context=None, *, streamer_rooms=None, page=None):
+        if self.closing or self.focus(page):
             return
         from .config import DEFAULT_SETTINGS
         self.pending = {'kind': 'open', 'settings': {
             key: settings.get(key, value) for key, value in DEFAULT_SETTINGS.items()},
-            'shortcuts': dict(shortcuts)}
+            'shortcuts': dict(shortcuts), 'page': page}
         self.pending['sc_preview_context'] = sc_preview_context or {}
-        self.pending.update(context)
+        self.pending.update(host_layout_context(self.parent()))
         self.pending['streamer_rooms'] = streamer_rooms or {}
         from PySide6.QtWidgets import QWidget
         if isinstance(self.parent(), QWidget):
@@ -218,6 +229,8 @@ class SettingsProcess(QObject):
                 self.autoSaveRequested.emit(message)
             elif kind == 'streamer-quality' and not self.closing:
                 self.hostRequest.emit(message)
+            elif kind == 'focus-missed' and not self.closing and message['serial'] == self._focus_serial:
+                self.reopenRequested.emit(message['page'])
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
@@ -230,7 +243,8 @@ class SettingsProcess(QObject):
                         self.saved.emit(message['changes'])
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
-            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden', 'host-retry', 'host-flush', 'host-wheel') and not self.closing:
+            elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden',
+                          'host-retry', 'host-flush', 'host-wheel', 'host-plugin-store') and not self.closing:
                 started = _save_trace('host.save.received') if kind == 'host-save' else None
                 self.hostRequest.emit(message)
                 if started is not None:

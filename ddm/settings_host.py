@@ -94,6 +94,8 @@ class SettingsHost(QObject):
             self.stack.finish_transition()
             self.client._send({'kind': 'host-ready', 'hwnd': int(self.stack.winId())})
             self.sync()
+        elif kind == 'host-plugin-store':
+            self.dialog.plugin_page.tabs.setCurrentIndex(1)
         elif kind == 'host-wheel':
             if self.embedded:
                 from .settings_wheel import deliver
