@@ -77,7 +77,8 @@ class BackgroundLayer(QWidget):
             try:
                 asset = asset_file(path)
                 if asset.suffix.lower() in IMAGES:
-                    self.image = prepared[1] if prepared is not None and prepared[0] == asset else read_image(asset)
+                    self.image = (prepared[1] if prepared is not None and prepared[0] == asset.resolve()
+                                  else read_image(asset))
                 else:
                     if self.player is None:
                         self.player = QMediaPlayer(self)

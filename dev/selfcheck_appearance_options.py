@@ -497,7 +497,9 @@ class AppearanceOptionsTests(unittest.TestCase):
                 settings.update(values)
                 selected = values['skin_background']
                 theme.set_skin_active(bool(selected), True)
-                layer.load(str(Path(directory) / selected) if selected else '')
+                # The gallery resolves the path before decoding. The layer may
+                # receive a different spelling of the same managed file.
+                layer.load(str(Path(directory) / 'utils' / '..' / selected) if selected else '')
 
             owner = SimpleNamespace(settings=settings, set_skin=apply)
             editor = SkinSettings(settings)
