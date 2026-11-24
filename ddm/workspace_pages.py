@@ -2,6 +2,16 @@
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 
 
+def workspace_room_action(sidebar):
+    controls = getattr(sidebar, 'workspace_controls', None)
+    pages = getattr(controls, 'pages', None)
+    if pages is not None and pages.active is not None:
+        action = getattr(pages.active[1], 'workspace_room_action', None)
+        if action is not None:
+            return action()
+    return None
+
+
 class WorkspacePages(QObject):
     changed = Signal()
 

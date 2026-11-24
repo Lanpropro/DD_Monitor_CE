@@ -37,6 +37,7 @@ class ResultNotice(UpdateNotice):
         self._on_click = None
         self._file_path = ''
         self._file_message = ''
+        self._live_room_action = False
 
     def _open_file_location(self):
         path = Path(self._file_path)
@@ -149,6 +150,7 @@ class ResultNotice(UpdateNotice):
         self._file_path = str(file_path or '')
         self._file_message = message + Path(self._file_path).name if self._file_path else message
         self._on_click = None if pending else self._open_file_location if self._file_path else on_click
+        self._live_room_action = kind == 'live' and not self._file_path and self._on_click is not None
         self.setCursor(Qt.PointingHandCursor if self._on_click else Qt.ArrowCursor)
         self.setToolTip(self._file_path if pending else
                         self._file_path + '\n点击打开文件位置；右键复制完整路径' if self._file_path
@@ -184,6 +186,12 @@ class ResultNotice(UpdateNotice):
             self.timer.start()
         if self._progress < 1.0:
             self._animate_to(1.0, 160)
+
+    def refresh_live_room_action(self, label):
+        if self._live_room_action and self.action.text() != label:
+            self.action.setText(label)
+            self._resize_to_content()
+            self.reposition()
 
     def _resize_to_content(self):
         super()._resize_to_content()

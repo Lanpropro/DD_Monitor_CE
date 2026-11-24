@@ -3,6 +3,7 @@ import sys
 from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
 from . import follow_folders, layouts, motion, theme, version as version_module
 from .sidebar_item import NavItem
+from .workspace_pages import workspace_room_action
 from .widget_support import (
     BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
 )
@@ -142,6 +143,13 @@ class SidebarItems:
         for item in host._items:
             item.set_selected(bool(room_id) and str(item.room.get("room_id") or "") == room_id)
 
+    def open_room(self, room: dict) -> None:
+        action = workspace_room_action(self.host)
+        if action is None:
+            self.host.addToWallRequested.emit(room)
+        else:
+            action[1]((room,))
+
     def append_item(self, room: dict, *, item_type) -> NavItem:
         host = self.host
         NavItem = item_type
@@ -154,6 +162,7 @@ class SidebarItems:
             host.custom_order.append(room_id)     # 新加的房间先排在自定义顺序最后
         item.drop_host = host                 # 列表内部拖动排序
         item.clicked.connect(host.roomSelected.emit)
+        item.openRequested.connect(self.open_room)
         item.addRequested.connect(host.addToWallRequested.emit)
         item.removeRequested.connect(host.removeRequested.emit)
         item.openBrowserRequested.connect(host.openBrowserRequested.emit)

@@ -20,6 +20,17 @@ class AppNotices:
         if self.official_announcement is not None:
             self.official_announcement.cancel()
 
+    def refresh_live_room_actions(self):
+        from .notification_center import live_notice_action
+        label = live_notice_action(self.host)
+        for notice in getattr(self.host, '_notices', ()):
+            refresh = getattr(notice, 'refresh_live_room_action', None)
+            if refresh is not None:
+                refresh(label)
+        bell = getattr(self.host.sidebar, 'notification_button', None)
+        if bell is not None:
+            bell.center.refresh_live_room_actions(label)
+
     def windows_live_rooms(self):
         settings = self.host.settings
         if not settings.get('notice_windows_recording'):

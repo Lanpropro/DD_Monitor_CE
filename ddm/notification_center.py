@@ -17,6 +17,7 @@ from .dock_feedback import icon_color
 from .settings_material import normalize as normalize_material
 from .settings_material_paint import glass_tint, paint_glass_border, window_background_tint
 from .ui import NavigationButton
+from .workspace_pages import workspace_room_action
 
 
 def _draw_bell(painter, color):
@@ -49,6 +50,9 @@ class _NotificationBell(QWidget):
 
 
 def live_notice_action(parent):
+    action = workspace_room_action(getattr(parent, 'sidebar', None))
+    if action is not None:
+        return action[0]
     wall = getattr(parent, 'wall', None)
     if wall is not None and not any(not tile.room.get('room_id') for tile in wall.visible_tiles()):
         return '替换'
@@ -434,6 +438,14 @@ class NotificationCenter(QFrame):
         row.removed.connect(self._remove)
         self.rows[entry] = row
         self.list_layout.insertWidget(0, row)
+
+    def refresh_live_room_actions(self, label):
+        for entry in self.entries:
+            if entry.kind == 'live' and not entry.file_path and entry.callback is not None:
+                entry.action = label
+                row = self.rows.get(entry)
+                if row is not None:
+                    row.action.setText(label)
 
     def _remove(self, entry):
         if entry not in self.entries:
