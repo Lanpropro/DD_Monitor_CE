@@ -4,9 +4,7 @@ from PySide6.QtCore import QPoint, QRect, QRectF, QTimer, Qt, Signal
 from . import follow_folders, layouts, motion, theme, version as version_module
 from .sidebar_item import NavItem
 from .workspace_pages import workspace_room_action
-from .widget_support import (
-    BRAND_ASSETS_DIR, NAV_ITEM_GAP, NAV_ITEM_HEIGHT, NAV_LIST_ITEM_HEIGHT, _repolish
-)
+from .widget_support import BRAND_ASSETS_DIR, NAV_ITEM_GAP, _repolish
 
 
 class SidebarItems:
@@ -173,13 +171,13 @@ class SidebarItems:
         item.set_card_mode(host.card_mode)
         item.thumb.set_compact_background(host.compact_background)
         item.set_portrait_strip(host.side == "top" and not host.card_mode)
+        item.set_compact(host.side == "left" and host.collapsed)
         item.set_on_wall(room_id in host._wall_room_ids)
         if room_id in self._recording_states:
             item.set_recording_state(self._recording_states[room_id])
         item.set_select_mode(host.select_mode)
         host._items.append(item)
-        item_height = NAV_ITEM_HEIGHT if host.card_mode else NAV_LIST_ITEM_HEIGHT
-        item.resize(host.list_box.width(), item_height)
+        item.resize(host.list_box.width(), item.height())
         item.show()
         return item
 
@@ -237,6 +235,10 @@ class SidebarItems:
     def reveal_added_rooms(self) -> None:
         """等批量添加与目标文件夹归类结束，只让新卡片从最终落点滑入。"""
         host = self.host
+        if host.side == "left" and host.collapsed:
+            # The slide offset overlaps the next avatar row when inserted above it.
+            host._entering_room_ids.clear()
+            return
         entering = {item for item in host._items
                     if str(item.room.get("room_id")) in host._entering_room_ids}
         host._entering_room_ids.clear()

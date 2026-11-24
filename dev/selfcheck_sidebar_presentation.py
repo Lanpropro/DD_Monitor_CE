@@ -10,8 +10,8 @@ from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
+from PySide6.QtGui import QAction, QPixmap
 from PySide6.QtWidgets import QApplication, QBoxLayout, QLayout, QPushButton, QWidgetAction
 from shiboken6 import isValid
 from ddm import config, images, motion, theme
@@ -22,7 +22,7 @@ from ddm.capture_control import CaptureControl
 from ddm.sidebar_account_control import SidebarAccountControl
 from ddm.sidebar_presentation import SidebarPresentation
 from ddm.sidebar_navigation import RAIL_WIDTH
-from ddm.widget_support import NAV_ITEM_GAP
+from ddm.widget_support import NAV_COMPACT_ITEM_HEIGHT, NAV_ITEM_GAP, NAV_ITEM_HEIGHT
 
 
 class SidebarPresentationTests(unittest.TestCase):
@@ -518,6 +518,45 @@ print('30 native reparent cycles completed', flush=True)
         self.sidebar.set_collapsed(False, animate=False)
         self.assertEqual(self.sidebar.width(), theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self.assertEqual(collapsed, [True, False])
+
+    def test_adding_follows_while_collapsed_keeps_avatars_in_their_rows(self):
+        sidebar = self.sidebar
+        sidebar.resize(sidebar.width(), 720)
+        sidebar.setStyleSheet(theme.qss())
+        sidebar.show()
+        sidebar.set_collapsed(True, animate=False)
+        sidebar.default_folder()['sort'] = 'name'
+        self.app.processEvents()
+
+        new_rooms = [
+            {'room_id': 'fixture:2', 'uname': 'AAA', 'live': True},
+            {'room_id': 'fixture:3', 'uname': 'ZZZ', 'live': False},
+        ]
+        with patch.object(motion, 'enabled', return_value=True):
+            self.assertEqual(sidebar.add_rooms(new_rooms), new_rooms)
+            cards = sidebar.visible_items()
+            self.assertEqual([card.room['uname'] for card in cards], ['AAA', 'Fixture', 'ZZZ'])
+            cover = QPixmap(96, 54)
+            cover.fill(Qt.darkBlue)
+            for card in cards:
+                card.thumb.set_cover(cover)
+            self.assertTrue(all(card._compact and card.thumb.cover.isHidden() for card in cards))
+            self.app.processEvents()
+            for card in cards:
+                self.assertEqual(card.height(), NAV_COMPACT_ITEM_HEIGHT)
+                face = card.thumb.face
+                avatar = QRect(face.mapTo(card, QPoint()), face.size())
+                self.assertTrue(card.rect().contains(avatar))
+                self.assertAlmostEqual(avatar.center().x(), card.rect().center().x(), delta=1)
+            for before, after in zip(cards, cards[1:]):
+                self.assertEqual(after.y() - before.y(), NAV_COMPACT_ITEM_HEIGHT + NAV_ITEM_GAP)
+
+        sidebar.set_collapsed(False, animate=False)
+        self.app.processEvents()
+        for card in cards:
+            self.assertFalse(card._compact)
+            self.assertEqual(card.height(), NAV_ITEM_HEIGHT)
+            self.assertTrue(card.thumb.cover.isVisible())
 
     def test_collapse_error_keeps_original_finally_cleanup_and_emits_no_commit(self):
         transitions, committed = [], []
