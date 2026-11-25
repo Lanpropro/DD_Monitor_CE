@@ -3,7 +3,6 @@ import sys
 from .room_catalog import RoomCatalog
 from .room_navigation import RoomNavigation
 from .streamer_defaults import room_defaults
-from .workspace_pages import workspace_room_action
 
 
 def _swap_audio_settings(first, second):
@@ -23,6 +22,7 @@ class RoomPlacement:
         return getattr(self.host, "settings", {}).get("audio_follows_room", False)
 
     def place_live_notice_rooms(self, rooms):
+        from .workspace_pages import workspace_room_action
         action = workspace_room_action(self.host.sidebar)
         if action is not None:
             action[1](rooms)
