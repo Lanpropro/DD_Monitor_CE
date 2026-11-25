@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ["DDM_NO_SAVE"] = "1"
-from PySide6.QtCore import (QLoggingCategory, QtMsgType, qCInfo, qCWarning,
+from PySide6.QtCore import (QLoggingCategory, QtMsgType, qCCritical, qCInfo, qCWarning,
                            qInstallMessageHandler, qWarning)  # noqa: E402
 from ddm import app as app_module  # noqa: E402
 
@@ -32,10 +32,15 @@ def main():
                 path = app_module.setup_file_log()
             qWarning("quality switch diagnostic")
             font_category = QLoggingCategory("qt.text.font.db")
+            platform_fonts = QLoggingCategory("qt.qpa.fonts")
+
             def font_messages():
                 for _ in range(20):
                     qCInfo(font_category, "font fallback info fixture")
                 qCWarning(font_category, "font warning fixture")
+                qCWarning(platform_fonts, "DirectWrite platform font warning fixture")
+                qCCritical(platform_fonts, "platform font critical fixture")
+
             workers = [threading.Thread(target=font_messages) for _ in range(2)]
             for worker in workers:
                 worker.start()
@@ -45,6 +50,9 @@ def main():
             assert "font fallback info fixture" not in observed, (
                 "Font database info must be filtered in Qt before entering Python")
             assert observed.count("font warning fixture") == 2
+            expected_warnings = 0 if sys.platform == "win32" else 2
+            assert observed.count("DirectWrite platform font warning fixture") == expected_warnings
+            assert observed.count("platform font critical fixture") == 2
             with patch.object(app_module.faulthandler, "dump_traceback") as dump:
                 installed[0](QtMsgType.QtFatalMsg, None, "fatal quality switch diagnostic")
                 dump.assert_called_once()

@@ -430,7 +430,7 @@ SC 自动缩放：设置 → 弹幕中的“SC 随画面缩放”默认关闭，
 
 ## 未决问题专项与独立诊断工具
 
-- `run.cmd --check-qt-log`：临时目录验证字体库info消息在Qt原生层过滤，不进入Python回调；并发消息、同分类warning与fatal仍保留。用于19:36真实字体锁／GIL等待路径的回归，不代替长时间后台复验。
+- `run.cmd --check-qt-log` 使用临时目录验证 Qt 原生过滤字体库 info 和 Windows 平台字体 warning，同时保留其他 warning、critical 和 fatal 诊断。长期后台播放需实机复验。
 - `run.cmd --check-diagnostics`：先验证issue149模型/几何、拖放清理、动画代次、只读句柄、环形/记录大小上限及隐私；再验证9种隔离专项和独立工具的收集、摘要、脱敏及旧版兼容。不读取真实账号，不替代实际故障复现。Windows原生单项可用 `QT_QPA_PLATFORM=windows` 运行 `dev/checks/bootstrap.py dev/selfcheck_sidebar_diagnostics.py`，验证原生句柄读取不会创建窗口或改变几何。
 - 独立工具在软件正常使用时按需采集，或在软件关闭后收集已有日志，不提供启动主程序的入口。见[工具说明](../../tools/diagnostics/README.md)。071hotfix没有事后内部接口，只能取得外部窗口及已有日志，缺失状态须明确保留。
 - 人工验收：正常运行客户端，独立工具抓取一次文件夹现场并生成包；检查时间、目标进程、截断和内部状态缺失标记。关闭客户端后仍可生成已有日志包。无需预先开启诊断、等待复现或按标记快捷键。不能复现时只确认采集功能，不宣称列表错位已修复。

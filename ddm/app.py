@@ -93,9 +93,11 @@ from .app_notices import AppNotices
 def setup_file_log() -> str:
     """Install Qt capture after the standard-library startup logger is ready."""
     session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
-    # Font fallback logs while holding Qt's font mutex; font getters hold the GIL.
-    # Filter this informational path in Qt, before it can re-enter Python logging.
-    QLoggingCategory.setFilterRules("qt.text.font.db.info=false")
+    # Filter font messages emitted while holding Qt's font mutex before they reach Python.
+    rules = ["qt.text.font.db.info=false"]
+    if sys.platform == "win32":
+        rules.append("qt.qpa.fonts.warning=false")
+    QLoggingCategory.setFilterRules("\n".join(rules))
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
