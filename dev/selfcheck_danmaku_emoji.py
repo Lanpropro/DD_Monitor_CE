@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("DDM_NO_SAVE", "1")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QPoint, Qt, QUrl
 from PySide6.QtGui import QColor, QPixmap, QTextDocument
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout
@@ -93,6 +93,7 @@ def main():
             panel.add_event(event)
             assert "[emoji]" in panel.body.toPlainText()
             panel._on_emoticon_loaded(URL, pixmap)
+            QTest.qWait(40)
             assert "[emoji]" not in panel.body.toPlainText()
             assert panel.body.toHtml().count("<img") == 2
             assert "👨‍👩‍👧‍👦👍🏽" in panel.body.toPlainText()
@@ -100,6 +101,43 @@ def main():
             assert "[emoji]" not in panel.body.toPlainText()
             resource = panel.body.document().resource(QTextDocument.ImageResource, QUrl(URL))
             assert resource is not None and not resource.isNull()
+
+            panel.clear()
+            first, second, late = (f"https://example.invalid/{name}.png"
+                                   for name in ("first", "second", "late"))
+            panel.add_events({"text": f"message {index}" + ("[a][b]" if index < 18 else ""),
+                              "emoticons": {"[a]": first, "[b]": second}}
+                             for index in range(90))
+            app.processEvents()
+            bar = panel.body.verticalScrollBar()
+            bar.setValue(bar.maximum() // 2)
+            panel._on_user_scroll()
+            point = QPoint(5, 6)
+            anchor = panel.body.cursorForPosition(point)
+            anchor_text = anchor.block().text()
+            anchor_y = panel.body.cursorRect(anchor).y()
+            with patch.object(panel, "_block_html", wraps=panel._block_html) as format_block:
+                panel._on_emoticon_loaded(first, pixmap)
+                panel._on_emoticon_loaded(second, pixmap)
+                deadline = time.monotonic() + 2
+                while panel.document_control._emoticon_refresh.isActive():
+                    assert time.monotonic() < deadline
+                    QTest.qWait(10)
+                assert format_block.call_count == 18, "Each affected block should be rebuilt once"
+            assert panel.body.toHtml().count("<img") == 36
+            assert panel.body.document().blockCount() == 90
+            current = panel.body.cursorForPosition(point)
+            assert current.block().text() == anchor_text
+            assert abs(panel.body.cursorRect(current).y() - anchor_y) <= 1
+
+            panel.add_event({"text": "[late]", "emoticon": late})
+            panel._on_emoticon_loaded(late, pixmap)
+            assert panel.document_control._emoticon_refresh.isActive()
+            panel.clear()
+            panel.add_message("new room", "no old images")
+            QTest.qWait(40)
+            assert panel.body.toPlainText() == "new room：no old images"
+            assert not panel.document_control._emoticon_refresh.isActive()
 
             assert overlay.add_event(single)
             wait_comment_raster(QApplication.instance(), overlay)

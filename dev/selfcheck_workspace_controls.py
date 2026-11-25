@@ -439,6 +439,37 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertIs(nav.active_button, nav.follow_button)
         self.assertFalse(active(other_button))
 
+    def test_checkable_tool_window_keeps_the_embedded_page_open(self):
+        page, page_button, page_action, wall = self.open_page()
+        page_action.toggled.connect(lambda checked: None if checked else page.close())
+        controls = self.sidebar.workspace_controls
+        tool_window = QWidget(self.host, Qt.Tool)
+        tool_window.setAttribute(Qt.WA_DontShowOnScreen)
+        tool_action = QAction('网络代理示例', self.host)
+        tool_action.setCheckable(True)
+        tool_button = QToolButton(self.host)
+        tool_button.setDefaultAction(tool_action)
+        tool_action.triggered.connect(lambda: tool_window.setVisible(tool_action.isChecked()))
+        tool = PluginContext(self.manager, 'proxy')
+        self.assertTrue(tool.register_workspace_control('tool', tool_button))
+        original_page = controls.pages.active
+
+        def launch_from_center():
+            controls.launcher.click()
+            controls._rows[('proxy', 'tool')][1].click()
+
+        for launch in (tool_button.click, launch_from_center):
+            for opened in (True, False):
+                launch()
+                settle()
+                self.assertEqual(tool_window.isVisible(), opened)
+                self.assertEqual(tool_action.isChecked(), opened)
+                self.assertTrue(page_action.isChecked())
+                self.assertTrue(page.isVisible())
+                self.assertTrue(wall.isHidden())
+                self.assertIs(controls.pages.active, original_page)
+                self.assertIs(self.sidebar.navigation.active_button, page_button)
+
     def test_card_area_and_global_actions_are_independent(self):
         self.assertEqual(self.sidebar.width(), theme.SIDEBAR_WIDTH + RAIL_WIDTH)
         self.assert_global_buttons()
@@ -992,7 +1023,7 @@ class WorkspaceControlTests(unittest.TestCase):
         self.assertEqual(clicks, ['original'])
         self.assertTrue(action.isChecked())
         other.setChecked(True)
-        self.assertFalse(panel._rows[('workspace-test', 'first')][1].isChecked())
+        self.assertTrue(panel._rows[('workspace-test', 'first')][1].isChecked())
         self.assertTrue(panel._rows[('workspace-test', 'second')][1].isChecked())
         action.setEnabled(False)
         self.assertFalse(panel._rows[('workspace-test', 'first')][1].isEnabled())

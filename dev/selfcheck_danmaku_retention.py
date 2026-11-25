@@ -32,8 +32,8 @@ def main():
     anchor_text = anchor.block().text()
     anchor_y = panel.body.cursorRect(anchor).y()
     with patch.object(panel.body, "setHtml", wraps=panel.body.setHtml) as reset:
-        for index in range(300, 320):
-            panel.add_message(f"user{index}", f"message{index}")
+        panel.add_events({"uname": f"user{index}", "text": f"message{index}"}
+                         for index in range(300, 320))
         app.processEvents()
         assert reset.call_count == 0, "History limit triggers a full document reset per message"
     now = panel.body.cursorForPosition(QPoint(12, 12))
@@ -126,6 +126,15 @@ def main():
     app.processEvents()
     assert panel._received == 1 and panel.body.document().blockCount() == 1
     assert "user999" not in panel.body.toPlainText()
+    panel.add_events({"uname": "batch", "text": str(index)} for index in range(45))
+    app.processEvents()
+    assert panel._received == 46
+    assert [entry["text"] for entry in panel._blocks] == [str(index) for index in range(25, 45)]
+    block = panel.body.document().firstBlock()
+    for index in range(25, 45):
+        assert block.text() == f"batch：{index}"
+        block = block.next()
+    assert not block.isValid() and bar.value() == bar.maximum()
     panel.close()
     print("High-volume retention, reading anchor, tail follow and reset passed")
 
