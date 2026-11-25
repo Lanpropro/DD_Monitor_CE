@@ -125,6 +125,7 @@
 - `dev/selfcheck_auto_quality_switch_live.py`
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
+- `dev/selfcheck_bili_catchup.py`
 - `dev/selfcheck_bili_cookies.py`
 - `dev/selfcheck_bili_plugin_boundary.py`
 - `dev/selfcheck_bili_quality.py`

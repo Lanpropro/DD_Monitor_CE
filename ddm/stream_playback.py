@@ -277,6 +277,12 @@ class StreamPlayback:
             self._refreshing(tile, False)
         host._resolvers_running.discard(resolver)
 
+    def set_live_catchup(self, tile, enabled: bool) -> None:
+        tile.room["live_catchup_enabled"] = enabled
+        player = self.host.players.get(tile)
+        if player is not None:
+            player.set_live_catchup_enabled(enabled)
+
     def play_on(self, tile, url: str, quality: int = 0, profile: str = "web",
                  options: list | None = None, headers: dict | None = None,
                  room_id: str = "", requested_quality: int = 0,
@@ -339,6 +345,7 @@ class StreamPlayback:
         player.set_volume(int(tile.volume))
         player.set_audio_channel(int(tile.audio_channel))
         player.set_muted(tile.muted or bool(getattr(host, "_match_sync_active", False)))
+        player.set_live_catchup_enabled(tile.room.get("live_catchup_enabled", True))
         # 把这一路的取流结果记在格子和播放器上：插件（录像等）要拿它去拉同一路流；
         # 播放器上那份是给「秒切」用的 —— 画面搬走时取流结果跟着一起走。
         room = tile.room or {}

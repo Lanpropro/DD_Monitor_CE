@@ -34,6 +34,8 @@ class ParallelPictureInPicture:
                 tile.pauseToggled.connect(self.host._on_pause_toggled)
                 tile.codecSettingsRequested.connect(lambda t=tile: self.host._open_tile_codecs(t))
                 tile.streamInfoRequested.connect(lambda t=tile: self.host._open_tile_stream_info(t))
+                tile.liveCatchupToggled.connect(
+                    lambda enabled, t=tile: self.host.stream_playback.set_live_catchup(t, enabled))
                 self.tiles[room_id] = tile
         selected = [self.tiles[room_id] for room_id in self.room_ids]
         window.track_tiles(selected)

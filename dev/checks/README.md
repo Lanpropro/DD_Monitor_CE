@@ -347,6 +347,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_switch_live](../selfcheck_auto_quality_switch_live.py) | 单项执行前核对 |
 | [selfcheck_bili_codec](../selfcheck_bili_codec.py) | `offline` |
+| [selfcheck_bili_catchup](../selfcheck_bili_catchup.py) | `offline`，验证 B 站画面墙及独立画中画的右键自动追帧开关、无重连切换、重连后保留和缓冲速率恢复 |
 | [selfcheck_bili_quality](../selfcheck_bili_quality.py) | 单项执行前核对 |
 | [selfcheck_douyin_stream_fallback](../selfcheck_douyin_stream_fallback.py) | 单项执行前核对 |
 | [selfcheck_mpv](../selfcheck_mpv.py) | `native` |

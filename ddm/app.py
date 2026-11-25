@@ -1287,6 +1287,7 @@ class MainWindow(QMainWindow):
         tile.qualityChanged.connect(self._on_quality_changed)
         tile.codecSettingsRequested.connect(lambda t=tile: self._open_tile_codecs(t))
         tile.streamInfoRequested.connect(lambda t=tile: self._open_tile_stream_info(t))
+        tile.liveCatchupToggled.connect(lambda enabled: self.stream_playback.set_live_catchup(tile, enabled))
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)
         tile.audioChannelChanged.connect(self._on_audio_changed)
