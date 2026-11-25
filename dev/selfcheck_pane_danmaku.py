@@ -438,6 +438,29 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertEqual(panel.geometry(), unit_rect)
         self.assertIsNotNone(wall.snap_grid.vacant_unit_at(wall.snap_grid.drag_units()[1].center()))
 
+    def test_floating_window_starts_drag_only_from_its_own_controls(self):
+        host = self.wall_window()
+        tile = host.wall.tiles[0]
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(tile)
+        panel, = panes.floating
+        floating = panes.floating[panel].window
+        original_position = floating.pos()
+        with patch.object(floating, 'start_move', return_value=True) as start:
+            for widget in (host, tile.video):
+                with self.subTest(widget=type(widget).__name__):
+                    start.reset_mock()
+                    QTest.mouseClick(widget, Qt.LeftButton, pos=widget.rect().center())
+                    start.assert_not_called()
+                    self.assertEqual(floating.pos(), original_position)
+
+            for widget, independent in ((floating.move_handle, True), (panel.title, False)):
+                start.reset_mock()
+                point = widget.rect().center()
+                QTest.mouseClick(widget, Qt.LeftButton, pos=point)
+                start.assert_called_once_with(widget.mapToGlobal(point), independent=independent)
+
     def test_touching_floats_follow_each_pointer_sample_and_independent_handle_detaches(self):
         host = self.wall_window()
         panes = host.wall.pane_danmaku

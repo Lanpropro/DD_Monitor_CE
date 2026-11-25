@@ -1,6 +1,6 @@
 """Scrollable plugin rail and searchable function center; plugins own their actions."""
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QActionGroup, QIcon, QIconEngine, QPainter, QPixmap
+from PySide6.QtGui import QIcon, QIconEngine, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QLineEdit,
                               QPushButton, QScrollArea, QSizePolicy, QToolButton,
                               QVBoxLayout, QWidget)
@@ -42,8 +42,6 @@ class WorkspaceControls(QFrame):
         super().__init__(sidebar)
         self.sidebar = sidebar
         self.entries = {}
-        self.actions = QActionGroup(self)
-        self.actions.setExclusionPolicy(QActionGroup.ExclusionPolicy.ExclusiveOptional)
         self._pin_ids = None
         self._rows = {}
         self._before_center = None
@@ -118,8 +116,6 @@ class WorkspaceControls(QFrame):
         if widget.defaultAction() is not None:
             action = widget.defaultAction()
             action.setIcon(icon)
-            if action.isCheckable():
-                self.actions.addAction(action)
             action.changed.connect(lambda identity=identity: self._sync_rows())
         else:
             widget.setIcon(icon)
@@ -161,8 +157,6 @@ class WorkspaceControls(QFrame):
             widget = entry[1]
             if self.sidebar.navigation.active_button is widget:
                 self.sidebar.navigation.activate(self.sidebar.navigation.follow_button)
-            if widget.defaultAction() is not None:
-                self.actions.removeAction(widget.defaultAction())
             self.buttons.removeWidget(widget)
             widget.hide()
             widget.setParent(self.sidebar)
@@ -253,6 +247,8 @@ class WorkspaceControls(QFrame):
         self.setVisible(not top and bool(pinned))
 
     def _entry_toggled(self, widget, checked):
+        if self.pages is not None and self.pages.active is not None:
+            return
         navigation = self.sidebar.navigation
         if checked:
             navigation.activate(widget)

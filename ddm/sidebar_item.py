@@ -33,6 +33,7 @@ class NavItem(QFrame):
     """侧栏里的一个直播间条目。"""
 
     clicked = Signal(dict)
+    openRequested = Signal(dict)
     addRequested = Signal(dict)
     removeRequested = Signal(dict)
     openBrowserRequested = Signal(str)
@@ -424,7 +425,7 @@ class NavItem(QFrame):
 
     def mouseDoubleClickEvent(self, event) -> None:
         if not self.select_mode and not (event.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier)):
-            self.addRequested.emit(self.room)
+            (self.openRequested if self.drop_host is not None else self.addRequested).emit(self.room)
 
     # ---- 悬停（给预览用）----
     def _set_hovered(self, hovered: bool) -> None:

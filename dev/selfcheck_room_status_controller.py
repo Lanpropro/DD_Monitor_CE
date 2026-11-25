@@ -4,9 +4,11 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from xml.etree.ElementTree import fromstring
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -128,7 +130,7 @@ class RoomStatusTests(unittest.TestCase):
         self.assertEqual(poller.room_ids, ['fixture:2', '1001', '1004'])
         self.assertEqual(poller.kwargs['platforms'], host.plugins.platforms)
         host._on_status_updated.side_effect = host.room_status.apply_status
-        both = {'room_id': '1001', 'uname': '同时录制'}
+        both = {'room_id': '1001', 'uname': '同时录制', 'title': '今晚的直播 <上半场>'}
         with patch('ddm.windows_recording_notifications.send_recording_notification') as send:
             # Initial status and unknown offline results must not replay an opening alert.
             poller.updated.emit({'fixture:2': {'live': True}, '1001': {'live': False}})
@@ -139,16 +141,19 @@ class RoomStatusTests(unittest.TestCase):
             poller.updated.emit({'fixture:2': {'live': True}, '1003': {'live': True}})
             send.assert_not_called()
 
-            poller.updated.emit({'fixture:2': {'live': False}, '1001': {'live': True, 'uname': both['uname']}})
+            poller.updated.emit({'fixture:2': {'live': False}, '1001': {**both, 'live': True}})
             tag = send.call_args.kwargs['tag']
-            send.assert_called_once_with('开播提醒', '同时录制 开播了', tag=tag)
+            send.assert_called_once_with('同时录制 开播了', both['title'], room_id='1001', tag=tag)
             host.notice_control.background_recording_transition('started', both)
-            send.assert_called_with('开播 · 已开启自动录制', '同时录制', tag=tag, suppress_popup=True)
+            send.assert_called_with('开播 · 已开启自动录制', '同时录制', room_id='1001',
+                                    room_title=both['title'], tag=tag, suppress_popup=True)
             poller.updated.emit({'1001': {'live': True}, 'fixture:2': {'live': True}})
             self.assertEqual(send.call_count, 3)
-            self.assertEqual(send.call_args.args, ('开播提醒', '场外主播 开播了'))
+            self.assertEqual(send.call_args.args, ('场外主播 开播了', ''))
+            self.assertEqual(send.call_args.kwargs['room_id'], 'fixture:2')
             host.notice_control.background_recording_transition('stopped_offline', both)
-            send.assert_called_with('下播 · 已停止自动录制', '同时录制')
+            send.assert_called_with('下播 · 已停止自动录制', '同时录制', room_id='1001',
+                                    room_title=both['title'], tag=None, suppress_popup=False)
 
             poller.updated.emit({'1001': {'live': False}})
             poller.updated.emit({'1001': {'live': True}})
@@ -165,10 +170,26 @@ class RoomStatusTests(unittest.TestCase):
     def test_windows_recording_update_preserves_tag_and_suppresses_second_popup(self):
         from ddm import windows_recording_notifications as windows
 
-        with patch.object(windows.subprocess, 'run') as launch, \
+        with TemporaryDirectory() as directory, patch.object(windows.subprocess, 'run') as launch, \
                 patch.object(windows.subprocess, 'CREATE_NO_WINDOW', 0, create=True):
-            windows._send('开播 · 已开启自动录制', '示例主播', tag='same-opening', suppress_popup=True)
-        payload = json.loads(b64decode(launch.call_args.kwargs['env']['DDM_RECORDING_TOAST']))
+            avatar = Path(directory, '头像 & 测试.png').resolve()
+            avatar.touch()
+            with patch('ddm.images.room_avatar_path', return_value=str(avatar)) as cached:
+                windows._send('开播 · 已开启自动录制', '示例主播', room_id='fixture:2',
+                              room_title='今晚 <游戏> & 聊天', tag='same-opening', suppress_popup=True)
+            cached.assert_called_once_with('fixture:2')
+            payload = json.loads(b64decode(launch.call_args.kwargs['env']['DDM_RECORDING_TOAST']))
+            toast = fromstring(payload['xml'])
+            self.assertEqual([node.text for node in toast.iter('text')],
+                             ['开播 · 已开启自动录制', '示例主播', '今晚 <游戏> & 聊天'])
+            image = toast.find('visual/binding/image')
+            self.assertEqual(image.get('src'), avatar.as_uri())
+            self.assertEqual(image.get('placement'), 'appLogoOverride')
+            self.assertEqual(image.get('hint-crop'), 'circle')
+            avatar.unlink()
+            fallback = fromstring(windows.toast_xml('示例主播 开播了', '   ', avatar_path=avatar))
+            self.assertEqual([node.text for node in fallback.iter('text')], ['示例主播 开播了'])
+            self.assertIsNone(fallback.find('visual/binding/image'))
         self.assertEqual(payload['tag'], 'same-opening')
         self.assertIs(payload['suppressPopup'], True)
 

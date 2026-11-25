@@ -1403,6 +1403,42 @@ class MainNoticesTests(unittest.TestCase):
         window._show_notice('警告', kind='warning')
         self.assertFalse(window._result_notice.timer.isActive())
 
+    def test_live_notices_follow_active_workspace_room_action(self):
+        from ddm.plugins import PluginContext
+
+        window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
+        add_rooms = Mock()
+        workspace = QWidget(window._content)
+        workspace.workspace_room_action = lambda: ('添加二路', add_rooms)
+        context = PluginContext(window.plugins, 'room-action-fixture')
+        room = {'room_id': '999', 'uname': '通知测试', 'live': True}
+        window._show_notice('主播开播了', rooms=[room], kind='live')
+        toast = window._result_notice
+        self.assertEqual(toast.action.text(), '替换')
+        self.assertTrue(context.show_workspace(workspace))
+        self.assertEqual(toast.action.text(), '添加二路')
+        QTest.mouseClick(toast.action, Qt.LeftButton)
+        self.assertEqual(add_rooms.call_args.args[0][0]['room_id'], '999')
+        self.assertIsNone(window.room_placement.replacement)
+
+        next_room = {'room_id': '1000', 'live': True}
+        window._show_notice('另一个主播开播了', rooms=[next_room], kind='live')
+        self.assertEqual(window._result_notice.action.text(), '添加二路')
+        center = window.sidebar.notification_button.center
+        center.show()
+        self.app.processEvents()
+        entry = center.entries[-1]
+        self.assertEqual(center.rows[entry].action.text(), '添加二路')
+        QTest.mouseClick(center.rows[entry].action, Qt.LeftButton)
+        self.assertEqual(add_rooms.call_args.args[0][0]['room_id'], '1000')
+        self.assertEqual(add_rooms.call_count, 2)
+        self.assertIsNone(window.room_placement.replacement)
+
+        workspace.close()
+        self.app.processEvents()
+        self.assertEqual(center.rows[entry].action.text(), '替换')
+        self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles], ['1', '2', '3', '4'])
+
     def test_live_notice_selects_one_replacement_without_expanding_full_wall(self):
         window = self.window([{'room_id': str(index), 'live': False} for index in range(1, 5)])
         original = [dict(tile.room) for tile in window.wall.tiles]

@@ -1,10 +1,11 @@
 """Chat document formatting, bounded history and emoticon resources; panel owns document and loaders."""
 from html import escape
+from itertools import islice
 
 from PySide6.QtCore import QEvent, QMimeData, QPoint, QPointF, QRectF, QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (
     QColor, QCursor, QDrag, QFont, QFontMetrics, QKeySequence, QPainter, QPainterPath, QPalette,
-    QPen, QPixmap, QTextDocument, QTextOption
+    QPen, QPixmap, QTextBlockFormat, QTextCursor, QTextDocument, QTextOption
 )
 from . import motion, theme
 from .danmaku_content import content_html, content_runs
@@ -12,9 +13,18 @@ from .danmaku_format import (_brightness, _medal_chip, _escape)
 
 
 class DanmakuDocument:
+    EMOTICON_LINE_HEIGHT = 120
+    EMOTICON_BLOCKS_PER_UPDATE = 16
+
     def __init__(self, host):
         self.host = host
         self._medal_style = None
+        self._loaded_emoticons = set()
+        self._emoticon_blocks = {}
+        self._emoticon_refresh = QTimer(host)
+        self._emoticon_refresh.setSingleShot(True)
+        self._emoticon_refresh.setInterval(16)
+        self._emoticon_refresh.timeout.connect(self._refresh_emoticon_blocks)
 
     def add_message(self, uname: str, text: str, color: str = "#00a1d6") -> None:
         """直接给文本的简写（预览、自检用）。"""
@@ -22,9 +32,11 @@ class DanmakuDocument:
         host.add_event({"kind": "danmaku", "uname": uname, "text": text, "color": color})
 
     def add_event(self, event: dict) -> None:
-        """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
+        self.add_events((event,))
+
+    def event_entry(self, event: dict) -> dict:
         host = self.host
-        entry = {
+        return {
             "kind": event.get('kind') or 'danmaku',
             "uid": event.get('uid') or event.get('user_id') or event.get('author_id') or '',
             "platform": event.get('platform') or '',
@@ -40,22 +52,37 @@ class DanmakuDocument:
             "emoticons": event.get("emoticons") or {},
             "self_sent": bool(event.get("self_sent")),
         }
-        host._received += 1
-        host._refresh_count()
-        for _, url in content_runs(entry):
-            if url:
+    def add_events(self, events) -> None:
+        host = self.host
+        entries, fragments = [], []
+        for event in events:
+            entry = host._event_entry(event)
+            urls = frozenset(url for _, url in content_runs(entry) if url)
+            entry['_emoticon_urls'] = urls
+            for url in urls:
                 host._ensure_emoticon(url)
-        host._blocks.append(entry)
-        removed = max(0, len(host._blocks) - host.max_blocks)
-        scroll_state = host._scroll_state(removed)
+            entries.append(entry)
+            fragments.append(host._block_html(entry))
+        if not entries:
+            return
+        previous = len(host._blocks)
+        removed = max(0, previous + len(entries) - host.max_blocks)
+        scroll_state = host._scroll_state(min(removed, previous))
+        if previous and removed >= previous:
+            scroll_state = (scroll_state[0], 0, scroll_state[2])
+        host._blocks.extend(entries)
         if removed:
-            host._blocks = host._blocks[-host.max_blocks:]
-        block = host._block_html(entry)
+            del host._blocks[:removed]
+        markup = ''.join(fragments[-host.max_blocks:])
         if host._has_content:
-            host.body.append(block)
+            host.body.append(markup)
         else:
-            host.body.setHtml(block)              # 第一条：先把占位文字换掉
+            host.body.setHtml(markup)
+            for key, image in host._images.items():
+                host._register_image(key, image)
             host._has_content = True
+        host._received += len(entries)
+        host._refresh_count()
         host._restore_scroll_state(scroll_state)
 
     def apply_style(self, font_family: str, font_size: int) -> None:
@@ -108,7 +135,7 @@ class DanmakuDocument:
         mark = (f'<span style="color:{theme.PINK};font-weight:700">▍</span> '
                 if entry.get("self_sent") else "")
         body = host._body_html(entry)
-        line_height = 120 if '<img ' in body else 150
+        line_height = self.EMOTICON_LINE_HEIGHT if '<img ' in body else 150
         return (f'<div style="font-size:{size}px;line-height:{line_height}%;margin:0 0 4px 0">'
                 f'{mark}{host._medal_html(entry["medal"])}{name}'
                 f'<span style="color:{color}">：{body}</span></div>')
@@ -154,8 +181,9 @@ class DanmakuDocument:
         host.body.document().addResource(QTextDocument.ImageResource, QUrl(key), image)
 
     def render_all(self) -> None:
-        """整体重排（表情图下好、或者字体变化时用）。"""
+        """主题、字体或全局样式变化时整体重排。"""
         host = self.host
+        self.clear_emoticon_updates()
         scroll_state = host._scroll_state()
         html = "".join(host._block_html(entry) for entry in host._blocks)
         host.body.setHtml(html or "")
@@ -187,7 +215,55 @@ class DanmakuDocument:
         if image.isNull():
             return
         host._images[url] = image
-        host._render_all()          # 之前显示成文字的那些，现在换成图
+        host._register_image(url, image)
+        if host._blocks:
+            self._loaded_emoticons.add(url)
+            if not self._emoticon_refresh.isActive():
+                self._emoticon_refresh.start()
+
+    def clear_emoticon_updates(self) -> None:
+        self._emoticon_refresh.stop()
+        self._loaded_emoticons.clear()
+        self._emoticon_blocks.clear()
+
+    def _refresh_emoticon_blocks(self) -> None:
+        host = self.host
+        document = host.body.document()
+        if self._loaded_emoticons:
+            for index, entry in enumerate(host._blocks):
+                if not self._loaded_emoticons.isdisjoint(entry.get('_emoticon_urls', ())):
+                    self._emoticon_blocks[id(entry)] = (entry, document.findBlockByNumber(index))
+            self._loaded_emoticons.clear()
+        if not self._emoticon_blocks:
+            return
+        state = host._scroll_state()
+        anchor = host.body.cursorForPosition(QPoint()).block()
+        layout = document.documentLayout()
+        previous_top = layout.blockBoundingRect(anchor).top() if not state[0] and anchor.isValid() else None
+        transaction = QTextCursor(document)
+        transaction.beginEditBlock()
+        try:
+            for key in tuple(islice(self._emoticon_blocks, self.EMOTICON_BLOCKS_PER_UPDATE)):
+                entry, block = self._emoticon_blocks.pop(key)
+                if not block.isValid():
+                    continue
+                index = block.blockNumber()
+                if not 0 <= index < len(host._blocks) or host._blocks[index] is not entry:
+                    continue
+                cursor = QTextCursor(block)
+                cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                cursor.insertHtml(host._block_html(entry))
+                style = cursor.blockFormat()
+                style.setLineHeight(self.EMOTICON_LINE_HEIGHT, QTextBlockFormat.ProportionalHeight.value)
+                cursor.setBlockFormat(style)
+        finally:
+            transaction.endEditBlock()
+        if previous_top is not None and anchor.isValid():
+            delta = round(layout.blockBoundingRect(anchor).top() - previous_top)
+            state = (state[0], max(0, state[1] + delta), state[2])
+        host._restore_scroll_state(state)
+        if self._emoticon_blocks:
+            self._emoticon_refresh.start()
 
     def clear(self) -> None:
         host = self.host

@@ -235,10 +235,15 @@ class FunctionalModulesTests(unittest.TestCase):
         for owner, fields in ((panel, ('document_control', 'scroll_control')),
                 (video, ('raster_control', 'surface_control'))):
             for name in fields:
+                control = getattr(owner, name)
                 expected = {'host': owner}
                 if name == 'document_control':
-                    expected['_medal_style'] = None
-                self.assertEqual(vars(getattr(owner, name)), expected)
+                    refresh = control._emoticon_refresh
+                    self.assertIs(refresh.parent(), panel)
+                    self.assertTrue(refresh.isSingleShot())
+                    expected.update(_medal_style=None, _loaded_emoticons=set(),
+                                    _emoticon_blocks={}, _emoticon_refresh=refresh)
+                self.assertEqual(vars(control), expected)
         self.assertIs(VideoDanmaku._paint_super_chat, _paint_super_chat)
         self.assertIs(video.timer.parent(), video)
 

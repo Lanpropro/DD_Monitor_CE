@@ -355,7 +355,11 @@ class PluginContext:
             session.cancel()
 
     def show_workspace(self, widget, *, manages_content=False, pause_wall_playback=False) -> bool:
-        """Replace the central content with one embedded page; close the previous page."""
+        """Show one embedded page, closing the previous page.
+
+        An optional widget.workspace_room_action() returns (label, add_rooms)
+        for follow-card activation and live notices, or None for wall placement.
+        """
         if not self._active:
             raise RuntimeError('Plugin context is inactive')
         container = getattr(self.window, '_content', None)
@@ -368,6 +372,9 @@ class PluginContext:
             controls = getattr(getattr(self.window, 'sidebar', None), 'workspace_controls', None)
             if controls is not None:
                 controls.bind_pages(self._manager._workspace_pages)
+            notices = getattr(self.window, 'notice_control', None)
+            if notices is not None:
+                self._manager._workspace_pages.changed.connect(notices.refresh_live_room_actions)
         return self._manager._workspace_pages.show_page(
             self.name, widget, manages_content=manages_content, pause_wall_playback=pause_wall_playback)
 

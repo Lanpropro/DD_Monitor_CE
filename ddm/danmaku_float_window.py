@@ -436,7 +436,8 @@ class DanmakuFloatWindow(QWidget):
                   and not self.pin.isChecked() and self.isVisible()):
                 self._hidden_with_owner = True
                 self.hide()
-        if (kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton
+        if (watched is not self.parentWidget()
+                and kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton
                 and self.start_move(event.globalPosition().toPoint(), independent=watched is self.move_handle)):
             event.accept()
             return True

@@ -22,6 +22,11 @@ class RoomPlacement:
         return getattr(self.host, "settings", {}).get("audio_follows_room", False)
 
     def place_live_notice_rooms(self, rooms):
+        from .workspace_pages import workspace_room_action
+        action = workspace_room_action(self.host.sidebar)
+        if action is not None:
+            action[1](rooms)
+            return
         from .wall_replacement import WallReplacement
         if self.replacement is None:
             self.replacement = WallReplacement(self)

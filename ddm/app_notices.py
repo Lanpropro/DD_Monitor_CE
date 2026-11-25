@@ -20,6 +20,17 @@ class AppNotices:
         if self.official_announcement is not None:
             self.official_announcement.cancel()
 
+    def refresh_live_room_actions(self):
+        from .notification_center import live_notice_action
+        label = live_notice_action(self.host)
+        for notice in getattr(self.host, '_notices', ()):
+            refresh = getattr(notice, 'refresh_live_room_action', None)
+            if refresh is not None:
+                refresh(label)
+        bell = getattr(self.host.sidebar, 'notification_button', None)
+        if bell is not None:
+            bell.center.refresh_live_room_actions(label)
+
     def windows_live_rooms(self):
         settings = self.host.settings
         if not settings.get('notice_windows_recording'):
@@ -46,7 +57,7 @@ class AppNotices:
                 from .windows_recording_notifications import send_recording_notification
                 tag = uuid4().hex[:16]
                 name = info.get('uname') or profile.get('name') or room_id
-                send_recording_notification('开播提醒', f'{name} 开播了', tag=tag)
+                send_recording_notification(f'{name} 开播了', info.get('title') or '', room_id=room_id, tag=tag)
             self._windows_live[room_id] = live, tag
 
     def background_recording_transition(self, event: str, room: dict) -> None:
@@ -57,13 +68,13 @@ class AppNotices:
             return
         from .windows_recording_notifications import send_recording_notification
         title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')
-        name = str(room.get('uname') or room['room_id'])
-        _, tag = self._windows_live.get(str(room['room_id']), (None, None))
-        if event == 'started' and tag is not None:
-            # Keep the opening toast in Notification Center as the recording status changes.
-            send_recording_notification(title, name, tag=tag, suppress_popup=True)
-        else:
-            send_recording_notification(title, name)
+        room_id = str(room['room_id'])
+        name = str(room.get('uname') or room_id)
+        _, live_tag = self._windows_live.get(room_id, (None, None))
+        # Update the existing opening toast without popping it up a second time.
+        tag = live_tag if event == 'started' else None
+        send_recording_notification(title, name, room_id=room_id, room_title=room.get('title') or '',
+                                    tag=tag, suppress_popup=tag is not None)
 
     def record_notice(self, message: str, room=None) -> None:
         host = self.host

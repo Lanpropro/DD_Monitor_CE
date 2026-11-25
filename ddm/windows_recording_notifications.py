@@ -106,15 +106,23 @@ $toast.SuppressPopup = $data.suppressPopup
 """
 
 
-def toast_xml(title, message):
+def toast_xml(title, message, *, room_title='', avatar_path=None):
     toast = Element('toast', activationType='protocol', launch=PROTOCOL + ':')
     binding = SubElement(SubElement(toast, 'visual'), 'binding', template='ToastGeneric')
     SubElement(binding, 'text').text = title
-    SubElement(binding, 'text').text = message
+    for text in (message, room_title):
+        text = str(text or '').strip()
+        if text:
+            SubElement(binding, 'text').text = text
+    if avatar_path is not None and avatar_path.is_file():
+        SubElement(binding, 'image', src=avatar_path.resolve().as_uri(), alt='主播头像',
+                   placement='appLogoOverride', attrib={'hint-crop': 'circle'})
     return tostring(toast, encoding='unicode')
 
 
-def _send(title, message, *, tag=None, suppress_popup=False):
+def _send(title, message, *, room_id='', room_title='', tag=None, suppress_popup=False):
+    from .images import room_avatar_path
+    avatar_path = Path(room_avatar_path(room_id)) if room_id else None
     system = Path(os.environ.get('SystemRoot', r'C:\Windows'))
     executable = Path(sys.executable)
     root = Path(__file__).resolve().parents[1]
@@ -131,7 +139,8 @@ def _send(title, message, *, tag=None, suppress_popup=False):
         target = windowless if windowless.is_file() else executable
         arguments = subprocess.list2cmdline(['-c', launcher, str(root / 'main.py')])
         working = root
-    data = dict(xml=toast_xml(title, message), tag=tag or uuid4().hex[:16], suppressPopup=suppress_popup,
+    xml = toast_xml(title, message, room_title=room_title, avatar_path=avatar_path)
+    data = dict(xml=xml, tag=tag or uuid4().hex[:16], suppressPopup=suppress_popup,
                 appId=APP_ID, protocol=PROTOCOL,
                 shortcut='DD监控室CE 主播监控.lnk', target=str(target), arguments=arguments, working=str(working))
     env = dict(os.environ, DDM_RECORDING_TOAST=b64encode(json.dumps(data).encode('utf-8')).decode('ascii'))
@@ -146,6 +155,7 @@ def _send(title, message, *, tag=None, suppress_popup=False):
         print('[Windows 通知] ' + detail.decode('utf-8', errors='replace').strip(), file=sys.stderr)
 
 
-def send_recording_notification(title, message, *, tag=None, suppress_popup=False):
+def send_recording_notification(title, message, *, room_id='', room_title='', tag=None, suppress_popup=False):
     if sys.platform == 'win32':
-        _worker.submit(_send, title, message, tag=tag, suppress_popup=suppress_popup)
+        _worker.submit(_send, title, message, room_id=room_id, room_title=room_title,
+                       tag=tag, suppress_popup=suppress_popup)

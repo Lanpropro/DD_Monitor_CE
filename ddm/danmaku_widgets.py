@@ -223,7 +223,7 @@ class DanmakuPanel(QFrame):
         self.setCursor(Qt.OpenHandCursor)
         self._status = "未接入"
         self._received = 0
-        self._blocks: list[dict] = []            # 每条消息的原始信息，表情下好之后整体重排
+        self._blocks: list[dict] = []            # 每条消息的原始信息
         self._message_epoch = 0
         self._images: dict = {}                  # 表情图 / 粉丝牌底图：url -> 图片
         self._loading_emoticons: set[str] = set()
@@ -445,6 +445,7 @@ class DanmakuPanel(QFrame):
 
     def set_placeholder(self, text: str) -> None:
         self.set_super_chats([])
+        self.document_control.clear_emoticon_updates()
         self._scroll_revision += 1
         self._scroll_trim_remainder = 0.0
         self._blocks = []
@@ -497,6 +498,13 @@ class DanmakuPanel(QFrame):
     def add_event(self, event: dict) -> None:
         """一条消息：带粉丝牌、表情（表情图下好之后会补上）。"""
         return self.document_control.add_event(event)
+
+    def add_events(self, events) -> None:
+        """按顺序附加一批弹幕，共用一次文档插入和滚动恢复。"""
+        return self.document_control.add_events(events)
+
+    def _event_entry(self, event: dict) -> dict:
+        return self.document_control.event_entry(event)
 
     def set_super_chats(self, events: list[dict]) -> None:
         self.super_chats.set_events(events, self._super_chat_limit())
@@ -597,7 +605,7 @@ class DanmakuPanel(QFrame):
         return self.document_control.register_image(key, image)
 
     def _render_all(self) -> None:
-        """整体重排（表情图下好、或者字体变化时用）。"""
+        """主题、字体或全局样式变化时整体重排。"""
         return self.document_control.render_all()
 
     # ---- 表情 ----
