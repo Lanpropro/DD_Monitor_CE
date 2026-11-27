@@ -26,14 +26,14 @@ class AutoSaveTests(unittest.TestCase):
         self.dialog.show()
         APP.processEvents()
         self.requests = []
-        self.fail = False
+        self.save_should_fail = False
         self.automatic_ack = True
         self.dialog.auto_save.requested.connect(self.save)
 
     def save(self, changes):
         self.requests.append(deepcopy(changes))
         if self.automatic_ack:
-            self.dialog.auto_save.acknowledge('fixture write failure' if self.fail else '')
+            self.dialog.auto_save.acknowledge('fixture write failure' if self.save_should_fail else '')
 
     def tearDown(self):
         self.dialog.auto_save.active = False
@@ -86,13 +86,13 @@ class AutoSaveTests(unittest.TestCase):
         self.assertFalse(self.dialog.isVisible())
 
     def test_write_failure_stays_visible_and_retry_saves_then_closes(self):
-        self.fail = True
+        self.save_should_fail = True
         self.dialog.general_page.volume_slider.setValue(7)
         self.dialog.reject()
         self.assertTrue(self.dialog.isVisible())
         self.assertEqual(self.dialog.save_status.text(), '保存失败')
         self.assertTrue(self.dialog.retry_button.isVisible())
-        self.fail = False
+        self.save_should_fail = False
         self.dialog.retry_button.click()
         self.assertFalse(self.dialog.isVisible())
         self.assertEqual(len(self.requests), 2)
@@ -113,6 +113,10 @@ class AutoSaveTests(unittest.TestCase):
         control = self.dialog.appearance_page.app_icon_control
         self.assertEqual(control.currentData(), 'd')
         self.assertEqual([control.itemData(i) for i in range(control.count())], ['d', 'b', 'f'])
+        self.assertEqual(
+            [control.itemText(i) for i in range(control.count())],
+            ['A · DD娘1', 'B · DD娘2', 'C · 经典DDCE'],
+        )
         self.assertTrue(all(not control.itemIcon(i).isNull() for i in range(control.count())))
         for style in ('b', 'f'):
             control.setCurrentIndex(control.findData(style))
@@ -322,10 +326,10 @@ app.shutdown()
         self.assertEqual(self.requests[-1]['plugin_controls'], dict(fixture_domestic=False, fixture_global=True))
 
     def test_failed_value_can_be_reverted_and_still_written(self):
-        self.fail = True
+        self.save_should_fail = True
         self.dialog.general_page.volume_slider.setValue(7)
         self.dialog.auto_save.flush()
-        self.fail = False
+        self.save_should_fail = False
         self.dialog.general_page.volume_slider.setValue(40)
         self.dialog.auto_save.flush()
         self.assertEqual(self.requests[-1], {'settings': {'default_volume': 40}})

@@ -45,7 +45,7 @@ class AppearanceSettingsPage(QWidget):
         self.app_icon_control = QComboBox(colors)
         self.app_icon_control.setAccessibleName(icon_label.text())
         self.app_icon_control.setIconSize(QSize(22, 22))
-        for style, label in (('d', 'D · 蓝发金瞳'), ('b', 'B · 三角徽章'), ('f', 'F · 经典 DD CE')):
+        for style, label in (('d', 'A · DD娘1'), ('b', 'B · DD娘2'), ('f', 'C · 经典DDCE')):
             self.app_icon_control.addItem(app_icon.load_icon(style), label, style)
         self.app_icon_control.setCurrentIndex(self.app_icon_control.findData(
             app_icon.normalize_style(settings.get('app_icon_style'))))
