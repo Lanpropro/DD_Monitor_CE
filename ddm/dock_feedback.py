@@ -2,6 +2,7 @@
 from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QRectF, Qt, QVariantAnimation
 from PySide6.QtGui import QBrush, QColor, QEnterEvent, QIcon, QInputDevice, QLinearGradient, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QToolButton
+from shiboken6 import isValid
 
 from . import motion, theme
 
@@ -167,6 +168,8 @@ class DockFeedback(QObject):
         self.button.update()
 
     def eventFilter(self, watched, event):
+        if not isValid(self.button):
+            return False
         kind = event.type()
         if kind == QEvent.FocusIn:
             self._keyboard_focus(event.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason))
