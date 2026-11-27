@@ -46,7 +46,7 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 
 | 进程 | 启动方式 | 职责 | 退出 |
 | --- | --- | --- | --- |
-| 主界面进程 | 源码版 `run.cmd` 当前经 `dev/diagnose_drag_windows.py` 启动 `main.py`；打包版使用 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
+| 主界面进程 | 源码版 `run.cmd` 直接启动 `main.py`；打包版使用 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
 | 独立设置进程 | `main.py --settings-worker`（`DDM_SETTINGS_PROCESS=1` 时预热/打开） | 承载常规、弹幕、录制、通知、快捷键页面 | 设置窗口关闭或主程序退出 |
 | 插件工作进程 | `main.py --plugin-worker <目录> <模块>` | 插件自己的后台任务，不构造宿主界面 | 插件自行管理 |
 | 更新助手 | `main.py --apply-update <计划>` / `--apply-update-elevated` | 等待主程序退出、替换文件、必要时请求 UAC | 完成或失败后退出 |

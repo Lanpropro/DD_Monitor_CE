@@ -35,6 +35,8 @@ def main():
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("no-save.txt").write_text(os.environ.get("DDM_NO_SAVE", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("fullscreen-input.txt").write_text(os.environ.get("DDM_FULLSCREEN_INPUT_CAPTURE", ""), encoding="utf-8")\n'
+            'Path(__file__).with_name("legacy-capture.txt").write_text("".join(os.environ.get(key, "") for key in '
+            '("DDM_FOLDER_MOTION_CAPTURE", "DDM_THEME_CAPTURE", "DDM_FULLSCREEN_CAPTURE")), encoding="utf-8")\n'
             'Path(__file__).with_name("arguments.txt").write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
@@ -57,6 +59,8 @@ def main():
         assert (root / "quick.txt").read_text(encoding="utf-8") == "1"
         assert not (root / 'trace-enabled.txt').exists(), 'Console launcher retains its normal entry'
         (root / "started.txt").unlink()
+        for name in ('DDM_FOLDER_MOTION_CAPTURE', 'DDM_THEME_CAPTURE', 'DDM_FULLSCREEN_CAPTURE'):
+            env.pop(name, None)
         deps = root / 'work/deps/PySide6'
         deps.mkdir(parents=True)
         (deps / 'QtCore.pyd').touch()
@@ -80,7 +84,8 @@ def main():
         assert Path((root / 'pythonpath.txt').read_text(encoding='utf-8')) == deps.parent, \
             'Daily launcher must only use its own work/deps'
         assert (root / 'no-save.txt').read_text(encoding='utf-8') == '1', 'Keep an explicit no-save request'
-        assert (root / 'trace-enabled.txt').read_text() == '1', 'run.cmd must enable temporary drag tracing'
+        assert not (root / 'trace-enabled.txt').exists(), 'Normal launch must bypass temporary drag tracing'
+        assert not (root / 'legacy-capture.txt').read_text(), 'Normal launch must not start specialist captures'
         (root / 'fullscreen-input.txt').unlink()
         result = invoke(root / 'run.cmd', inherited, ('--diagnose-fullscreen-input',))
         assert result.returncode == 0
@@ -89,6 +94,7 @@ def main():
             time.sleep(.05)
         assert (root / 'fullscreen-input.txt').read_text() == '1'
         assert (foreign / 'injected.txt').read_text() == '1', 'Explicit diagnostics allow isolated fixtures'
+        assert (root / 'trace-enabled.txt').read_text() == '1', 'Unmigrated diagnostics use the specialist launcher'
         (root / 'trace-enabled.txt').unlink()
         (root / 'started.txt').unlink()
         result = invoke(root / 'run.cmd', env, ('--diagnose-session=drag',))
@@ -114,6 +120,13 @@ def main():
             time.sleep(.05)
         assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
         assert not (root / 'trace-enabled.txt').exists()
+        (root / 'started.txt').unlink()
+        for args in (('--diagnose-douyu',), ('--diagnose-fullscreen',), ('--diagnose-notice-close',),
+                     ('--diagnose-session', 'fullscreen'), ('--diagnose-session', 'douyu'),
+                     ('--diagnose-session', 'notices')):
+            result = invoke(root / 'run.cmd', env, args)
+            assert result.returncode == 2 and b'capture_diagnostics' in result.stdout, (args, result)
+            assert not (root / 'started.txt').exists() and not (root / 'trace-enabled.txt').exists()
         result = invoke(root / 'run.cmd', env, ('--sc-simulator', '--smoke'))
         assert result.returncode == 0
         deadline = time.monotonic() + 10

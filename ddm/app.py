@@ -1299,7 +1299,7 @@ class MainWindow(QMainWindow):
         if setter is not None:
             setter(self._recording_enabled())
             self.capture_control.sync_tile_recording(tile)
-        tile.fullscreenRequested.connect(self._on_fullscreen)
+        tile.fullscreenRequested.connect(lambda requested: self._on_fullscreen(requested))
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.apply_video_danmaku_settings(self.settings)

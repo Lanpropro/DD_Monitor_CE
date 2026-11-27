@@ -20,11 +20,6 @@ from ddm.douyu_diagnostics import install
 
 
 def main():
-    launcher = (Path(__file__).resolve().parents[1] / 'run.cmd').read_text(encoding='utf-8')
-    normal_entry = launcher.split('rem TEMP BUG-001:', 1)[1].split('exit /b 0', 1)[0]
-    capture_entry = launcher.split(':douyu\n', 1)[1].split('exit /b 0', 1)[0]
-    assert '"%PROJ%dev\\diagnose_drag_windows.py"' in normal_entry
-    assert '"%PROJ%dev\\diagnose_drag_windows.py" --diagnose-douyu' in capture_entry
     app = QApplication.instance() or QApplication([])
     state = {'plugins_enabled': [], 'settings': {'auto_quality': False,
              'recording_enabled': False, 'recording_replay_enabled': False,

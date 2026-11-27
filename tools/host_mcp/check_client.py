@@ -24,7 +24,7 @@ async def check(pid):
         await session.initialize()
         tools = await session.list_tools()
         assert {'list_settings_pages', 'get_settings_state', 'open_settings_page', 'close_settings',
-                'measure_sidebar_interactions'} <= {
+                'measure_sidebar_interactions', 'capture_diagnostics'} <= {
             tool.name for tool in tools.tools}
 
         async def call(name, **arguments):
@@ -33,6 +33,12 @@ async def check(pid):
             return json.loads(result.content[0].text)
 
         assert pid in (await call('list_instances'))['pids']
+        folders = await call('capture_diagnostics', pid=pid, mode='folders')
+        assert folders['reason'] == 'snapshot-finished' and folders['records'][1]['stage'] == 'folder-snapshot'
+        for mode in ('douyu', 'fullscreen', 'notices'):
+            capture = await call('capture_diagnostics', pid=pid, mode=mode, seconds=1)
+            assert capture['mode'] == mode and capture['reason'] == 'timeout'
+            assert capture['records'][1]['stage'] == 'specialty-start'
         sidebar = await call('measure_sidebar_interactions', pid=pid, seconds=1)
         assert sidebar['pid'] == pid and sidebar['heartbeat']['idle']['intervals'] > 0
         assert not sidebar['phases'] and not sidebar['scroll'] and not any(sidebar['drag_outcomes'].values())
@@ -62,7 +68,7 @@ async def check(pid):
             finally:
                 await call('close_settings', pid=pid)
             await wait_for('closed', None)
-        print('PASS stdio discovery, wall controls, sidebar measurement and settings navigation', flush=True)
+        print('PASS stdio discovery, on-demand diagnostics, wall controls and settings navigation', flush=True)
 
 
 if __name__ == '__main__':

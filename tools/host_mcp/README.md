@@ -17,6 +17,7 @@ codex mcp add dd-monitor-host -- $python (Resolve-Path tools/host_mcp/server.py)
 | `open_settings_page` | 按分类 ID 打开或切页。默认走侧栏设置入口。传入 `entry="monitor", page="streamer_defaults"` 可走主播监控面板的设置请求。 |
 | `close_settings` | 通过设置窗口原有的关闭流程收起窗口。 |
 | `get_state` | 读取布局、横竖屏、画中画和从 1 开始的墙内格位。playing 统计墙内播放器状态为 playing 且未暂停的路数。 |
+| `capture_diagnostics` | 在指定 PID 的运行中本体采集斗鱼取流、全屏、通知关闭、播放、文件夹、拖放或功能栏高亮。 |
 | `measure_sidebar_interactions` | 指定 PID，在 1–60 秒内观察关注栏卡片拖动、放下或取消，以及横向或纵向滚动。默认采集 30 秒。 |
 | `list_layouts` | 列出内置和已保存的布局 ID。 |
 | `set_layout` | 使用布局菜单的处理函数应用指定 ID。选择另一方向的布局会切换横竖屏。 |
@@ -25,6 +26,20 @@ codex mcp add dd-monitor-host -- $python (Resolve-Path tools/host_mcp/server.py)
 | `remove_wall_slot` | 通过移除面板移除单个格位，可在面板撤回。录制中、待录制和画中画活动时会拒绝移除。 |
 
 设置打开和关闭返回 `accepted` 后，轮询 `get_settings_state` 可确认完成。分类回读反映导航选中状态，首帧耗时需结合绘制采样。画面墙修改工具返回操作后的状态和同步处理毫秒数。手动选择布局后也可以从 `get_state.last_layout_change` 读取最近一次布局回调的起止布局、完成时间和耗时。画面呈现、异步播放恢复仍需对照实机。请求超时后先重新读取本体状态。
+
+使用 `capture_diagnostics(pid, mode, seconds=30)` 时，在调用等待期间按平时的方式操作软件。每个进程同一时间接受一次采集，超时或客户端断开后停止采集。
+
+| 模式 | 现场操作与记录 |
+| --- | --- |
+| `douyu` | 播放或重载出问题的斗鱼房间。在原有连接上记录播放、取流与恢复事件，以及定时播放器状态。详情在 `logs/douyu-on-demand.jsonl`，另有同名的 `-responsiveness.jsonl` 心跳日志。 |
+| `fullscreen` | 对目标直播格进入或退出全屏。记录过渡阶段、键盘消息延迟、布局、控制栏与播放器观察值。详情在 `logs/fullscreen-on-demand.jsonl`。 |
+| `notices` | 点击当前通知的关闭按钮或通知列表的删除按钮。记录按钮、动画、定时器、窗口可见状态等。详情在 `logs/on-demand.jsonl`。 |
+| `folders` | 立即读取当前文件夹和卡片几何。 |
+| `drag` | 尝试拖放一张卡片。完成一次操作或等待最多 60 秒。 |
+| `playback` | 观察最多四路播放器及缓存、进度等数据，采集约 60 秒。 |
+| `dock-hover` | 将鼠标划过功能栏，在最长 60 秒内记录指针和高亮状态。 |
+
+斗鱼、全屏和通知支持 1–60 秒。在结果的 `specialty-start` 中可以找到日志名和会话标识。斗鱼深度逐包实验仍使用专项启动，它会改变连接路径。
 
 采样开始后可按平时的速度滚动关注栏，再拖动一张卡片。按 Esc 可取消拖动。返回值包含卡片拖影生成、启动、落点更新、放下和清理的调用次数与最大耗时，以及滚动期间可见封面的刷新耗时。横纵轴分别记录滚动次数、首末位置变化之间的时长和最大变化间隔。滚动间隔受输入节奏影响。判断界面停顿可看 `heartbeat` 中 16 毫秒主线程定时器的实际间隔及达到 50、250 毫秒的次数。拖动、滚动（含末次输入后 250 毫秒）、两者同时发生与空闲分别计数。原始报告写入本机 `logs/on-demand.jsonl`，可按返回的 session 查找。
 

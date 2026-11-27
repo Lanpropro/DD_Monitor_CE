@@ -16,6 +16,10 @@ from PySide6.QtGui import QDrag
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
+from .live_diagnostics import LiveDiagnostics, SPECIALTIES
+
+TIMED_MODES = ('sidebar-performance', *SPECIALTIES)
+
 
 def folder_snapshot(sidebar):
     from .sidebar_diagnostics import SidebarEvidence
@@ -178,11 +182,11 @@ class DiagnosticEndpoint(QObject):
                 return
             keys = {'protocol', 'mode'}
             seconds = 60
-            if isinstance(request, dict) and request.get('mode') == 'sidebar-performance' and 'seconds' in request:
+            if isinstance(request, dict) and request.get('mode') in TIMED_MODES and 'seconds' in request:
                 keys.add('seconds')
                 seconds = request['seconds']
-            if (not isinstance(request, dict) or request.get('protocol') != 1
-                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover', 'sidebar-performance')
+            if (not isinstance(request, dict) or type(request.get('protocol')) is not int or request['protocol'] != 1
+                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover', *TIMED_MODES)
                     or set(request) != keys or type(seconds) is not int or not 1 <= seconds <= 60):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
@@ -204,6 +208,8 @@ class DiagnosticEndpoint(QObject):
         def emit(stage, **values):
             if self.active is None or self.active['identity'] != identity:
                 return
+            if 'session' in values:
+                values['probe_session'] = values.pop('session')
             record = dict(time=time.time(), session=identity, stage=stage, pid=os.getpid(), **values)
             if len(records) < 100 or (request['mode'] == 'dock-hover'
                                      and stage in ('dock-hover-mismatch', 'capture-ended')):
@@ -213,10 +219,10 @@ class DiagnosticEndpoint(QObject):
             if self.active is None:
                 return
             emit('capture-ended', reason=reason)
-            self.send(socket, dict(protocol=1, status='complete', mode=request['mode'],
-                                  pid=os.getpid(), root=self.root, reason=reason,
-                                  history_available=False, records=records))
             self.release()
+            self.send(socket, dict(protocol=1, status='complete', mode=request['mode'],
+                                  pid=os.getpid(), root=self.root, reason=reason, session=identity,
+                                  history_available=False, records=records))
             socket.disconnectFromServer()
         try:
             emit('capture-request', mode=request['mode'], history_available=False)
@@ -233,6 +239,8 @@ class DiagnosticEndpoint(QObject):
                 elif request['mode'] == 'sidebar-performance':
                     from .sidebar_performance import SidebarPerformance
                     observer = SidebarPerformance(self.window, emit, done, seconds)
+                elif request['mode'] in SPECIALTIES:
+                    observer = LiveDiagnostics(self.window, self.directory, request['mode'], seconds, emit, done)
                 else:
                     observer = OneDrag(self.window, emit, done)
                 self.active['observer'] = observer
@@ -264,9 +272,13 @@ class DiagnosticEndpoint(QObject):
     def release(self):
         active, self.active = self.active, None
         if active is not None:
-            if active['observer'] is not None:
-                active['observer'].stop()
-            active['handler'].close()
+            try:
+                if active['observer'] is not None:
+                    active['observer'].stop()
+            except Exception:
+                logging.exception('Diagnostic capture cleanup failed')
+            finally:
+                active['handler'].close()
 
     def disconnected(self, socket):
         if self.active is not None and self.active['socket'] is socket:

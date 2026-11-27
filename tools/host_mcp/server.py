@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -17,7 +18,7 @@ async def request(pid, action, **args):
 async def pipe_request(pid, payload, timeout=15):
     if type(pid) is not int or pid <= 0:
         raise ValueError('Invalid host PID')
-    reader = asyncio.StreamReader()
+    reader = asyncio.StreamReader(limit=1024 * 1024)
     protocol = asyncio.StreamReaderProtocol(reader)
     loop = asyncio.get_running_loop()
     try:
@@ -45,6 +46,30 @@ async def pipe_request(pid, payload, timeout=15):
             raise ValueError('Host rejected the request. Restart an updated host for MCP support.')
         raise ValueError(reason)
     return response
+
+
+@server.tool()
+async def capture_diagnostics(
+    pid: int,
+    mode: Literal['folders', 'drag', 'playback', 'dock-hover', 'douyu', 'fullscreen', 'notices'],
+    seconds: int = 30,
+) -> dict:
+    """Capture an already-running host. For Douyu, fullscreen, or notices, reproduce during the 1–60 s window.
+
+    Folders is an immediate snapshot, drag observes one attempt, and playback and dock-hover use their own 60 s limits.
+    Douyu samples the current route and upcoming requests without replacing the transport.
+    """
+    if not 1 <= seconds <= 60:
+        raise ValueError('Capture duration must be 1–60 seconds')
+    payload = dict(protocol=1, mode=mode)
+    if mode in ('douyu', 'fullscreen', 'notices'):
+        payload['seconds'] = seconds
+    else:
+        seconds = 60
+    reply = await pipe_request(pid, payload, seconds + 15)
+    if reply['reason'] == 'capture-error':
+        raise ValueError('Host could not start the capture')
+    return reply
 
 
 @server.tool()

@@ -35,12 +35,12 @@ class FullscreenCapture(QObject):
         self.observers = []
         self.players = []
         self.geometry_widgets = {}
-        self.timer = QTimer(window)
+        self.timer = QTimer(self)
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.frame)
         self.idle_samples = []
-        self.idle_timer = QTimer(window)
+        self.idle_timer = QTimer(self)
         self.idle_timer.setInterval(125)
         self.idle_timer.timeout.connect(self.idle_frame)
 
@@ -265,7 +265,7 @@ class FullscreenCapture(QObject):
                          duration_ms=round((time.perf_counter()-self.started)*1000, 3), **record)
 
 
-def install(path, *, profile_calls=False, native_windows=False):
+def install(path, *, profile_calls=False, native_windows=False, window=None, cleanup=None):
     from PySide6.QtWidgets import QApplication
     from .app import MainWindow
     from .fullscreen_bar import FullscreenBar
@@ -274,23 +274,47 @@ def install(path, *, profile_calls=False, native_windows=False):
     from .wall_widgets import WallGrid
     from .video_danmaku import VideoDanmaku
     from . import window_fullscreen
+    from .live_diagnostics import replace_hook
 
     probe = Probe(path)
+    if cleanup is not None:
+        cleanup.callback(probe.stop)
     original_init = MainWindow.__init__
 
-    @functools.wraps(original_init)
-    def initialize(window, *args, **kwargs):
-        original_init(window, *args, **kwargs)
+    def attach(window):
         capture = window._fullscreen_probe = FullscreenCapture(
             probe, window, profile_calls=profile_calls, native_windows=native_windows)
         application = QApplication.instance()
         if native_windows:
             application.installEventFilter(capture)
-        application.aboutToQuit.connect(capture.finish)
-        application.aboutToQuit.connect(capture.finish_idle)
-        application.aboutToQuit.connect(probe.stop)
+        if cleanup is None:
+            application.aboutToQuit.connect(capture.finish)
+            application.aboutToQuit.connect(capture.finish_idle)
+            application.aboutToQuit.connect(probe.stop)
+        else:
+            def detach():
+                try:
+                    capture.finish('capture-ended')
+                    capture.finish_idle('capture-ended')
+                finally:
+                    if native_windows:
+                        application.removeEventFilter(capture)
+                    del window._fullscreen_probe
+                    capture.deleteLater()
+            cleanup.callback(detach)
+            if window._fullscreen_tile is not None:
+                capture.start_idle(window._fullscreen_tile)
 
-    MainWindow.__init__ = initialize
+    if window is None:
+        @functools.wraps(original_init)
+        def initialize(window, *args, **kwargs):
+            original_init(window, *args, **kwargs)
+            attach(window)
+        MainWindow.__init__ = initialize
+    else:
+        if getattr(window, '_fullscreen_probe', None) is not None:
+            raise ValueError('fullscreen-capture-active')
+        attach(window)
 
     def operation(method, action):
         @functools.wraps(method)
@@ -330,8 +354,8 @@ def install(path, *, profile_calls=False, native_windows=False):
                     capture.start_idle(tile)
         return wrapped
 
-    MainWindow._on_fullscreen = operation(MainWindow._on_fullscreen, 'toggle')
-    MainWindow._exit_fullscreen = operation(MainWindow._exit_fullscreen, 'exit')
+    replace_hook(cleanup, MainWindow, '_on_fullscreen', operation(MainWindow._on_fullscreen, 'toggle'))
+    replace_hook(cleanup, MainWindow, '_exit_fullscreen', operation(MainWindow._exit_fullscreen, 'exit'))
 
     def stage(method, label):
         @functools.wraps(method)
@@ -359,9 +383,10 @@ def install(path, *, profile_calls=False, native_windows=False):
             (Tile, ('_layout_areas',)),
             (VideoDanmaku, ('_resize_comments', '_queue_comment_raster', '_apply_comment_rasters'))):
         for name in names:
-            setattr(owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))
+            replace_hook(cleanup, owner, name, stage(getattr(owner, name), owner.__name__+'.'+name))
     for name in ('enter', 'exit'):
-        setattr(window_fullscreen, name, stage(getattr(window_fullscreen, name), 'window_fullscreen.'+name))
+        replace_hook(cleanup, window_fullscreen, name,
+                     stage(getattr(window_fullscreen, name), 'window_fullscreen.'+name))
     probe.write('start', mode='fullscreen-only', profile_calls=profile_calls,
                 frame_limit=80, observer_sample_limit=120, duration_limit_ms=8000)
     return probe
