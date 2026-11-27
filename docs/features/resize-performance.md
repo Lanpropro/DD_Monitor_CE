@@ -25,6 +25,6 @@
 
 ## 验证与人工复查
 
-`run.cmd --check-window-layout` 检查布局与窗口状态回归；相关缩放专项仍按[验证指南](../development/testing.md)运行。`run.cmd --diagnose-window-resize` 在真实操作时将消息、布局和绘制调用耗时写入本机 `logs/window-resize.jsonl`，用于定位本次问题。
+`run.cmd --check-window-layout` 检查布局与窗口状态回归。按[验证指南](../development/testing.md)在 MCP 登记 `window-resize` 并重启后，真实操作的消息、布局和绘制调用耗时写入本机 `logs/window-resize.jsonl`。
 
 人工从根目录 `run.cmd` 在 1、6、16 格和横竖屏布局中连续缩放、移动、最大化拖出及跨屏移动，检查画面贴合、播放连续、弹幕遮罩和松手后的最终布局。2026-11-09 的根入口复查确认普通缩放明显改善、文字和按钮正常；最大化拖出时的闪烁与跨 DPI 手感仍应按真实现场重新验收。历史测量条件与局限见[实施记录](../archive/resize-performance-202611.md)。

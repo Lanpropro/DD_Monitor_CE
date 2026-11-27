@@ -89,29 +89,23 @@ from ddm.app import main         # noqa: E402
 
 
 if __name__ == "__main__":
-    from ddm.diagnostic_session import requested_mode, install as install_diagnostic_session
-    diagnostic_mode = requested_mode(sys.argv[1:])
-    if diagnostic_mode:
-        install_diagnostic_session(diagnostic_mode, os.path.join(config.data_root(), 'logs'))
-    else:
-        if '--diagnose-douyu' in sys.argv or '--diagnose-douyu-deep' in sys.argv:
-            from ddm.douyu_diagnostics import install as install_douyu_diagnostics
-            install_douyu_diagnostics(os.path.join(config.data_root(), 'logs', 'douyu-playback.jsonl'),
-                                     deep='--diagnose-douyu-deep' in sys.argv)
-        if os.environ.get('DDM_THEME_CAPTURE') == '1':
-            from ddm.responsiveness import install_theme_capture, install_theme_animation_capture
-            theme_probe = install_theme_capture(os.path.join(config.data_root(), 'logs', 'theme-switch.jsonl'),
-                                               profile_calls='--diagnose-responsiveness' in sys.argv)
-            install_theme_animation_capture(theme_probe)
-        if os.environ.get('DDM_FULLSCREEN_CAPTURE') == '1' or '--diagnose-fullscreen' in sys.argv:
-            from ddm.fullscreen_diagnostics import install as install_fullscreen_capture
-            fullscreen_diagnostics = '--diagnose-fullscreen' in sys.argv
-            install_fullscreen_capture(os.path.join(config.data_root(), 'logs', 'fullscreen.jsonl'),
-                                       profile_calls=fullscreen_diagnostics, native_windows=fullscreen_diagnostics)
-        if '--diagnose-responsiveness' in sys.argv:
-            from ddm.responsiveness import install
-            install(os.path.join(config.data_root(), 'logs', 'responsiveness.jsonl'))
-        elif os.environ.get('DDM_FOLDER_MOTION_CAPTURE') == '1':
-            from ddm.responsiveness import install_folder_capture
-            install_folder_capture(os.path.join(config.data_root(), 'logs', 'folder-motion.jsonl'))
-    raise SystemExit(main())
+    startup_diagnostics = None
+    if not getattr(sys, 'frozen', False) and not sys.argv[1:]:
+        from pathlib import Path
+        from ddm.diagnostic_startup_request import consume
+        try:
+            request = consume(Path(PROJ))
+        except OSError as error:
+            print(f"[MCP 诊断] 无法读取启动请求：{error}", file=sys.stderr, flush=True)
+        else:
+            if request is not None:
+                from importlib import import_module
+                try:
+                    install = import_module('dev.startup_diagnostics').install
+                    startup_diagnostics = install(Path(PROJ), Path(config.data_root()) / 'logs', request)
+                except (ImportError, OSError, RuntimeError) as error:
+                    print(f"[MCP 诊断] 无法启用 {request['mode']}：{error}", file=sys.stderr, flush=True)
+                else:
+                    print(f"[MCP 诊断] 已启用 {request['mode']}，请求 {request['request_id']}",
+                          file=sys.stderr, flush=True)
+    raise SystemExit(main(startup_diagnostics=startup_diagnostics))

@@ -60,7 +60,7 @@ def snapshot(player):
     }
 
 
-def install(path, *, deep=False):
+def install(path, *, deep=False, window=None, cleanup=None):
     from PySide6.QtCore import QTimer
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QApplication
@@ -68,10 +68,15 @@ def install(path, *, deep=False):
     from .app import MainWindow
     from .bili import StreamResolver
     from .diagnostics import sanitize
+    from .live_diagnostics import replace_hook
     from .responsiveness import Probe
 
     path = Path(path)
+    if cleanup is not None and (deep or getattr(window, '_douyu_capture', None) is not None):
+        raise ValueError('douyu-capture-active' if not deep else 'douyu-deep-requires-startup')
     capture = Capture(path)
+    if cleanup is not None:
+        cleanup.callback(capture.close)
     write = capture.emit
 
     def clean(text):
@@ -258,21 +263,24 @@ def install(path, *, deep=False):
                     write('recovery.end', function=label, room=room,
                           elapsed_ms=(time.perf_counter() - started) * 1000)
             return transition
-        setattr(MainWindow, method_name, timed_transition(original, method_name))
+        replace_hook(cleanup, MainWindow, method_name, timed_transition(original, method_name))
 
-    @functools.wraps(original_initialize)
-    def initialize(window, *args, **kwargs):
-        original_initialize(window, *args, **kwargs)
-        platform = window.plugins.platforms.get('douyu')
-        if platform is not None:
-            from .douyu_cdn_control import install as install_cdn_control
-            install_cdn_control(platform, path.with_name('douyu-control.json'), write)
-        probe = Probe(path.with_name('douyu-responsiveness.jsonl'))
+    def attach(window):
+        if cleanup is None:
+            platform = window.plugins.platforms.get('douyu')
+            if platform is not None:
+                from .douyu_cdn_control import install as install_cdn_control
+                install_cdn_control(platform, path.with_name('douyu-control.json'), write)
+            QApplication.instance().aboutToQuit.connect(capture.close)
+        probe = Probe(path.with_name(path.stem + '-responsiveness.jsonl'
+                                     if cleanup is not None else 'douyu-responsiveness.jsonl'))
         capture.probes.append(probe)
         window._douyu_capture = capture
         probe.start()
-        QApplication.instance().aboutToQuit.connect(capture.close)
-        window.destroyed.connect(probe.stop)
+        if cleanup is None:
+            window.destroyed.connect(probe.stop)
+        else:
+            cleanup.callback(delattr, window, '_douyu_capture')
         heartbeat = QTimer(window)
         heartbeat.setInterval(100)
         heartbeat.timeout.connect(lambda: probe.pulse(window))
@@ -299,16 +307,25 @@ def install(path, *, deep=False):
         timer = QTimer(window)
         timer.setInterval(500)
         timer.timeout.connect(sample)
+        if cleanup is not None:
+            for active_timer in (heartbeat, timer):
+                cleanup.callback(active_timer.deleteLater)
+                cleanup.callback(active_timer.stop)
         timer.start()
 
-    TilePlayer._check = check
-    TilePlayer.bind = bind
-    TilePlayer._log = media_log
-    TilePlayer._play_media = play_media
-    TilePlayer._stop_media = stop_media
-    StreamResolver._platform_play_url = resolve
-    MainWindow._on_player_state = state_changed
-    MainWindow.__init__ = initialize
+    for owner, name, hook in ((TilePlayer, '_check', check), (TilePlayer, '_log', media_log),
+                              (TilePlayer, '_play_media', play_media),
+                              (StreamResolver, '_platform_play_url', resolve),
+                              (MainWindow, '_on_player_state', state_changed)):
+        replace_hook(cleanup, owner, name, hook)
+    if window is None:
+        @functools.wraps(original_initialize)
+        def initialize(window, *args, **kwargs):
+            original_initialize(window, *args, **kwargs)
+            attach(window)
+        MainWindow.__init__ = initialize
+        TilePlayer.bind = bind
+        TilePlayer._stop_media = stop_media
     write('capture-start', schema=2, sample_interval_ms=500, deep=deep,
           python=sys.version.split()[0], architecture_bits=struct.calcsize('P') * 8,
           queue_limit=20000, log_bytes=20 * 1024 * 1024, log_backups=5,
@@ -316,4 +333,6 @@ def install(path, *, deep=False):
                        'FLV inspection does not decode reference-picture dependencies',
                        'network chunk timing is application read timing, not TCP packet timing',
                        'deep mode changes the transport stack to the local relay'])
+    if window is not None:
+        attach(window)
     return capture

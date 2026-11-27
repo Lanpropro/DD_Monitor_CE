@@ -16,7 +16,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 @unittest.skipUnless(sys.platform == 'win32', 'Windows COM/OLE diagnostic')
 class DragDiagnosticsTests(unittest.TestCase):
     def test_state_changes_drag_receipt_and_return_are_recorded_without_changing_com(self):
-        from dev import diagnose_drag_windows as diag
+        from ddm import drag_diagnostics as diag
         from dev.selfcheck_main_notices import MainNoticesTests
         from ddm.player import TilePlayer
         from ddm.widgets import ROOM_MIME, NavItem, Sidebar
@@ -157,7 +157,7 @@ class DragDiagnosticsTests(unittest.TestCase):
             fixture.doCleanups()
 
     def test_first_drag_profiles_are_opt_in_bounded_and_keep_returns_and_exceptions(self):
-        from dev import diagnose_drag_windows as diag
+        from ddm import drag_diagnostics as diag
         with tempfile.TemporaryDirectory() as directory:
             recorder = diag.Recorder(Path(directory) / 'drag.jsonl', profile_first_drag=True)
             private_value = 'PRIVATE_ARGUMENT_MUST_NOT_BE_CAPTURED'
@@ -184,7 +184,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                 recorder.handler.close()
 
     def test_timing_summary_counts_fast_callbacks_without_per_frame_records(self):
-        from dev import diagnose_drag_windows as diag
+        from ddm import drag_diagnostics as diag
         probe = diag.DragStallProbe()
         probe.finish()
         with patch.object(diag.time, 'perf_counter', side_effect=[1.003, 1.023]):
@@ -215,7 +215,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                 recorder.handler.close()
 
     def test_stall_probe_captures_gui_stack_without_qt_calls_or_local_values(self):
-        from dev import diagnose_drag_windows as diag
+        from ddm import drag_diagnostics as diag
         with patch.object(diag.user32, 'GetAsyncKeyState', return_value=0):
             probe = diag.DragStallProbe()
             try:
@@ -233,7 +233,7 @@ class DragDiagnosticsTests(unittest.TestCase):
                                 for sample in samples for frame in sample['frames']))
 
     def test_probe_distinguishes_normal_drag_from_delayed_return_after_release(self):
-        from dev import diagnose_drag_windows as diag
+        from ddm import drag_diagnostics as diag
         for down in (True, False):
             with self.subTest(down=down), patch.object(diag.user32, 'GetAsyncKeyState',
                                                       return_value=0x8000 if down else 0):

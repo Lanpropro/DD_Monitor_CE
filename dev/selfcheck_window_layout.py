@@ -74,6 +74,7 @@ class WindowLayoutTests(unittest.TestCase):
         self.assertEqual(host._saved_layout('landscape'), layouts.DEFAULT_LAYOUT)
         self.assertEqual(host._saved_layout('portrait'), 'portrait_dm4')
         self.assertEqual(vars(host.window_layout), {'host': host})
+        self.assertIsNone(host.last_layout_change)
 
     def test_arrangement_keeps_qt_parents_and_native_child_identity(self):
         root = QWidget()

@@ -14,7 +14,7 @@
 
 ## 普通运行时的轻量记录
 
-根目录 `run.cmd` 默认在文件夹收展时记录约 600 ms 的有限几何与动画信息到数据目录的 `logs/folder-motion.jsonl`。这有助于对照发生时段，不代表桌面屏幕实际帧率。普通启动不运行完整响应性函数分析。
+根目录 `run.cmd` 直接启动本体。实时排查时，对正在运行的进程调用[本体 MCP](../../tools/host_mcp/README.md)。文件夹错位仍在时使用 `capture_diagnostics` 的 `folders`，要观察拖放和滚动时使用 `measure_sidebar_interactions`。
 
 发生卡顿后，维护者先按时间对照已有日志和用户描述。若没有覆盖问题阶段的证据，再选择下表中的专项采集；不凭一次正常采样认定历史问题已解决。
 
@@ -22,9 +22,10 @@
 
 | 方法 | 适用场景与入口 | 边界 |
 | --- | --- | --- |
-| 现有客户端的播放采样 | 软件仍运行且只有一个实例时，从根目录执行 `run.cmd --capture-playback <标签>`；需指定进程时用 `dev/capture_playback.py --pid <PID> --label <标签>` | 采集约 60 秒，结果在 `work/test-artifacts/playback-capture/`；标签由操作者填写，不自动识别代理或线路。无需重启客户端。 |
-| 完整响应性诊断 | 需要新会话的 UI 心跳、耗时调用和进程计数时，执行 `run.cmd --diagnose-responsiveness` 或 `run.cmd --diagnose-session=responsiveness` | 专项启动新客户端，采样和函数分析会引入额外开销；结合真实操作时段判读。 |
-| 拖动专项 | 需要拖影、落点检查、排序让位的阶段耗时与首次拖动函数归因时，执行 `run.cmd --diagnose-session=drag` | 专项启动新客户端；函数分析结果不可与普通运行耗时直接比较。 |
+| 本体 MCP | 指定软件 PID，从 `capture_diagnostics` 选择专项，或用 `measure_sidebar_interactions` 观察关注栏操作 | 运行中按需采集。按结果中的会话标识对照本地日志。 |
+| 现有客户端的播放采样 | 按 PID 调用 `capture_diagnostics(mode="playback")` | 默认采集约 60 秒，结果随 MCP 返回，同时写入 `logs/on-demand.jsonl`。 |
+| 完整响应性诊断 | 用 `prepare_startup_diagnostics` 登记 `responsiveness` 或 `responsiveness-profile`，再重启 | 专项采样和函数分析会引入额外开销，结合真实操作时段判读。 |
+| 拖动专项 | 使用 `capture_diagnostics(mode="drag")`。需要首次拖动函数归因时，登记启动模式 `drag` 并重启 | 运行中采集观察一次拖放，启动采集提供额外的函数归因。 |
 
 播放采样可对照同一格的缓存暂停、缓存时长、下载或中继计数、丢帧、进度和源状态。缺失属性保持缺失，不能当作零；所选 URL 的主机不等于已确认的最终出站。UI 心跳、Qt 几何和 mpv 进度都不等同于桌面实际呈现帧率。采样与真实故障时段不一致时，只能说明所采窗口的状态。
 

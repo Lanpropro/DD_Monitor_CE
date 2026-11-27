@@ -6,9 +6,6 @@ rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 r
 setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
-set "DDM_FOLDER_MOTION_CAPTURE=1"
-set "DDM_THEME_CAPTURE=1"
-set "DDM_FULLSCREEN_CAPTURE=1"
 set "PROJ=%~dp0"
 if /i "%~1"=="--mobile" goto mobile
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
@@ -17,10 +14,8 @@ set "PY=%PROJ%.venv\Scripts\pythonw.exe"
 if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pythonw.exe"
 if not exist "%PY%" goto nopy
 
-set "DIAG_ARG=%~1"
+if /i "%~1"=="--check-host-mcp" goto hostMcpCheck
 if /i "%~1"=="--check-media-sources" goto mediaSourcesCheck
-if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
-if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-plugin-replacements" goto pluginReplacementsCheck
 if /i "%~1"=="--accept-live-translate" goto liveTranslateAcceptance
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
@@ -87,33 +82,14 @@ if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--check-sc-layers" goto scLayersCheck
 if /i "%~1"=="--check-stream-info" goto streamInfoCheck
 if /i "%~1"=="--check-playback-capture" goto playbackCaptureCheck
-if /i "%~1"=="--capture-playback" goto playbackCapture
 if /i "%~1"=="--check-notice-close" goto noticeCloseCheck
-if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
-if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
-if /i "%~1"=="--diagnose-douyu" goto douyu
-if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
-if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
-if /i "%~1"=="--diagnose-settings-scroll" set "DDM_SETTINGS_SCROLL_CAPTURE=1"
-if /i "%~1"=="--diagnose-settings-performance" set "DDM_SETTINGS_PERFORMANCE_CAPTURE=1"
-if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
-if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
-if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
-if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
-if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
-if /i "%~1"=="--diagnose-window-resize" set "DDM_WINDOW_RESIZE_CAPTURE=1"
-if /i "%~1"=="--diagnose-window-dpi-profile" (
-    set "DDM_WINDOW_RESIZE_CAPTURE=1"
-    set "DDM_WINDOW_DPI_PROFILE=1"
-)
-if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
+if /i "%~1"=="--capture-playback" goto migratedDiagnostic
+set "LAUNCH_ARG=%~1"
+if /i "%LAUNCH_ARG:~0,11%"=="--diagnose-" goto migratedDiagnostic
 rem Keep inherited Python test hooks out of the normal launch.
-if /i not "%DIAG_ARG:~0,11%"=="--diagnose-" (
-    set "PYTHONPATH="
-    if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
-)
-rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
+set "PYTHONPATH="
+if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
+start "" "%PY%" "%PROJ%main.py"
 exit /b 0
 
 :liveElapsedCheck
@@ -536,6 +512,11 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
 exit /b %errorlevel%
 
+:hostMcpCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_host_mcp
+exit /b %errorlevel%
+
 :roomPresetsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_preset_control
@@ -697,13 +678,6 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_notification_center.py"
 exit /b %errorlevel%
 
-:playbackCapture
-set "CHECK_PY=%PY:pythonw.exe=python.exe%"
-set "PLAYBACK_CAPTURE_LABEL=%~2"
-if not defined PLAYBACK_CAPTURE_LABEL set "PLAYBACK_CAPTURE_LABEL=unknown"
-"%CHECK_PY%" "%PROJ%dev\capture_playback.py" --label "%PLAYBACK_CAPTURE_LABEL%"
-exit /b %errorlevel%
-
 :playbackCaptureCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
@@ -713,25 +687,9 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_on_demand_diagnostics.py"
 exit /b %errorlevel%
 
-:diagnosticSession
-start "" "%PY%" "%PROJ%main.py" "%DIAG_ARG%"
-exit /b 0
-
-:responsiveness
-start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
-exit /b 0
-
-:douyu
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu
-exit /b 0
-
-:douyuDeep
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu-deep
-exit /b 0
-
-:fullscreen
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-fullscreen
-exit /b 0
+:migratedDiagnostic
+echo 此专项已迁移到 MCP。运行中使用 capture_diagnostics，启动专项使用 prepare_startup_diagnostics。
+exit /b 2
 
 :scsimulator
 if /i "%~2"=="--smoke" (

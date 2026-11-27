@@ -46,7 +46,7 @@ DD监控室CE 是 Windows 桌面应用，核心能力是同一面画面墙里播
 
 | 进程 | 启动方式 | 职责 | 退出 |
 | --- | --- | --- | --- |
-| 主界面进程 | 源码版 `run.cmd` 当前经 `dev/diagnose_drag_windows.py` 启动 `main.py`；打包版使用 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
+| 主界面进程 | 源码版 `run.cmd` 直接启动 `main.py`；打包版使用 `DD监控室CE.exe` | Qt 主窗口、播放器、弹幕、录制、插件、更新 | 关闭窗口或托盘退出 |
 | 独立设置进程 | `main.py --settings-worker`（`DDM_SETTINGS_PROCESS=1` 时预热/打开） | 承载常规、弹幕、录制、通知、快捷键页面 | 设置窗口关闭或主程序退出 |
 | 插件工作进程 | `main.py --plugin-worker <目录> <模块>` | 插件自己的后台任务，不构造宿主界面 | 插件自行管理 |
 | 更新助手 | `main.py --apply-update <计划>` / `--apply-update-elevated` | 等待主程序退出、替换文件、必要时请求 UAC | 完成或失败后退出 |
@@ -304,7 +304,7 @@ SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘�
 
 开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
 
-未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。
+开发诊断从本体 MCP 发起。运行中采集由本地管道按 PID 调度。启动专项由 `ddm/diagnostic_startup_request.py` 保存一次性请求，源码版 `main.py` 领取后交给 `dev/startup_diagnostics.py` 安装对应采集器。用户仍可从设置或独立工具导出已有诊断日志。
 
 直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
 

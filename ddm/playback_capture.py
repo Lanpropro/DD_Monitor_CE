@@ -15,20 +15,21 @@ class PlaybackCapture(QObject):
                   'decoder-frame-drop-count', 'eof-reached')
     DOUYIN_PROPERTIES = ('width', 'height', 'container-fps', 'demuxer-cache-state')
 
-    def __init__(self, window, emit, done):
+    def __init__(self, window, emit, done, *, seconds=60):
         super().__init__(window)
         self.window, self.emit, self.done = window, emit, done
         self.closed = False
         self.players = {}
         self.lock = threading.Lock()
         self.started = self.previous = time.monotonic()
+        self.seconds = seconds
         self.samples = 0
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.sample)
 
     def start(self):
-        self.emit('playback-start', limit_seconds=60, limit_players=4,
+        self.emit('playback-start', limit_seconds=self.seconds, limit_players=4,
                   properties=list(self.PROPERTIES), douyin_properties=list(self.DOUYIN_PROPERTIES),
                   mpv_queries_on_gui_thread=False)
         self.timer.start()
@@ -181,7 +182,7 @@ class PlaybackCapture(QObject):
                   omitted_players=max(0, len(self.window.players) - len(rows)))
         self.previous = now
         self.samples += 1
-        if now - self.started >= 60 or self.samples >= 61:
+        if now - self.started >= self.seconds or self.samples >= self.seconds + 1:
             self.finish('limit')
 
     def finish(self, reason):

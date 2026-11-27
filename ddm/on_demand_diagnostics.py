@@ -16,6 +16,10 @@ from PySide6.QtGui import QDrag
 from PySide6.QtNetwork import QLocalServer
 from PySide6.QtWidgets import QApplication
 
+from .live_diagnostics import LiveDiagnostics, SPECIALTIES
+
+TIMED_MODES = ('playback', 'sidebar-performance', *SPECIALTIES)
+
 
 def folder_snapshot(sidebar):
     from .sidebar_diagnostics import SidebarEvidence
@@ -137,6 +141,7 @@ class DiagnosticEndpoint(QObject):
         self.window, self.root = window, str(Path(root).resolve())
         self.directory = Path(directory)
         self.active = None
+        self.host_request_active = False
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.UserAccessOption)
         self.server.setMaxPendingConnections(2)
@@ -171,9 +176,18 @@ class DiagnosticEndpoint(QObject):
         timer.stop()
         try:
             request = json.loads(bytes(socket.readLine()))
-            if (not isinstance(request, dict) or request.get('protocol') != 1
-                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover')
-                    or set(request) != {'protocol', 'mode'}):
+            if (isinstance(request, dict) and request.get('mode') == 'host-mcp'
+                    and type(request.get('protocol')) is int and request['protocol'] == 1):
+                self.read_host_request(socket, request)
+                return
+            keys = {'protocol', 'mode'}
+            seconds = 60
+            if isinstance(request, dict) and request.get('mode') in TIMED_MODES and 'seconds' in request:
+                keys.add('seconds')
+                seconds = request['seconds']
+            if (not isinstance(request, dict) or type(request.get('protocol')) is not int or request['protocol'] != 1
+                    or request.get('mode') not in ('folders', 'drag', 'dock-hover', *TIMED_MODES)
+                    or set(request) != keys or type(seconds) is not int or not 1 <= seconds <= 60):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
             self.send(socket, dict(status='error', reason='invalid-request'))
@@ -194,6 +208,8 @@ class DiagnosticEndpoint(QObject):
         def emit(stage, **values):
             if self.active is None or self.active['identity'] != identity:
                 return
+            if 'session' in values:
+                values['probe_session'] = values.pop('session')
             record = dict(time=time.time(), session=identity, stage=stage, pid=os.getpid(), **values)
             if len(records) < 100 or (request['mode'] == 'dock-hover'
                                      and stage in ('dock-hover-mismatch', 'capture-ended')):
@@ -203,10 +219,10 @@ class DiagnosticEndpoint(QObject):
             if self.active is None:
                 return
             emit('capture-ended', reason=reason)
-            self.send(socket, dict(protocol=1, status='complete', mode=request['mode'],
-                                  pid=os.getpid(), root=self.root, reason=reason,
-                                  history_available=False, records=records))
             self.release()
+            self.send(socket, dict(protocol=1, status='complete', mode=request['mode'],
+                                  pid=os.getpid(), root=self.root, reason=reason, session=identity,
+                                  history_available=False, records=records))
             socket.disconnectFromServer()
         try:
             emit('capture-request', mode=request['mode'], history_available=False)
@@ -216,26 +232,53 @@ class DiagnosticEndpoint(QObject):
             else:
                 if request['mode'] == 'playback':
                     from .playback_capture import PlaybackCapture
-                    observer = PlaybackCapture(self.window, emit, done)
+                    observer = PlaybackCapture(self.window, emit, done, seconds=seconds)
                 elif request['mode'] == 'dock-hover':
                     from .dock_hover_diagnostics import DockHoverTrace
                     observer = DockHoverTrace(self.window, emit, done)
+                elif request['mode'] == 'sidebar-performance':
+                    from .sidebar_performance import SidebarPerformance
+                    observer = SidebarPerformance(self.window, emit, done, seconds)
+                elif request['mode'] in SPECIALTIES:
+                    observer = LiveDiagnostics(self.window, self.directory, request['mode'], seconds, emit, done)
                 else:
                     observer = OneDrag(self.window, emit, done)
                 self.active['observer'] = observer
                 observer.start()
                 self.send(socket, dict(status='armed', protocol=1, pid=os.getpid(),
-                                      root=self.root, timeout_seconds=60))
+                                      root=self.root, timeout_seconds=seconds))
         except Exception as error:
             emit('capture-error', error_type=type(error).__name__)
             done('capture-error')
 
+    def read_host_request(self, socket, request):
+        from .host_mcp import dispatch
+        if self.host_request_active:
+            self.send(socket, dict(status='error', reason='host-busy'))
+        else:
+            self.host_request_active = True
+            try:
+                result = dispatch(self.window, request)
+                self.send(socket, dict(status='complete', result=result))
+            except ValueError as error:
+                self.send(socket, dict(status='error', reason=str(error)))
+            except Exception:
+                logging.exception('Host MCP request failed')
+                self.send(socket, dict(status='error', reason='host-operation-failed'))
+            finally:
+                self.host_request_active = False
+        socket.disconnectFromServer()
+
     def release(self):
         active, self.active = self.active, None
         if active is not None:
-            if active['observer'] is not None:
-                active['observer'].stop()
-            active['handler'].close()
+            try:
+                if active['observer'] is not None:
+                    active['observer'].stop()
+            except Exception:
+                logging.exception('Diagnostic capture cleanup failed')
+            finally:
+                active['handler'].close()
 
     def disconnected(self, socket):
         if self.active is not None and self.active['socket'] is socket:

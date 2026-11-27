@@ -60,12 +60,17 @@
 - `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
+- `tools/host_mcp/README.md`
+- `tools/host_mcp/server.py`
+- `tools/host_mcp/requirements.txt`
+- `tools/host_mcp/check_client.py`
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
 - `dev/selfcheck_on_demand_diagnostics.py`
+- `dev/selfcheck_host_mcp.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
@@ -188,7 +193,7 @@
 - `dev/selfcheck_sidebar_hit_test.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_control_swap.py`
-- `dev/diagnose_drag_windows.py`
+- `dev/startup_diagnostics.py`
 - `dev/diagnose_super_chat.py`
 - `dev/diagnose_danmaku_motion.py`
 - `dev/diagnose_notice_close.py`
@@ -286,7 +291,6 @@
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
 - `dev/selfcheck_playback_capture.py`
-- `dev/capture_playback.py`
 - `dev/selfcheck_browser_accounts.py`
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`

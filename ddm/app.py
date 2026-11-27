@@ -1300,7 +1300,7 @@ class MainWindow(QMainWindow):
         if setter is not None:
             setter(self._recording_enabled())
             self.capture_control.sync_tile_recording(tile)
-        tile.fullscreenRequested.connect(self._on_fullscreen)
+        tile.fullscreenRequested.connect(lambda requested: self._on_fullscreen(requested))
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.apply_video_danmaku_settings(self.settings)
@@ -1652,7 +1652,7 @@ def _launch_update(plan_path) -> bool:
     return started
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, startup_diagnostics=None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
@@ -1709,6 +1709,7 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    window.startup_diagnostics = startup_diagnostics
     from .on_demand_diagnostics import DiagnosticEndpoint
     window._on_demand_diagnostics = DiagnosticEndpoint(
         window, os.path.join(config_module.data_root(), 'logs'), config_module.REPO)
