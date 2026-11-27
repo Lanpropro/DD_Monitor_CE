@@ -309,10 +309,11 @@ class FullscreenBar(QWidget):
         return QWidget.event(self, event)
 
     def eventFilter(self, watched, event):
-        self._trace_input('child-event', watched, event)
-        if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
-            event.child().installEventFilter(self)
-        if self.qt_composited and watched is self._owner_window:
+        if watched is not self._owner_window:
+            self._trace_input('child-event', watched, event)
+            if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
+                event.child().installEventFilter(self)
+        elif self.qt_composited:
             if event.type() == QEvent.Move:
                 QTimer.singleShot(0, self, self.sync_owner_position)
             elif self.windowed_overlay and event.type() == QEvent.WindowStateChange:

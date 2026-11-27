@@ -428,6 +428,35 @@ class StartupWindowsTests(unittest.TestCase):
             window.close()
             self.app.processEvents()
 
+    def test_overlay_bar_tracks_its_controls_without_filtering_new_plugin_widgets(self):
+        owner = QWidget()
+        tile = QWidget(owner)
+        received = []
+
+        class ObservedBar(FullscreenBar):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.User:
+                    received.append(watched)
+                return super().eventFilter(watched, event)
+
+        bar = ObservedBar(tile)
+        owner.installEventFilter(bar)
+        try:
+            plugin = QWidget()
+            plugin.setParent(owner)
+            plugin_child = QWidget()
+            plugin_child.setParent(plugin)
+            control = QWidget()
+            control.setParent(bar)
+            button = QWidget()
+            button.setParent(control)
+            for widget in (plugin, plugin_child, control, button):
+                self.app.sendEvent(widget, QEvent(QEvent.User))
+            self.assertEqual(received, [control, button])
+        finally:
+            owner.deleteLater()
+            self.app.processEvents()
+
     @unittest.skipUnless(sys.platform == 'win32', 'Native Windows visibility order')
     def test_native_maximized_client_is_ready_before_first_paint(self):
         if self.app.platformName() != 'windows':
