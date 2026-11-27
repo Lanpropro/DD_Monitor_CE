@@ -81,11 +81,20 @@ class SystemTrayTests(unittest.TestCase):
     def test_window_icon_changes_update_the_tray(self):
         from ddm import app_icon
 
+        self.addCleanup(self.app.setWindowIcon, self.app.windowIcon())
+        self.app.setWindowIcon(app_icon.load_icon('d'))
         window = self.window()
+        initial_icon = window._tray.icon.current_icon.pixmap(24, 24).toImage()
         for style in ('b', 'f', 'd'):
             icon = app_icon.load_icon(style)
+            window.settings['app_icon_style'] = style
             window.setWindowIcon(icon)
-            self.assertEqual(window._tray.icon.current_icon.cacheKey(), icon.cacheKey())
+            tray_icon = window._tray.icon.current_icon
+            if style == 'd':
+                self.assertEqual(tray_icon.pixmap(24, 24).toImage(), initial_icon)
+                self.assertNotEqual(initial_icon, icon.pixmap(24, 24).toImage())
+            else:
+                self.assertEqual(tray_icon.cacheKey(), icon.cacheKey())
 
     def window(self, behavior='ask', state=None, layout_id='1x1'):
         state = state or {'plugins_enabled': [], 'settings': {'close_behavior': behavior}}

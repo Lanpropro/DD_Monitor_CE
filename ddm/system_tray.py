@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QStyle, QSystemTrayIcon, QVBoxLayout, QWidgetAction,
 )
 
-from . import config, theme, version
+from . import app_icon, config, theme, version
 
 
 class CloseWindowDialog(QDialog):
@@ -63,10 +63,7 @@ class SystemTray(QObject):
         self._layout_snapshot = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
-        icon = window.windowIcon()
-        if icon.isNull():
-            icon = window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-        self.icon = QSystemTrayIcon(icon, window)
+        self.icon = QSystemTrayIcon(self._window_tray_icon(), window)
         self.icon.setToolTip(f"{version.DISPLAY_NAME}：双击显示或隐藏窗口")
         self.menu = QMenu(window)
         from .tray_preview import TrayLayoutPreview
@@ -141,12 +138,18 @@ class SystemTray(QObject):
             from .tray_preview import capture_layout
             self._layout_snapshot = capture_layout(self.window.wall)
 
+    def _window_tray_icon(self):
+        icon = app_icon.icon_for_tray(self.window.settings.get('app_icon_style'), self.window.windowIcon())
+        if icon.isNull():
+            return self.window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        return icon
+
     def eventFilter(self, watched, event):
         if watched is self.window:
             if event.type() == QEvent.WindowStateChange and self.window.isMinimized():
                 self.remember_layout()
             elif event.type() == QEvent.WindowIconChange and self.icon is not None:
-                self.icon.setIcon(self.window.windowIcon())
+                self.icon.setIcon(self._window_tray_icon())
         return False
 
     def _restore_from_preview(self):
