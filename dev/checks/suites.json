@@ -90,6 +90,7 @@
       "selfcheck_workspace_controls",
       "selfcheck_continuous_corners",
       "selfcheck_workspace_pages",
+      "selfcheck_match_sync_host_release",
       "selfcheck_recording_service",
       "selfcheck_recording",
       "selfcheck_recording_shutdown",
