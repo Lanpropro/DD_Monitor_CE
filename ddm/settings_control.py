@@ -205,7 +205,7 @@ class SettingsControl:
         client = getattr(host, '_settings_process', None)
         if client is not None and client.focus(page):
             return False
-        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page == 'updates'):
+        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page in ('updates', 'streamer_defaults')):
             return self._open_process(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
