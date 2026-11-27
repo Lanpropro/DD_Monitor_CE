@@ -345,6 +345,8 @@ class PictureInPicture(QObject):
             self.floating.track_tiles(wall.tiles)
             self._minimums = {tile: tile.minimumSize() for tile in wall.tiles}
             content = self.host._content.layout()
+            # _apply_start shows the wall once the selected panes are in place.
+            wall.hide()
             content.removeWidget(wall)
             content.insertWidget(0, self.placeholder, 1)
             self.placeholder.show()

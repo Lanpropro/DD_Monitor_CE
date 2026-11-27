@@ -754,8 +754,25 @@ def exercise(app, window, native, directory):
     assert not pip.dialog.start.isEnabled()
     for index, check in pip.dialog.checks.items():
         check.setChecked(index < 2)
-    pip.dialog.start.click()
-    QTest.qWait(150)
+    # Unselected panes must never be exposed in the floating shell, even
+    # during the event-loop turn before the selected composition is ready.
+    exposed = []
+    class ExposureProbe(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Show and obj.window() is pip.floating:
+                exposed.append(obj)
+            return False
+
+    probe = ExposureProbe()
+    for tile in tiles[2:]:
+        tile.installEventFilter(probe)
+    try:
+        pip.dialog.start.click()
+        QTest.qWait(150)
+    finally:
+        for tile in tiles[2:]:
+            tile.removeEventFilter(probe)
+    assert not exposed, 'Unselected wall panes were shown while opening PiP'
     assert pip.active and pip.placeholder.isVisible()
     assert window.isMinimized(), 'Opening PiP must minimize the main window after accepting the picker'
     assert pip.floating.isVisible() and not pip.floating.isMinimized()

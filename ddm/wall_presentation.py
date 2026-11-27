@@ -56,7 +56,7 @@ class WallPresentation:
                 tile.setMinimumSize(0, 0)
         host._sync_danmaku_controls()
         host.relayout(force=True)
-        for tile in host.tiles:
+        for tile in host.tiles if tiles is None else host.picture_in_picture_tiles:
             tile._layout_areas()
 
     def relayout_picture_in_picture(self):
