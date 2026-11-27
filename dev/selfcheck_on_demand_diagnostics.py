@@ -15,7 +15,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QMimeData, QPoint, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
@@ -137,6 +137,56 @@ class OnDemandTests(unittest.TestCase):
                                   for entry in self.window.sidebar._items])
         self.assertNotIn('PRIVATE_', json.dumps(state))
 
+    def test_sidebar_performance_observes_card_drag_and_two_scroll_axes(self):
+        from ddm.sidebar_drag import ROOM_MIME
+        sidebar = self.window.sidebar
+        session, card = sidebar.drag_session, sidebar._items[0]
+        socket = self.request('sidebar-performance')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b'fixture')
+        for drop in (False, True):
+            pixmap = card._drag_pixmap()
+            self.assertTrue(session.start(card, mime, pixmap, QPoint(), QPoint(-20000, -20000)))
+            session._update_target()
+            if drop:
+                session.finish()
+            else:
+                session.cancel()
+        for bar in (sidebar.scroll.horizontalScrollBar(), sidebar.scroll.verticalScrollBar()):
+            bar.setRange(0, 100)
+            bar.setValue(20)
+            bar.setValue(40)
+        sidebar._refresh_visible_covers()
+        observer.finish()
+        report = self.reply(socket)['records'][-2]
+        self.assertEqual(report['stage'], 'sidebar-performance')
+        self.assertEqual(report['phases']['card-pixmap']['calls'], 2)
+        self.assertEqual(report['phases']['drag-start']['calls'], 2)
+        self.assertGreaterEqual(report['phases']['drag-target']['calls'], 2)
+        self.assertEqual(report['phases']['drag-cleanup']['calls'], 2)
+        self.assertEqual(report['phases']['scroll-covers']['calls'], 1)
+        self.assertEqual(report['drag_outcomes'], dict(accepted=0, rejected=1, cancelled=1))
+        for axis in ('horizontal', 'vertical'):
+            self.assertGreaterEqual(report['scroll'][axis]['changes'], 2)
+        self.assertIn('drag+scroll', report['heartbeat'])
+        self.assertNotIn('PRIVATE_', json.dumps(report))
+        self.assertNotIn('start', vars(session))
+
+    def test_sidebar_performance_disconnect_restores_hooks_and_stops_scrolling_capture(self):
+        from ddm.sidebar_item import NavItem
+        original = NavItem._drag_pixmap
+        socket = self.request('sidebar-performance')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        self.assertEqual(self.reply(self.request('drag'))['reason'], 'capture-busy')
+        socket.abort()
+        self.wait(lambda: self.endpoint.active is None)
+        self.assertTrue(observer.stopped.is_set())
+        self.assertIs(NavItem._drag_pixmap, original)
+        self.assertFalse(observer.scroll.connections)
+
     def test_dock_hover_uses_bounded_capture_and_stops_on_disconnect(self):
         socket = self.request('dock-hover')
         self.assertEqual(self.reply(socket)['timeout_seconds'], 60)
@@ -171,7 +221,8 @@ class OnDemandTests(unittest.TestCase):
 
     def test_invalid_and_oversized_requests_never_start_capture(self):
         for request in (b'{"protocol":1,"mode":"execute"}\n', b'[]\n',
-                        b'{"protocol":1,"mode":"folders","path":"private"}\n'):
+                        b'{"protocol":1,"mode":"folders","path":"private"}\n',
+                        b'{"protocol":1,"mode":"sidebar-performance","seconds":61}\n'):
             self.assertEqual(self.reply(self.connect(request))['status'], 'error')
         socket = self.connect(b'x' * 4097)
         self.wait(lambda: socket.state() == QLocalSocket.UnconnectedState)

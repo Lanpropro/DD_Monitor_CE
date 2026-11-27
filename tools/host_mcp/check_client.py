@@ -23,7 +23,8 @@ async def check(pid):
     async with stdio_client(params) as streams, ClientSession(*streams) as session:
         await session.initialize()
         tools = await session.list_tools()
-        assert {'list_settings_pages', 'get_settings_state', 'open_settings_page', 'close_settings'} <= {
+        assert {'list_settings_pages', 'get_settings_state', 'open_settings_page', 'close_settings',
+                'measure_sidebar_interactions'} <= {
             tool.name for tool in tools.tools}
 
         async def call(name, **arguments):
@@ -32,6 +33,9 @@ async def check(pid):
             return json.loads(result.content[0].text)
 
         assert pid in (await call('list_instances'))['pids']
+        sidebar = await call('measure_sidebar_interactions', pid=pid, seconds=1)
+        assert sidebar['pid'] == pid and sidebar['heartbeat']['idle']['intervals'] > 0
+        assert not sidebar['phases'] and not sidebar['scroll'] and not any(sidebar['drag_outcomes'].values())
         assert (await call('get_state', pid=pid))['slots'][0]['occupied']
         assert '2x2' in (await call('list_layouts', pid=pid))['builtin']
         assert (await call('set_layout', pid=pid, layout='2x2'))['state']['orientation'] == 'landscape'
@@ -58,7 +62,7 @@ async def check(pid):
             finally:
                 await call('close_settings', pid=pid)
             await wait_for('closed', None)
-        print('PASS stdio discovery, wall controls, local and worker settings navigation', flush=True)
+        print('PASS stdio discovery, wall controls, sidebar measurement and settings navigation', flush=True)
 
 
 if __name__ == '__main__':

@@ -77,6 +77,8 @@ class ScrollCapture(QObject):
         self.sidebar, self.probe = sidebar, probe
         self.record = None
         self.wheels = 0
+        self.total_wheels = 0
+        self.connections = []
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(250)
@@ -84,11 +86,14 @@ class ScrollCapture(QObject):
         sidebar.scroll.viewport().installEventFilter(self)
         for axis, bar in (('vertical', sidebar.scroll.verticalScrollBar()),
                           ('horizontal', sidebar.scroll.horizontalScrollBar())):
-            bar.valueChanged.connect(lambda value, axis=axis: self.changed(axis, value))
+            connection = bar.valueChanged.connect(lambda value, axis=axis: self.changed(axis, value))
+            self.connections.append((bar, connection))
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Wheel:
             self.wheels += 1
+            self.total_wheels += 1
+            self.timer.start()
         return False
 
     def changed(self, axis, value):
@@ -96,11 +101,15 @@ class ScrollCapture(QObject):
             return
         if self.record is not None and self.record['axis'] != axis:
             self.finish()
+        now = time.perf_counter()
         if self.record is None:
-            self.started = time.perf_counter()
+            self.started = self.last_change = now
             self.record = dict(axis=axis, first_value=value, last_value=value, changes=0,
-                               dragging=self.sidebar.drag_session.active)
+                               max_change_gap_ms=0, dragging=self.sidebar.drag_session.active)
             self.probe.write('sidebar-scroll-start', **self.record)
+        gap = round((now - self.last_change) * 1000, 3)
+        self.record['max_change_gap_ms'] = max(self.record['max_change_gap_ms'], gap)
+        self.last_change = now
         self.record['last_value'] = value
         self.record['changes'] += 1
         self.timer.start()
@@ -111,7 +120,16 @@ class ScrollCapture(QObject):
         wheels, self.wheels = self.wheels, 0
         if record is not None and not self.probe.stopped.is_set():
             self.probe.write('sidebar-scroll-end', **record, wheel_events=wheels,
+                active_ms=round((self.last_change - self.started) * 1000, 3),
                 duration_ms=round((time.perf_counter() - self.started) * 1000, 3))
+
+    def detach(self):
+        self.timer.stop()
+        self.sidebar.scroll.viewport().removeEventFilter(self)
+        for bar, connection in self.connections:
+            bar.valueChanged.disconnect(connection)
+        self.connections.clear()
+        self.deleteLater()
 
 
 def install(probe):

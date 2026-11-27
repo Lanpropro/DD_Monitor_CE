@@ -176,9 +176,14 @@ class DiagnosticEndpoint(QObject):
                     and type(request.get('protocol')) is int and request['protocol'] == 1):
                 self.read_host_request(socket, request)
                 return
+            keys = {'protocol', 'mode'}
+            seconds = 60
+            if isinstance(request, dict) and request.get('mode') == 'sidebar-performance' and 'seconds' in request:
+                keys.add('seconds')
+                seconds = request['seconds']
             if (not isinstance(request, dict) or request.get('protocol') != 1
-                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover')
-                    or set(request) != {'protocol', 'mode'}):
+                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover', 'sidebar-performance')
+                    or set(request) != keys or type(seconds) is not int or not 1 <= seconds <= 60):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
             self.send(socket, dict(status='error', reason='invalid-request'))
@@ -225,12 +230,15 @@ class DiagnosticEndpoint(QObject):
                 elif request['mode'] == 'dock-hover':
                     from .dock_hover_diagnostics import DockHoverTrace
                     observer = DockHoverTrace(self.window, emit, done)
+                elif request['mode'] == 'sidebar-performance':
+                    from .sidebar_performance import SidebarPerformance
+                    observer = SidebarPerformance(self.window, emit, done, seconds)
                 else:
                     observer = OneDrag(self.window, emit, done)
                 self.active['observer'] = observer
                 observer.start()
                 self.send(socket, dict(status='armed', protocol=1, pid=os.getpid(),
-                                      root=self.root, timeout_seconds=60))
+                                      root=self.root, timeout_seconds=seconds))
         except Exception as error:
             emit('capture-error', error_type=type(error).__name__)
             done('capture-error')

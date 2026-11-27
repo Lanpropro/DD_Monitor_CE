@@ -10,18 +10,24 @@ PREFIX = 'DDMonitorCE-diagnostics-'
 
 
 async def request(pid, action, **args):
+    response = await pipe_request(pid, dict(protocol=1, mode='host-mcp', action=action, **args))
+    return response['result']
+
+
+async def pipe_request(pid, payload, timeout=15):
     if type(pid) is not int or pid <= 0:
         raise ValueError('Invalid host PID')
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
     loop = asyncio.get_running_loop()
     try:
-        async with asyncio.timeout(15):
+        async with asyncio.timeout(timeout):
             transport, _ = await loop.create_pipe_connection(lambda: protocol, rf'\\.\pipe\{PREFIX}{pid}')
             try:
-                payload = dict(protocol=1, mode='host-mcp', action=action, **args)
                 transport.write(json.dumps(payload).encode('utf-8') + b'\n')
                 line = await reader.readline()
+                if line and json.loads(line).get('status') == 'armed':
+                    line = await reader.readline()
             finally:
                 transport.close()
     except TimeoutError as error:
@@ -38,7 +44,19 @@ async def request(pid, action, **args):
         if reason == 'invalid-request':
             raise ValueError('Host rejected the request. Restart an updated host for MCP support.')
         raise ValueError(reason)
-    return response['result']
+    return response
+
+
+@server.tool()
+async def measure_sidebar_interactions(pid: int, seconds: int = 30) -> dict:
+    """Observe manual sidebar card drags and scrolling for 1–60 seconds. Returns timings after the window."""
+    if not 1 <= seconds <= 60:
+        raise ValueError('Capture duration must be 1–60 seconds')
+    reply = await pipe_request(pid, dict(protocol=1, mode='sidebar-performance', seconds=seconds), seconds + 15)
+    for row in reply['records']:
+        if row['stage'] == 'sidebar-performance':
+            return row
+    raise ValueError(reply['reason'])
 
 
 @server.tool()
