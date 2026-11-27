@@ -84,5 +84,30 @@ async def remove_wall_slot(pid: int, slot: int) -> dict:
     return await request(pid, 'remove', slot=slot)
 
 
+@server.tool()
+async def list_settings_pages(pid: int) -> dict:
+    """List the settings page IDs and labels supported by this host."""
+    return await request(pid, 'settings_pages')
+
+
+@server.tool()
+async def get_settings_state(pid: int) -> dict:
+    """Read the actual selected page, window type and visibility."""
+    return await request(pid, 'settings_state')
+
+
+@server.tool()
+async def open_settings_page(pid: int, page: str, entry: str = 'sidebar') -> dict:
+    """Open or select a settings page. Use entry=monitor for streamer_defaults via the monitor panel.
+    Returns acceptance. Poll get_settings_state for visibility and the selected page."""
+    return await request(pid, 'settings_open', page=page, entry=entry)
+
+
+@server.tool()
+async def close_settings(pid: int) -> dict:
+    """Request normal settings dismissal. Poll get_settings_state for completion."""
+    return await request(pid, 'settings_close')
+
+
 if __name__ == '__main__':
     server.run(transport='stdio')

@@ -36,6 +36,12 @@ def main():
                     return json.loads(bytes(socket.readLine()))
 
                 assert call('state')['result']['slots'][0]['occupied']
+                pages = call('settings_pages')['result']['pages']
+                assert len(pages) == 11 and any(row['id'] == 'streamer_defaults' for row in pages)
+                assert call('settings_state')['result'] == dict(window='closed', visible=False, page=None)
+                assert call('settings_open', page=[], entry='sidebar')['reason'] == 'unknown-settings-page'
+                assert call('settings_open', page='general', entry='monitor')['reason'] == 'invalid-settings-entry'
+                assert call('settings_close')['result']['accepted']
                 assert 'portrait_main4' in call('layouts')['result']['builtin']
                 assert call('set_layout', layout='INVALID')['status'] == 'error'
                 assert call('remove', slot=0)['reason'] == 'invalid-slot'

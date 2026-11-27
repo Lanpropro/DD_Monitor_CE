@@ -345,7 +345,13 @@ def run_worker():
                 self.dialog = dialog
                 dialog.finished.connect(self.finished)
                 send({'kind': 'window', 'hwnd': int(dialog.winId())})
+                from .settings_pages import SETTINGS_PAGES
+                def publish_page(index):
+                    if 0 <= index < len(SETTINGS_PAGES):
+                        send({'kind': 'selected-page', 'page': SETTINGS_PAGES[index][0]})
                 dialog.select_page(message.get('page'))
+                publish_page(dialog.nav.currentRow())
+                dialog.nav.currentRowChanged.connect(publish_page)
                 QTimer.singleShot(0, dialog, lambda: self.activate(dialog))
 
         def finished(self, accepted):

@@ -2,6 +2,7 @@
 import time
 
 from . import layouts
+from .settings_pages import PAGE_INDEX, SETTINGS_PAGES
 
 
 def wall_state(host):
@@ -17,20 +18,61 @@ def wall_state(host):
                 last_layout_change=host.last_layout_change)
 
 
+def settings_state(host):
+    dialog = getattr(host, '_local_settings_dialog', None)
+    if dialog is not None:
+        index = dialog.nav.currentRow()
+        return dict(window='local', visible=dialog.isVisible() and not dialog.isMinimized(),
+                    page=SETTINGS_PAGES[index][0] if 0 <= index < len(SETTINGS_PAGES) else None)
+    client = getattr(host, '_settings_process', None)
+    if client is not None and (client.visible or client.pending is not None):
+        return dict(window='worker', visible=not client.occlusion.isEmpty(), page=client.current_page)
+    return dict(window='closed', visible=False, page=None)
+
+
 def dispatch(host, request):
     operation = request.get('action')
     fields = {'state': (), 'layouts': (), 'set_layout': ('layout',),
-              'open_pip': ('slots',), 'close_pip': (), 'remove': ('slot',)}
+              'settings_state': (), 'settings_pages': (), 'settings_open': ('page', 'entry'),
+              'settings_close': (), 'open_pip': ('slots',), 'close_pip': (), 'remove': ('slot',)}
     if (type(operation) is not str or operation not in fields
             or request.keys() != {'protocol', 'mode', 'action', *fields[operation]}):
         raise ValueError('invalid-request')
     if operation == 'state':
         return wall_state(host)
+    if operation == 'settings_state':
+        return settings_state(host)
+    if operation == 'settings_pages':
+        return dict(pages=[dict(id=key, label=label) for key, label in SETTINGS_PAGES])
     presets = host.layout_presets
     if operation == 'layouts':
         return dict(builtin=list(layouts.BY_ID), saved=list(presets.items))
     if host._closing or host._fullscreen_tile is not None:
         raise ValueError('host-busy')
+    if operation == 'settings_open':
+        from PySide6.QtCore import QTimer
+        page, entry = request['page'], request['entry']
+        if type(page) is not str or page not in PAGE_INDEX:
+            raise ValueError('unknown-settings-page')
+        if entry not in ('sidebar', 'monitor') or (entry == 'monitor' and page != 'streamer_defaults'):
+            raise ValueError('invalid-settings-entry')
+        # The monitor entry can run a local dialog.exec(). Reply before entering its event loop.
+        def open_page():
+            if not host._closing:
+                if entry == 'monitor':
+                    host.sidebar.navigation.monitor_menu.settingsRequested.emit()
+                else:
+                    host._open_sidebar_settings(page)
+        QTimer.singleShot(0, host, open_page)
+        return dict(accepted=True)
+    if operation == 'settings_close':
+        dialog = getattr(host, '_local_settings_dialog', None)
+        client = getattr(host, '_settings_process', None)
+        if dialog is not None:
+            dialog.close()
+        elif client is not None:
+            client.dismiss()
+        return dict(accepted=True)
     started = time.perf_counter()
     pip = host.picture_in_picture
     if operation == 'set_layout':

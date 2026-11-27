@@ -23,7 +23,8 @@ async def check(pid):
     async with stdio_client(params) as streams, ClientSession(*streams) as session:
         await session.initialize()
         tools = await session.list_tools()
-        assert len(tools.tools) == 7
+        assert {'list_settings_pages', 'get_settings_state', 'open_settings_page', 'close_settings'} <= {
+            tool.name for tool in tools.tools}
 
         async def call(name, **arguments):
             result = await session.call_tool(name, arguments)
@@ -37,7 +38,27 @@ async def check(pid):
         assert (await call('open_picture_in_picture', pid=pid, slots=[1]))['state']['picture_in_picture']
         assert not (await call('close_picture_in_picture', pid=pid))['state']['picture_in_picture']
         assert not (await call('remove_wall_slot', pid=pid, slot=1))['state']['slots'][0]['occupied']
-        print('PASS stdio handshake, discovery and all seven tools', flush=True)
+        pages = (await call('list_settings_pages', pid=pid))['pages']
+        assert any(row['id'] == 'general' for row in pages)
+
+        async def wait_for(window, page):
+            async with asyncio.timeout(12):
+                while True:
+                    state = await call('get_settings_state', pid=pid)
+                    if (state['window'], state['page'], state['visible']) == (window, page, page is not None):
+                        return
+                    await asyncio.sleep(.05)
+
+        for entry, window, page in (('monitor', 'local', 'streamer_defaults'), ('sidebar', 'worker', 'general')):
+            try:
+                assert (await call('open_settings_page', pid=pid, page=page, entry=entry))['accepted']
+                await wait_for(window, page)
+                await call('open_settings_page', pid=pid, page='shortcuts')
+                await wait_for(window, 'shortcuts')
+            finally:
+                await call('close_settings', pid=pid)
+            await wait_for('closed', None)
+        print('PASS stdio discovery, wall controls, local and worker settings navigation', flush=True)
 
 
 if __name__ == '__main__':
