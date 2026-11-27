@@ -1,5 +1,6 @@
 """Inline followed-room and preset pickers with viewport-rendered cards."""
 from dataclasses import dataclass
+from functools import lru_cache
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPen, QPixmap, QPixmapCache
@@ -13,6 +14,12 @@ from .search import matches_query
 from .sidebar_navigation import NavigationButton
 
 
+@lru_cache(maxsize=32)
+def _platform_icon(platform):
+    from .room_artwork import platform_icon
+    return platform_icon(platform)
+
+
 @dataclass(frozen=True)
 class _RoomCard:
     room_id: str
@@ -22,6 +29,8 @@ class _RoomCard:
     face: QPixmap | None
     color: str
     detail: str = ''
+    avatar_path: str = ''
+    platform: str = ''
 
 
 class _FollowedRoomsModel(QAbstractTableModel):
@@ -97,13 +106,14 @@ class _FollowedRoomDelegate(QStyledItemDelegate):
         painter.drawPath(path)
 
         avatar = QRect(rect.center().x() - 13, rect.top() + 5, 28, 28)
-        if entry.face is not None and not entry.face.isNull():
+        face = QPixmap(entry.avatar_path) if entry.avatar_path else entry.face
+        if face is not None and not face.isNull():
             ratio = painter.device().devicePixelRatioF()
             pixels = round(28 * ratio)
-            key = f'followed-room-avatar:{entry.face.cacheKey()}:{pixels}'
+            key = f'followed-room-avatar:{face.cacheKey()}:{pixels}'
             pixmap = QPixmapCache.find(key)
             if pixmap is None:
-                pixmap = circular_pixmap(entry.face, pixels)
+                pixmap = circular_pixmap(face, pixels)
                 QPixmapCache.insert(key, pixmap)
             painter.drawPixmap(avatar, pixmap)
         else:
@@ -113,6 +123,11 @@ class _FollowedRoomDelegate(QStyledItemDelegate):
             painter.setPen(Qt.white)
             painter.drawText(avatar, Qt.AlignCenter, entry.name[:1])
         name = rect.adjusted(4, 34, -4, -2)
+        if entry.platform:
+            from .room_artwork import room_platform
+            icon = QRect(rect.center().x() - 8, rect.bottom() - 19, 16, 16)
+            _platform_icon(room_platform({'room_id': entry.room_id})).paint(painter, icon)
+            name.setBottom(icon.top() - 1)
         painter.setPen(theme.qcolor(theme.TEXT1))
         painter.drawText(name, Qt.AlignCenter, option.fontMetrics.elidedText(entry.name, Qt.ElideRight, name.width()))
 
@@ -130,6 +145,7 @@ class _FollowedRoomsView(QTableView):
 
 class RoomCardPicker(QWidget):
     selected = Signal(str)
+    row_height = 58
 
     def __init__(self, parent, *, search_label, list_label):
         super().__init__(parent)
@@ -206,7 +222,7 @@ class RoomCardPicker(QWidget):
         self.scroll.clearSpans()
         header = self.scroll.verticalHeader()
         font_height = self.scroll.fontMetrics().height()
-        header.setDefaultSectionSize(max(58, font_height + 42))
+        header.setDefaultSectionSize(max(self.row_height, font_height + 42))
         for row in self._header_rows:
             self.scroll.setRowHeight(row, header.defaultSectionSize())
         self._header_rows = header_rows
