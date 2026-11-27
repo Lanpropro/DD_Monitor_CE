@@ -189,6 +189,7 @@
       "selfcheck_development_hang",
       "selfcheck_sidebar_diagnostics",
       "selfcheck_on_demand_diagnostics",
+      "selfcheck_host_mcp",
       "selfcheck_ui_components",
       "selfcheck_logging",
       "selfcheck_qt_log",

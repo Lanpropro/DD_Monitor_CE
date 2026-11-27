@@ -1,5 +1,6 @@
 """Window orientation and layout coordination; geometry and session state belong to the host."""
 import sys
+import time
 
 from PySide6.QtWidgets import QApplication, QBoxLayout
 
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 class WindowLayout:
     def __init__(self, host):
         self.host = host
+        self.last_change = None
 
     def build_arrangement(self, orientation: str) -> None:
         """按方向重新摆放侧栏和画面墙。
@@ -186,6 +188,14 @@ class WindowLayout:
                     player.reapply_audio_channel()
 
     def on_layout_changed(self, layout_id: str, *, preserve_rooms: bool = False) -> None:
+        previous = self.host.wall.layout_id
+        started = time.perf_counter()
+        self._change_layout(layout_id, preserve_rooms=preserve_rooms)
+        self.last_change = dict(previous=previous, layout=self.host.wall.layout_id,
+                                finished_at=time.time(),
+                                sync_ms=round((time.perf_counter() - started) * 1000, 3))
+
+    def _change_layout(self, layout_id: str, *, preserve_rooms: bool) -> None:
         host = self.host
         preserve_rooms = preserve_rooms or bool(layouts.snap_grid_size(host.wall.layout_id)
                                                 or layouts.snap_grid_size(layout_id))

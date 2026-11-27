@@ -137,6 +137,7 @@ class DiagnosticEndpoint(QObject):
         self.window, self.root = window, str(Path(root).resolve())
         self.directory = Path(directory)
         self.active = None
+        self.host_request_active = False
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.UserAccessOption)
         self.server.setMaxPendingConnections(2)
@@ -171,6 +172,10 @@ class DiagnosticEndpoint(QObject):
         timer.stop()
         try:
             request = json.loads(bytes(socket.readLine()))
+            if (isinstance(request, dict) and request.get('mode') == 'host-mcp'
+                    and type(request.get('protocol')) is int and request['protocol'] == 1):
+                self.read_host_request(socket, request)
+                return
             if (not isinstance(request, dict) or request.get('protocol') != 1
                     or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover')
                     or set(request) != {'protocol', 'mode'}):
@@ -229,6 +234,24 @@ class DiagnosticEndpoint(QObject):
         except Exception as error:
             emit('capture-error', error_type=type(error).__name__)
             done('capture-error')
+
+    def read_host_request(self, socket, request):
+        from .host_mcp import dispatch
+        if self.host_request_active:
+            self.send(socket, dict(status='error', reason='host-busy'))
+        else:
+            self.host_request_active = True
+            try:
+                result = dispatch(self.window, request)
+                self.send(socket, dict(status='complete', result=result))
+            except ValueError as error:
+                self.send(socket, dict(status='error', reason=str(error)))
+            except Exception:
+                logging.exception('Host MCP request failed')
+                self.send(socket, dict(status='error', reason='host-operation-failed'))
+            finally:
+                self.host_request_active = False
+        socket.disconnectFromServer()
 
     def release(self):
         active, self.active = self.active, None

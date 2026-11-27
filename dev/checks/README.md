@@ -33,6 +33,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_responsiveness](../selfcheck_responsiveness.py) | `smoke` / `offline` |
 | [selfcheck_diagnostic_session](../selfcheck_diagnostic_session.py) | `offline`；隔离进程验证未决专项启动、手动现场标记、列表快照与消息隐私，不替代真实故障复现 |
 | [selfcheck_sidebar_diagnostics](../selfcheck_sidebar_diagnostics.py) | `offline`；模型对照、旧动画目标、拖放恢复、原生窗口只读、环形与记录大小上限、隐私；Windows单项原生后端补查现有HWND，不作为真实故障复现 |
+| [selfcheck_host_mcp](../selfcheck_host_mcp.py) | `offline`；隔离窗口验证本体管道、手动布局计时及画面操作，设置 `DDM_MCP_PYTHON` 时附加 stdio 端到端检查 |
 | [selfcheck_on_demand_diagnostics](../selfcheck_on_demand_diagnostics.py) | `offline`；空闲不采集、即时错位快照、一次拖放/取消/超时后的清理、请求校验、Windows .NET/Qt 管道通信与诊断包内容；仅隔离夹具，不作为真实故障复现 |
 
 - 当前回归：`repository`、`smoke`、`offline`、`native`、`live` 中明确登记的脚本；其中 smoke 复用离屏回归并增加临时插件接口检查，每个 PR 自动运行。

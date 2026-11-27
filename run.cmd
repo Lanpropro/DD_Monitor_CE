@@ -18,6 +18,7 @@ if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pyth
 if not exist "%PY%" goto nopy
 
 set "DIAG_ARG=%~1"
+if /i "%~1"=="--check-host-mcp" goto hostMcpCheck
 if /i "%~1"=="--check-media-sources" goto mediaSourcesCheck
 if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
 if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
@@ -534,6 +535,11 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_ui_components
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
+exit /b %errorlevel%
+
+:hostMcpCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_host_mcp
 exit /b %errorlevel%
 
 :roomPresetsCheck

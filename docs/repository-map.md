@@ -55,12 +55,17 @@
 - `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
+- `tools/host_mcp/README.md`
+- `tools/host_mcp/server.py`
+- `tools/host_mcp/requirements.txt`
+- `tools/host_mcp/check_client.py`
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
 - `dev/selfcheck_on_demand_diagnostics.py`
+- `dev/selfcheck_host_mcp.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
