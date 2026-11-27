@@ -39,8 +39,9 @@ class WallControlHover(QObject):
         for tile in wall.tiles:
             if not tile.isVisible() or not tile.rect().contains(tile.mapFromGlobal(point)):
                 continue
-            if (not tile._control_hover_timer.isActive() and not tile.property('fullscreen')
-                    and not tile.property('pictureInPicture')):
+            if (not tile.property('fullscreen') and not tile.property('pictureInPicture')
+                    and (not tile._control_hover_timer.isActive()
+                         or (not tile._overlay_visible and tile._control_pointer != point))):
                 tile._poll_control_hover()
             return
 
@@ -141,25 +142,29 @@ class TileControls:
         visible = (visible and not host.property('pictureInPicture')
                    and not getattr(host, "_fullscreen_controls_hidden", False))
         visible = bool(visible)
-        host.controls.setVisible(visible)
-        # LIVE 浮标和标题跟着一起显隐（用户要求：别一直挂在画面上）
         host._overlay_visible = visible
-        if not visible:
+        ready = getattr(host, "_overlay_ready", False)
+        if visible and ready and host.bottom.windowed_overlay:
+            # Windowed hover only reveals the existing bar and badges. Video,
+            # covers and the native player keep their current geometry.
             host.bottom.sync_windowed_visibility()
-        host._sync_stream_badge()
-        # 右下角的直播时长和它们一样：鼠标在格子上才露出来
-        host.time_badge.setVisible(host._elapsed_visible())
-        if visible and getattr(host, "_overlay_ready", False):
-            # 露出来之前按当前宽度重摆一遍（标题要重新让位）。
-            # 构造过程中（spinner 等还没建好）不能走这里，否则会碰空控件。
+            host.controls.show()
+            host.presentation_control.layout_hover_badges()
+            host.raise_overlays()
+        elif visible and ready:
+            host.controls.show()
             host._layout_areas()
+        else:
+            host.controls.setVisible(visible)
+            host.bottom.sync_windowed_visibility()
+            host._sync_stream_badge()
+            host.time_badge.setVisible(host._elapsed_visible())
+            if visible:
+                host._layout_controls()
+                host.raise_overlays()
+                host._round_video()
         if visible:
-            host.raise_overlays()          # 视频是原生窗口，浮层要重新抬上来
-            host._round_video()            # 控制条那块从视频遮罩里挖掉
             host._controls_hide_timer.stop()
-            # 显示之前先按文本把按钮宽度摆好：否则会沿用上一次的尺寸，
-            # 画质文字换了之后整条控制条看起来就是错位的。
-            host._layout_controls()
             host._sync_control_hover()
             host._control_hover_timer.start()
         else:
@@ -228,7 +233,8 @@ class TileControls:
         host._normal_hover_active = True
         host._control_pointer = position
         over_controls = any(widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(position))
-                            for widget in (host.controls, host.stream_badge, host.title_badge, host.bottom))
+                            for widget in (host.controls, host.stream_badge, host.title_badge, host.bottom)
+                            if widget is not host.bottom or host.bottom.controls_exposed())
         if moved or over_controls:
             host._restore_normal_cursor()
             host._control_last_move = now
@@ -301,7 +307,7 @@ class TileControls:
         host = self.host
         controls = getattr(host, '_plugin_controls', None)
         if controls is not None:
-            if host.bottom.windowed_overlay and host.bottom.isHidden():
+            if host.bottom.windowed_overlay and not host.bottom.controls_exposed():
                 host._control_last_move = time.monotonic()
                 host.set_controls_visible(True)
             # The overlaid bar is a separate tool window. setFocus alone

@@ -62,6 +62,9 @@ class FullscreenBar(QWidget):
     def windowed_overlay(self):
         return self.property('overVideo') and not self.property('fullscreen')
 
+    def controls_exposed(self):
+        return self.isVisible() and self.windowOpacity() > 0
+
     def set_fullscreen(self, enabled, *, windowed_overlay=False):
         over_video = enabled or windowed_overlay
         if enabled == self.property('fullscreen') and over_video == self.property('overVideo'):
@@ -174,8 +177,13 @@ class FullscreenBar(QWidget):
         tile = self.parentWidget()
         owner = tile.window()
         auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
-        visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
         composited = self.qt_composited
+        reveal = tile._overlay_visible or not auto_hide
+        # A mapped alpha-zero layered window lets pointer input pass through.
+        # Keeping the backing store avoids a native show/hide cascade on every
+        # tile crossing. A focused bar still unmaps to release keyboard focus.
+        keep_mapped = composited and QApplication.activeWindow() is not self
+        visible = tile.isVisible() and not owner.isMinimized() and (reveal or keep_mapped)
         settings = getattr(owner, '_settings_process', None) if composited else None
         mask_changed = False
         if visible:
@@ -201,10 +209,13 @@ class FullscreenBar(QWidget):
             mask_changed = visible and region != self.mask()
             if mask_changed:
                 self.setMask(region)
+        opacity_changed = composited and visible and self.windowOpacity() != float(reveal)
+        if opacity_changed:
+            self.setWindowOpacity(float(reveal))
         visibility_changed = self.isHidden() == visible
         if visibility_changed:
             self.setVisible(visible)
-        if mask_changed or visibility_changed:
+        if mask_changed or visibility_changed or opacity_changed:
             tile._update_quick_danmaku_mask()
 
     def refresh_theme(self):

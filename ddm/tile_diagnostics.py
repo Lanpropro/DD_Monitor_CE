@@ -61,6 +61,7 @@ class TileTrace(QObject):
     @staticmethod
     def tile_state(tile):
         return dict(overlay=tile._overlay_visible, controlsVisible=tile.controls.isVisible(),
+                    barExposed=tile.bottom.controls_exposed(), titleVisible=tile.title_badge.isVisible(),
                     hoverActive=tile._normal_hover_active, polling=tile._control_hover_timer.isActive(),
                     fullscreen=bool(tile.property('fullscreen')),
                     pictureInPicture=bool(tile.property('pictureInPicture')))
