@@ -204,8 +204,12 @@ class VideoDanmaku(QWidget):
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None and not QApplication.mouseButtons())
         if eligible and tile is not None:
-            for name in ('controls', 'stream_badge', 'title_badge', 'bottom'):
-                widget = getattr(tile, name, None)
+            widgets = tuple(getattr(tile, name, None)
+                            for name in ('controls', 'stream_badge', 'title_badge'))
+            bottom = getattr(tile, 'bottom', None)
+            if bottom is not None and bottom.isVisible() and bottom.windowOpacity() > 0:
+                widgets += (bottom,)
+            for widget in widgets:
                 if widget is not None and widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(point)):
                     eligible = False
                     break

@@ -374,7 +374,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_match_sync_host_release](../selfcheck_match_sync_host_release.py) | 单项执行前核对 |
+| [selfcheck_match_sync_host_release](../selfcheck_match_sync_host_release.py) | `offline`；工作区切换时静音、分批释放、快速返回和录制保护 |
 
 ## 直播平台
 

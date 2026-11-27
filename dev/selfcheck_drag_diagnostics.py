@@ -15,6 +15,24 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows COM/OLE diagnostic')
 class DragDiagnosticsTests(unittest.TestCase):
+    def test_locked_shared_log_continues_at_rotating_user_log(self):
+        from dev.diagnose_drag_windows import Recorder
+        with tempfile.TemporaryDirectory() as directory:
+            shared = Path(directory) / 'drag.jsonl'
+            fallback = Path(directory) / 'user' / shared.name
+            recorder = Recorder(shared, fallback=fallback)
+            try:
+                recorder.handler.maxBytes = 180
+                recorder.write(dict(index=0))
+                with shared.open('rb'):
+                    for index in range(1, 10):
+                        recorder.write(dict(index=index))
+                self.assertEqual(json.loads(shared.read_text().splitlines()[0])['index'], 0)
+                self.assertEqual(json.loads(fallback.read_text().splitlines()[-1])['index'], 9)
+                self.assertTrue(fallback.with_suffix('.jsonl.1').exists())
+            finally:
+                recorder.handler.close()
+
     def test_state_changes_drag_receipt_and_return_are_recorded_without_changing_com(self):
         from dev import diagnose_drag_windows as diag
         from dev.selfcheck_main_notices import MainNoticesTests

@@ -74,11 +74,17 @@ def child(action):
                 report(theme.mode())
                 return
             if action == 'streamer-defaults':
+                from PySide6.QtCore import Qt
                 index = self.PAGE_INDEX['streamer_defaults']
                 self.nav.setCurrentRow(index)
                 page = self._loaded_pages[index]
                 for room_id in ('1001', 'fixture:7'):
-                    page.picker.buttons[room_id].click()
+                    picker = page.picker
+                    index = next(picker.model.index(row, column)
+                                 for row in range(picker.model.rowCount())
+                                 for column in range(picker.model.columnCount())
+                                 if picker.model.index(row, column).data(Qt.UserRole) == room_id)
+                    picker.scroll.clicked.emit(index)
 
                 def configure():
                     if page.requests:
@@ -345,9 +351,9 @@ def check_worker(app, action):
                     combined.update(saved.get('settings', {}))
                 if action == 'streamer-defaults':
                     assert combined == {'streamer_defaults': {
-                        '1001': {'name': 'Fixture', 'playback': {'qn': 15000, 'label': '2K'},
+                        '1001': {'name': 'Fixture', 'monitor_live': True, 'playback': {'qn': 15000, 'label': '2K'},
                                  'recording': {'qn': 400, 'label': '蓝光'}, 'volume': 57},
-                        'fixture:7': {'name': 'Other', 'playback': {'qn': 2, 'label': '超清'},
+                        'fixture:7': {'name': 'Other', 'monitor_live': True, 'playback': {'qn': 2, 'label': '超清'},
                                       'recording': {'qn': 1, 'label': '原画'}, 'volume': 62},
                     }}
                 else:

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QV
 from ddm import continuous_corners as corners, motion, theme
 from ddm.auto_recording import AutoRecording
 from ddm.capture_control import CaptureControl, MonitorEntry
-from ddm.dock_feedback import REST, active, icon_color
+from ddm.dock_feedback import DockFeedback, REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
 from ddm.widgets import Sidebar
@@ -822,6 +822,13 @@ class WorkspaceControlTests(unittest.TestCase):
             feedback.transition(1.1)
             self.assertEqual(feedback.scale, 1)
         self.assertEqual(button.geometry(), geometry)
+
+    def test_late_focus_out_during_dock_button_destruction(self):
+        from shiboken6 import delete
+        button = QToolButton()
+        feedback = DockFeedback(button)
+        delete(button)
+        self.assertFalse(feedback.eventFilter(button, QFocusEvent(QEvent.FocusOut)))
 
     def test_rail_speed_lines_move_right_behind_stationary_icon(self):
         button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')

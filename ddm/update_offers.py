@@ -5,6 +5,10 @@ from . import online, plugin_updates
 def plugin_update_offers(manager, offers):
     installed = {entry['id']: entry for entry in manager.catalog()} if manager else {}
     pending = plugin_updates.pending_versions(manager) if manager else {}
+    return available_plugin_updates(installed, pending, offers)
+
+
+def available_plugin_updates(installed, pending, offers):
     result = []
     for offer in offers:
         existing = installed.get(offer['id'])

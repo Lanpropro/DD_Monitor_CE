@@ -334,7 +334,7 @@ def check_windowed_overlay(app):
 
     def check_bar(tile):
         bar = tile.bottom
-        assert bar.windowed_overlay and bar.isVisible()
+        assert bar.windowed_overlay and bar.controls_exposed()
         assert not bar.property('fullscreen') and not tile.property('fullscreen')
         assert bar.tile_y() == tile.height() - TILE_BAR_HEIGHT - 1
         assert tile.video.geometry().contains(QRect(1, bar.tile_y(), bar.width(), bar.height()))
@@ -459,9 +459,9 @@ def check_windowed_overlay(app):
 
             with patch.dict(window.settings, {auto_hide: True}):
                 first.set_controls_visible(False)
-                assert bar.isHidden()
+                assert not bar.controls_exposed()
                 first.set_controls_visible(True)
-                assert bar.isVisible() and not bar.mask().contains(covered)
+                assert bar.controls_exposed() and not bar.mask().contains(covered)
 
             overlap.setWidth(8)
             settings._set_occlusion(overlap)
@@ -471,7 +471,7 @@ def check_windowed_overlay(app):
             first.move(position + QPoint(12, 0))
             assert bar.mask().contains(edge)
             first.move(position)
-            assert bar.isVisible() and not bar.mask().contains(edge)
+            assert bar.controls_exposed() and not bar.mask().contains(edge)
             settings._set_occlusion(QRect(second.bottom.geometry()))
             assert first.bottom.isVisible() and second.bottom.isHidden()
             assert bar.mask().contains(covered)
@@ -480,7 +480,7 @@ def check_windowed_overlay(app):
                 settings.visible = False
                 settings.window_hwnd = 0
                 settings._set_occlusion(QRect())
-                assert second.bottom.isHidden(), 'Closing settings still respects auto-hide'
+                assert not second.bottom.controls_exposed(), 'Closing settings still respects auto-hide'
             settings._set_occlusion(QRect(), force=True)
             check_bar(first)
             check_bar(second)
@@ -495,7 +495,7 @@ def check_windowed_overlay(app):
                 dialog.move(bar.mapToGlobal(QPoint(bar.width() // 2, -100)))
                 dialog.show()
                 app.processEvents()
-                assert bar.isVisible() and not bar.mask().contains(covered), 'Local settings must clip the native bar'
+                assert bar.controls_exposed() and not bar.mask().contains(covered), 'Local settings must clip the native bar'
                 assert bar.mask().contains(exposed), 'Uncovered controls must remain available'
                 first.raise_overlays()
                 assert not bar.mask().contains(covered), 'Raising controls must keep settings clear'
@@ -539,32 +539,32 @@ def check_windowed_overlay(app):
 
             point = first.video.mapToGlobal(first.video.rect().center())
             poll(second.video.mapToGlobal(second.video.rect().center()))
-            assert second.bottom.isVisible() and first.bottom.isHidden()
+            assert second.bottom.controls_exposed() and not first.bottom.controls_exposed()
             poll(point)
             check_bar(first)
-            assert second.bottom.isHidden()
+            assert not second.bottom.controls_exposed()
             clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS - .1
             poll(point)
-            assert first.bottom.isVisible()
+            assert first.bottom.controls_exposed()
             with patch.object(first, 'plugin_interaction_active', return_value=True):
                 clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
                 poll(point)
-                assert first.bottom.isVisible()
+                assert first.bottom.controls_exposed()
             with patch.object(first.volume_menu, 'isVisible', return_value=True):
                 clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS
                 poll(point)
-                assert first.bottom.isVisible()
+                assert first.bottom.controls_exposed()
             clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
             poll(point)
-            assert first.bottom.isHidden() and second.bottom.isHidden()
-            assert empty.bottom.isHidden()
+            assert not first.bottom.controls_exposed() and not second.bottom.controls_exposed()
+            assert not empty.bottom.controls_exposed()
             empty_point = empty.video.mapToGlobal(empty.video.rect().center())
             poll(empty_point)
             check_bar(empty)
-            assert first.bottom.isHidden() and second.bottom.isHidden()
+            assert not first.bottom.controls_exposed() and not second.bottom.controls_exposed()
             clock.monotonic.return_value += empty.CONTROL_IDLE_SECONDS + .1
             poll(empty_point)
-            assert empty.bottom.isHidden() and empty.add_room_button.isVisible()
+            assert not empty.bottom.controls_exposed() and empty.add_room_button.isVisible()
             assert first.video.geometry() == geometry
             with patch.object(first._plugin_controls, 'focus_input') as focus, \
                     patch.object(first.bottom, 'activateWindow'):
@@ -577,12 +577,12 @@ def check_windowed_overlay(app):
             with patch.object(window, 'isActiveWindow', return_value=True):
                 window._wall_control_hover.sync()
             check_bar(first)
-            assert second.bottom.isHidden()
+            assert not second.bottom.controls_exposed()
 
             if app.platformName() == 'windows':
                 clock.monotonic.return_value += first.CONTROL_IDLE_SECONDS + .1
                 poll(point + QPoint(5, 0))
-                assert first.bottom.isHidden()
+                assert not first.bottom.controls_exposed()
                 with patch.object(window, '_upgrade_fullscreen_quality'), \
                         patch.object(window._fullscreen_presentation, 'enter',
                                      side_effect=lambda tile: enter(tile, QRect(-12000, -12000, 1000, 700))):

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 os.environ['DDM_NO_SAVE'] = '1'
 runpy.run_path(str(ROOT / 'main.py'), run_name='bootstrap')
 
-from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPointF, Qt
+from PySide6.QtCore import QAbstractNativeEventFilter, QEvent, QObject, QPoint, QPointF, Qt
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
@@ -380,6 +380,11 @@ class StartupWindowsTests(unittest.TestCase):
                 self.assertFalse(first.controls.isVisible())
                 self.assertTrue(first._control_hover_timer.isActive())
 
+                # An active idle timer must not delay a new movement until its next tick.
+                cursor.pos.return_value = cursor.pos.return_value + QPoint(2, 0)
+                window._wall_control_hover.sync()
+                self.assertTrue(first.controls.isVisible())
+
                 cursor.pos.return_value = second.mapToGlobal(second.video.geometry().center())
                 QTest.qWait(100)
                 self.assertTrue(second.controls.isVisible())
@@ -387,6 +392,36 @@ class StartupWindowsTests(unittest.TestCase):
 
                 window.hide()
                 self.assertFalse(window._wall_control_hover.timer.isActive())
+        finally:
+            window.close()
+            self.app.processEvents()
+
+    def test_windowed_hover_reveals_bar_without_relaying_out_video(self):
+        window = MainWindow([], [], layout_id='corner', state={
+            'plugins_enabled': [], 'settings': {'auto_update': False, 'close_behavior': 'exit',
+                                                'windowed_auto_hide_controls': True}})
+        window.move(-10000, -10000)
+        window.show()
+        self.app.processEvents()
+        tile = window.wall.visible_tiles()[0]
+        try:
+            tile.resize(200, 188)
+            tile.set_room(dict(room_id="123", uname="主播", title="标题"))
+            tile.bottom.set_fullscreen(False, windowed_overlay=True)
+            tile.set_controls_visible(False)
+            self.assertFalse(tile.bottom.controls_exposed())
+            with patch.object(tile, '_layout_areas', wraps=tile._layout_areas) as layout:
+                tile.set_controls_visible(True)
+                layout.assert_not_called()
+            self.assertTrue(tile.bottom.controls_exposed())
+            self.assertTrue(tile.controls.isVisible())
+            self.assertFalse(tile.title_badge.isVisible())
+            tile.resize(720, 360)
+            tile.set_controls_visible(False)
+            tile.set_controls_visible(True)
+            self.assertTrue(tile.title_badge.isVisible())
+            self.assertFalse(tile.controls.geometry().intersects(tile.title_badge.geometry()))
+            self.assertTrue(tile.rect().contains(tile.title_badge.geometry()))
         finally:
             window.close()
             self.app.processEvents()
@@ -426,6 +461,35 @@ class StartupWindowsTests(unittest.TestCase):
             self.assertEqual(calls, [])
         finally:
             window.close()
+            self.app.processEvents()
+
+    def test_overlay_bar_tracks_its_controls_without_filtering_new_plugin_widgets(self):
+        owner = QWidget()
+        tile = QWidget(owner)
+        received = []
+
+        class ObservedBar(FullscreenBar):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.User:
+                    received.append(watched)
+                return super().eventFilter(watched, event)
+
+        bar = ObservedBar(tile)
+        owner.installEventFilter(bar)
+        try:
+            plugin = QWidget()
+            plugin.setParent(owner)
+            plugin_child = QWidget()
+            plugin_child.setParent(plugin)
+            control = QWidget()
+            control.setParent(bar)
+            button = QWidget()
+            button.setParent(control)
+            for widget in (plugin, plugin_child, control, button):
+                self.app.sendEvent(widget, QEvent(QEvent.User))
+            self.assertEqual(received, [control, button])
+        finally:
+            owner.deleteLater()
             self.app.processEvents()
 
     @unittest.skipUnless(sys.platform == 'win32', 'Native Windows visibility order')

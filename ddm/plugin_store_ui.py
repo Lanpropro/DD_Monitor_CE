@@ -9,7 +9,7 @@ from .plugin_icons import decode_catalog_icon
 from . import config, online, plugin_updates, theme, version
 from .ui import ActionButton, SelectControl, SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
-from .update_offers import plugin_update_offers
+from .update_offers import available_plugin_updates
 from .online_tasks import OnlinePage
 from .plugin_details_ui import PluginDetailsPanel
 from .search import matches_query
@@ -245,7 +245,7 @@ class PluginStorePage(OnlinePage):
         installed = {entry['id']: entry for entry in self.manager.catalog()} if self.manager else {}
         self._installed_ids = set(installed)
         pending = plugin_updates.pending_versions(self.manager) if self.manager else {}
-        self._update_ids = {offer['id'] for offer in plugin_update_offers(self.manager, offers)}
+        self._update_ids = {offer['id'] for offer in available_plugin_updates(installed, pending, offers)}
         for offer in offers:
             card = SettingsSurface()
             card.setObjectName('PluginCard')
@@ -390,8 +390,8 @@ class PluginStorePage(OnlinePage):
             panel.updateGeometry()
 
     def update_dots(self):
-        unread = {offer['id'] for offer in plugin_update_offers(self.manager, self.offers)
-                  if self.seen_versions.get(offer['id']) != offer['version']}
+        unread = {offer['id'] for offer in self.offers
+                  if offer['id'] in self._update_ids and self.seen_versions.get(offer['id']) != offer['version']}
         for plugin_id, button in self.buttons.items():
             set_update_dot(button, plugin_id in unread)
         self._busy(bool(self.jobs))

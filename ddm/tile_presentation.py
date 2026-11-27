@@ -155,9 +155,11 @@ class TilePresentation:
 
     def update_quick_danmaku_mask(self) -> None:
         host = self.host
-        host.video_danmaku.update_quick_mask((
-            host.controls, host.stream_badge, host.title_badge, host.time_badge,
-            host.spinner, host.pause_overlay, host.bottom))
+        widgets = (host.controls, host.stream_badge, host.title_badge, host.time_badge,
+                   host.spinner, host.pause_overlay)
+        if host.bottom.controls_exposed():
+            widgets += (host.bottom,)
+        host.video_danmaku.update_quick_mask(widgets)
 
     def set_cover(self, pixmap: QPixmap | None) -> None:
         host = self.host
@@ -307,7 +309,6 @@ class TilePresentation:
         host._update_recording_button(layout=False)
         # 全屏底栏覆盖视频，收起时不改变原生视频尺寸。
         fullscreen = bool(host.property("fullscreen"))
-        compact = bool(host.property('pictureInPicture'))
         windowed_overlay = not fullscreen and self.windowed_bar_over_video()
         if not fullscreen and windowed_overlay != host.bottom.windowed_overlay:
             host.bottom.hide()
@@ -318,29 +319,7 @@ class TilePresentation:
             host._bar_progress = host._bar_target = 0.0
         inset, video_height = self.layout_video_area()
         host._round_video()
-        video_right = host.video.geometry().right() + 1
-        host.stream_badge.move(10, 8)
-        host._layout_controls()
-        # 第一行要同时站得下「LIVE 浮标」和「控制条」，控制条永远钉在右上角。
-        # 以前是让控制条折到第二行去给浮标腾地方，结果它跑出了右上角、还压在
-        # 画面中间的封面文字上（用户报的「竖屏格子右上角按钮错位」）。现在反过来
-        # 让浮标让位：先收起人数（浮标变短），实在不够再整个收起来。
-        # 浮标的宽度和显隐只由 _sync_stream_badge() 决定 —— 别在这里再写一套
-        # 「if overlay: setVisible(...)」，那样 overlay 收起来时它就不受控了
-        # （放不下的浮标会一直露着，压住右上角控制条）。
-        host._sync_stream_badge()
-        # 标题浮标紧跟在 LIVE 右边，剩下的宽度让给控制条那一行
-        controls_left = (video_right - 10
-                         if host.controls.y() > 20 else host.controls.x())
-        title_left = host.stream_badge.x() + host.stream_badge.width() + 6
-        room = max(0, controls_left - title_left - 8)
-        show_title = bool(host.room.get("uname")) and room >= 110 and host._overlay_visible and not compact
-        host.title_badge.setVisible(show_title)
-        if show_title:
-            host.title_badge.set_max_width(room)
-            host.title_badge.move(title_left, 8)
-        # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
-        host.time_badge.setVisible(host._elapsed_visible())
+        self.layout_hover_badges()
         host.spinner.move(max(0, (host.video.width() - host.spinner.width()) // 2),
                           max(8, (video_height - host.spinner.height()) // 2))
         host.pause_overlay.move(
@@ -369,6 +348,33 @@ class TilePresentation:
             host._resize_raise_pending = True
         else:
             host.raise_overlays()
+
+    def layout_hover_badges(self) -> None:
+        host = self.host
+        video_right = host.video.geometry().right() + 1
+        host.stream_badge.move(10, 8)
+        host._layout_controls()
+        # 第一行要同时站得下「LIVE 浮标」和「控制条」，控制条永远钉在右上角。
+        # 以前是让控制条折到第二行去给浮标腾地方，结果它跑出了右上角、还压在
+        # 画面中间的封面文字上（用户报的「竖屏格子右上角按钮错位」）。现在反过来
+        # 让浮标让位：先收起人数（浮标变短），实在不够再整个收起来。
+        # 浮标的宽度和显隐只由 _sync_stream_badge() 决定 —— 别在这里再写一套
+        # 「if overlay: setVisible(...)」，那样 overlay 收起来时它就不受控了
+        # （放不下的浮标会一直露着，压住右上角控制条）。
+        host._sync_stream_badge()
+        # 标题浮标紧跟在 LIVE 右边，剩下的宽度让给控制条那一行
+        controls_left = (video_right - 10
+                         if host.controls.y() > 20 else host.controls.x())
+        title_left = host.stream_badge.x() + host.stream_badge.width() + 6
+        room = max(0, controls_left - title_left - 8)
+        show_title = (bool(host.room.get("uname")) and room >= 110 and host._overlay_visible
+                      and not host.property("pictureInPicture"))
+        if show_title:
+            host.title_badge.set_max_width(room)
+            host.title_badge.move(title_left, 8)
+        host.title_badge.setVisible(show_title)
+        # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
+        host.time_badge.setVisible(host._elapsed_visible())
 
     def layout_time_badge(self) -> None:
         host = self.host

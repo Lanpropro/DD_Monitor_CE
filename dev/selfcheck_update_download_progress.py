@@ -338,6 +338,7 @@ class UpdateDownloadTests(unittest.TestCase):
         layout.addWidget(progress)
         surface.show()
         self.app.processEvents()
+        self.assertIsNone(progress.bar)
         original = progress.geometry()
         button_width, button_height = button.width(), button.height()
         state = dict(received=50 * 1024 * 1024, total=250 * 1024 * 1024,
@@ -602,7 +603,9 @@ class UpdateDownloadTests(unittest.TestCase):
                          speed=12 * 1024 * 1024, percent=50, phase='downloading')
             store.downloads.states[keys[0]] = state
             store._busy(False)
-            page._sync_update_buttons()
+            with patch.object(self.manager, 'catalog', side_effect=AssertionError('unexpected catalog rescan')):
+                page._sync_update_buttons()
+                store.update_dots()
             page.show()
             for tab in (0, 1):
                 page.tabs.setCurrentIndex(tab)

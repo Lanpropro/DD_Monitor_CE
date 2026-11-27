@@ -162,15 +162,16 @@ class PluginSettingsPage(QWidget):
             self._installed_authors[plugin_id].setText('@' + author if author else '')
             self._installed_authors[plugin_id].setToolTip('@' + author if author else '')
             self._installed_authors[plugin_id].setVisible(bool(author))
-        self._sync_update_buttons()
+        self._sync_update_buttons(refilter=True)
 
-    def _sync_update_buttons(self):
-        from .online_ui import plugin_update_offers
+    def _sync_update_buttons(self, *, refilter=False):
+        from .update_offers import available_plugin_updates
         from .plugin_updates import pending_versions
-        offers = {offer['id']: offer for offer in
-                  plugin_update_offers(self.manager, self.store_page.offers)}
-        self._available_update_ids = set(offers)
         pending = pending_versions(self.manager) if self.manager else {}
+        offers = {offer['id'] for offer in
+                  available_plugin_updates(self._installed_entries, pending, self.store_page.offers)}
+        refilter = refilter or offers != self._available_update_ids
+        self._available_update_ids = offers
         running = {task.key: task for task in self.store_page.jobs}
         for plugin_id, button in self.update_buttons.items():
             task = running.get(plugin_id)
@@ -181,7 +182,8 @@ class PluginSettingsPage(QWidget):
             state = self.store_page.downloads.states.get(plugin_id)
             if state:
                 self._installed_progress[plugin_id].set_state(state)
-        self._filter_installed(reset_scroll=False)
+        if refilter:
+            self._filter_installed(reset_scroll=False)
 
     def _filter_installed(self, *_args, reset_scroll=True):
         query = self.installed_browser.search.text()

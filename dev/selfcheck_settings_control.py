@@ -157,15 +157,16 @@ class SettingsControlTests(unittest.TestCase):
         self.assertEqual((room['name'], room['followed']), ('主播', True))
         self.assertTrue(room['clip_recording_available'])
 
-    def test_update_notice_entry_reuses_the_settings_worker(self):
+    def test_update_and_monitor_entries_open_the_requested_worker_page(self):
         host = self.host
         with patch('ddm.settings_process.SettingsProcess', Process), \
                 patch.object(host, '_create_settings_dialog') as modal, \
                 patch.object(host, '_sc_preview_context', return_value={}), \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
-            self.assertFalse(host.open_settings('updates'))
+            for page in ('updates', 'streamer_defaults'):
+                self.assertFalse(host.open_settings(page))
+                self.assertEqual(host._settings_process.open.call_args.kwargs['page'], page)
         modal.assert_not_called()
-        self.assertEqual(host._settings_process.open.call_args.kwargs['page'], 'updates')
 
     def test_all_entries_reuse_the_local_settings_window(self):
         host = self.host

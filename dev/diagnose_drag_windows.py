@@ -16,7 +16,8 @@ else:
     start_for_current_process()
     Recorder = drag_diagnostics.Recorder
     path = ROOT / 'logs' / 'drag-windows.jsonl'
-    recorder = Recorder(path)
+    from ddm.data_paths import user_home
+    recorder = Recorder(path, fallback=user_home() / 'logs' / path.name)
     recorder.install()
     if os.environ.get('DDM_WINDOW_RESIZE_CAPTURE') == '1':
         from dev.diagnose_window_resize import WindowResizeTrace

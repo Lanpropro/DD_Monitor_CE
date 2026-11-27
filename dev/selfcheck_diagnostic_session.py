@@ -147,6 +147,8 @@ def child(mode, directory):
             pointer = [row for row in metadata if row['stage'] == 'tile-pointer' and row['tile'] is not None]
             assert len({row['tile'] for row in pointer}) == 2
             assert any(row['controlsVisible'] for row in pointer)
+            assert all(isinstance(row['barExposed'], bool) and isinstance(row['titleVisible'], bool)
+                       for row in pointer)
             events = [row for row in metadata if row['stage'] == 'tile-event']
             assert {'Show', 'Hide', 'Leave'} <= {row['event'] for row in events}
             assert ready['linked_sessions']['tiles'] == ready['run']

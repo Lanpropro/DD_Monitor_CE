@@ -1,7 +1,7 @@
 """Update byte details beside the settings library progress bar."""
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QLabel, QSizePolicy, QWidget
 from . import theme
 from .download_progress import progress_text
 from .ui import ElidedLabel, SettingsProgressBar
@@ -14,45 +14,54 @@ class UpdateProgress(QWidget):
         self._idle_icon = button.icon() if button is not None else QIcon()
         self.stack = QStackedLayout(self)
         self.stack.setContentsMargins(0, 0, 0, 0)
-        self.track = QWidget(self)
-        layout = QHBoxLayout(self.track)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        self.bar = SettingsProgressBar(self)
-        self.bar.setMinimumWidth(120)
-        layout.addWidget(self.bar, 1)
-        self.details = ElidedLabel(parent=self)
-        self.details.setTextFormat(Qt.PlainText)
-        self.details.setObjectName('SettingsHint')
-        layout.addWidget(self.details)
-        self.failure = QLabel(self)
-        self.failure.setTextFormat(Qt.PlainText)
-        self.failure.setObjectName('SettingsHint')
-        self.failure.setWordWrap(True)
-        self.failure.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.failure.hide()
+        self.bar = None
         if button is not None:
             idle = QWidget(self)
             actions = QHBoxLayout(idle)
             actions.setContentsMargins(0, 0, 0, 0)
             if alignment == Qt.AlignLeft:
                 actions.addWidget(button)
-            feedback = QWidget(idle)
-            feedback_layout = QVBoxLayout(feedback)
-            feedback_layout.setContentsMargins(0, 0, 0, 0)
-            feedback_layout.addWidget(self.failure)
-            actions.addWidget(feedback, 1)
+            actions.addStretch(1)
             if alignment == Qt.AlignRight:
                 actions.addWidget(button)
             self.stack.addWidget(idle)
-            self.stack.addWidget(self.track)
             self.setMinimumHeight(theme.CONTROL_HEIGHT)
         else:
-            self.stack.addWidget(self.track)
-            self.stack.addWidget(self.failure)
             self.hide()
 
+    def _create_feedback(self):
+        track = QWidget(self)
+        layout = QHBoxLayout(track)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.bar = SettingsProgressBar(track)
+        self.bar.setMinimumWidth(120)
+        layout.addWidget(self.bar, 1)
+        self.details = ElidedLabel(parent=track)
+        self.details.setTextFormat(Qt.PlainText)
+        self.details.setObjectName('SettingsHint')
+        layout.addWidget(self.details)
+        self.stack.addWidget(track)
+        self.failure = QLabel(self)
+        self.failure.setTextFormat(Qt.PlainText)
+        self.failure.setObjectName('SettingsHint')
+        self.failure.setWordWrap(True)
+        self.failure.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        if self.button is None:
+            self.stack.addWidget(self.failure)
+        else:
+            actions = self.stack.widget(0).layout()
+            index = 1 - actions.indexOf(self.button)
+            actions.takeAt(index)
+            actions.insertWidget(index, self.failure, 1)
+            # Reserve the space opposite the button while the failure label is hidden.
+            policy = self.failure.sizePolicy()
+            policy.setRetainSizeWhenHidden(True)
+            self.failure.setSizePolicy(policy)
+
     def set_state(self, state):
+        if self.bar is None:
+            self._create_feedback()
         self.bar.setValue(state.get('percent', 0))
         text = progress_text(state)
         self.details.setText(text)
