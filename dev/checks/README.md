@@ -89,7 +89,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_documents](../selfcheck_documents.py) | `repository`；文档元信息、索引可达、相对链接与锚点、发布索引；只读 Git 跟踪的 Markdown |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
-| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台消息；字体库info原生过滤、并发回调、warning与fatal保留 |
+| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`，使用临时日志目录验证字体库 info 和 Windows 平台字体 warning 的原生过滤，以及其他 warning、critical 和 fatal 的记录 |
 | [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转失败与并发 stderr 锁顺序、启动失败与线程异常；根 `run.cmd --check-qt-log` 包含此项 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
@@ -348,6 +348,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_switch_live](../selfcheck_auto_quality_switch_live.py) | 单项执行前核对 |
 | [selfcheck_bili_codec](../selfcheck_bili_codec.py) | `offline` |
+| [selfcheck_bili_catchup](../selfcheck_bili_catchup.py) | `offline`，验证 B 站画面墙及独立画中画的右键自动追帧开关、无重连切换、重连后保留和缓冲速率恢复 |
 | [selfcheck_bili_quality](../selfcheck_bili_quality.py) | 单项执行前核对 |
 | [selfcheck_douyin_stream_fallback](../selfcheck_douyin_stream_fallback.py) | 单项执行前核对 |
 | [selfcheck_mpv](../selfcheck_mpv.py) | `native` |

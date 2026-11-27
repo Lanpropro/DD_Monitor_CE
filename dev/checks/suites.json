@@ -121,6 +121,7 @@
       "selfcheck_settings_control",
       "selfcheck_audio_normalization",
       "selfcheck_bili_codec",
+      "selfcheck_bili_catchup",
       "selfcheck_tile_bottom_order",
       "selfcheck_sort_manager",
       "selfcheck_frequent_sort",

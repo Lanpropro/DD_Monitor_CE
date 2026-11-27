@@ -70,6 +70,7 @@ class Tile(QFrame):
     roomChanged = Signal()
     codecSettingsRequested = Signal()
     streamInfoRequested = Signal()
+    liveCatchupToggled = Signal(bool)
     videoDanmakuChanged = Signal(bool)
     videoDanmakuSettingsChanged = Signal(dict)
     videoDanmakuAdvancedRequested = Signal()

@@ -54,7 +54,7 @@ class Player(QObject):
         self.auto_quality, self._decode_key = None, None
         self.paused = False
         for name in ('set_volume_normalization', 'set_volume', 'set_audio_channel', 'set_muted',
-                     'set_paused', 'configure_auto_quality', 'play'):
+                     'set_paused', 'set_live_catchup_enabled', 'configure_auto_quality', 'play'):
             setattr(self, name, Mock())
 
 
