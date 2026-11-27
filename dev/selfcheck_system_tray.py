@@ -84,17 +84,14 @@ class SystemTrayTests(unittest.TestCase):
         self.addCleanup(self.app.setWindowIcon, self.app.windowIcon())
         self.app.setWindowIcon(app_icon.load_icon('d'))
         window = self.window()
-        initial_icon = window._tray.icon.current_icon.pixmap(24, 24).toImage()
+        self.assertEqual(window._tray.icon.current_icon.cacheKey(), window.windowIcon().cacheKey())
         for style in ('b', 'f', 'd'):
-            icon = app_icon.load_icon(style)
-            window.settings['app_icon_style'] = style
-            window.setWindowIcon(icon)
-            tray_icon = window._tray.icon.current_icon
-            if style == 'd':
-                self.assertEqual(tray_icon.pixmap(24, 24).toImage(), initial_icon)
-                self.assertNotEqual(initial_icon, icon.pixmap(24, 24).toImage())
-            else:
-                self.assertEqual(tray_icon.cacheKey(), icon.cacheKey())
+            with self.subTest(style=style):
+                window.settings['app_icon_style'] = style
+                app_icon.apply_icon(style, window)
+                expected = app_icon.load_icon(style).pixmap(24, 24).toImage()
+                self.assertEqual(window.windowIcon().pixmap(24, 24).toImage(), expected)
+                self.assertEqual(window._tray.icon.current_icon.cacheKey(), window.windowIcon().cacheKey())
 
     def window(self, behavior='ask', state=None, layout_id='1x1'):
         state = state or {'plugins_enabled': [], 'settings': {'close_behavior': behavior}}

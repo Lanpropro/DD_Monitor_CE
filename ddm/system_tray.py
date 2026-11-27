@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QStyle, QSystemTrayIcon, QVBoxLayout, QWidgetAction,
 )
 
-from . import app_icon, config, theme, version
+from . import config, theme, version
 
 
 class CloseWindowDialog(QDialog):
@@ -139,7 +139,7 @@ class SystemTray(QObject):
             self._layout_snapshot = capture_layout(self.window.wall)
 
     def _window_tray_icon(self):
-        icon = app_icon.icon_for_tray(self.window.settings.get('app_icon_style'), self.window.windowIcon())
+        icon = self.window.windowIcon()
         if icon.isNull():
             return self.window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         return icon
