@@ -136,8 +136,10 @@ class VideoDanmakuSurface:
                 if region.isEmpty():
                     region = QRegion(widget.rect())
                 holes |= region.translated(origin).intersected(QRegion(host.rect()))
-        if host.super_chat_overlay.isVisible():
-            for rect in host.super_chat_overlay.card_rects():
+        sc = host.super_chat_overlay
+        clips_window = getattr(host._quick_layer, 'clips_sc_window', None)
+        if sc.isVisible() and not (sc.qt_composited and clips_window and clips_window(sc)):
+            for rect in sc.card_rects():
                 holes |= QRegion(rect.toAlignedRect()).intersected(
                     QRegion(host.rect()))
         video_mask = host._quick_video_mask if host._quick_requested else host.mask()
