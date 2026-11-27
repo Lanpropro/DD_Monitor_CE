@@ -489,6 +489,19 @@ class SettingsControlTests(unittest.TestCase):
         host._apply_settings_dialog(dialog, ({'alpha'}, {'p': 'alpha'}, set()))
         host.apply_danmaku_settings.assert_called_once_with()
 
+    def test_app_icon_autosave_updates_the_host_and_worker(self):
+        from ddm.settings_autosave_apply import apply_changes
+
+        host = self.host
+        host._settings_process = Mock()
+        with patch('ddm.app_icon.apply_icon') as apply_icon:
+            apply_changes(host, {'settings': {'app_icon_style': 'b'}})
+        self.assertEqual(host.settings['app_icon_style'], 'b')
+        self.assertEqual(self.save.call_args.args[0]['settings']['app_icon_style'], 'b')
+        apply_icon.assert_called_once_with('b', host)
+        host._settings_process.push_settings.assert_called_once_with({'app_icon_style': 'b'})
+        host.apply_danmaku_settings.assert_not_called()
+
     def test_glass_autosave_updates_open_announcement(self):
         from ddm.notice_dialog import NoticeDialog
         from ddm.settings_autosave_apply import apply_changes

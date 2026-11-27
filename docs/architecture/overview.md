@@ -208,7 +208,7 @@ Windows主窗口构造时启用Qt原生同级控件按需创建策略；视频�
 
 画面墙沿用Windows的Qt默认原生祖先策略，布局根／内容容器与画面墙保留原生父子边界，视频及浮层仍归各自原控件。坐标统一使用Qt映射，原生命中回归同时核对实际原生父窗口与物理相对位置，继续沿用原屏幕／DPI通知及交互收尾。
 
-设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
+设置页实现按职责由 `settings_general`、`settings_notifications`、`settings_shortcuts`、`settings_danmaku`、`settings_recording`、`settings_plugins`、`settings_appearance` 维护；`shortcut_actions` 唯一定义快捷键契约。`ddm/app_icon.py` 读取打包图标并应用到各进程的 Qt 窗口；主窗口设置保存后同步独立设置进程，托盘随主窗口图标更新。`dialogs.py` 保留设置窗口协调与旧导出，按原顺序装入同一Qt类；旧编解码编辑工厂使用一次按需兼容导入，旧插件页工厂仍由设置窗口解析，不复制控件状态。
 
 添加房间、关注导入及共享文件夹选择逻辑由 `ddm/room_dialogs.py` 维护，账号窗口/主窗口直接依赖该模块，旧 `ddm.dialogs` 仍导出相同类和辅助函数。设置进程从 `shortcut_actions` 读取同一份快捷键契约。
 

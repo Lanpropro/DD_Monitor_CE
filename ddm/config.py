@@ -38,6 +38,7 @@ DEFAULT_VOLUME = 40
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
 from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+from .app_icon import DEFAULT_STYLE as DEFAULT_APP_ICON_STYLE
 from .shortcut_actions import DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP
 from .super_chat_model import DEFAULT_COLLAPSE_DELAY
 
@@ -51,6 +52,7 @@ DEFAULT_SETTINGS = {
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
     "appearance_mode": "dark",
+    "app_icon_style": DEFAULT_APP_ICON_STYLE,
     "skin_background": "",
     "skin_sidebar": True,
     "skin_video_enabled": True,

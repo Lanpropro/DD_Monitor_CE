@@ -1,4 +1,5 @@
 """Automatic settings persistence and acknowledged close; isolated default data."""
+import json
 import os
 from pathlib import Path
 import sys
@@ -107,6 +108,25 @@ class AutoSaveTests(unittest.TestCase):
         self.dialog.reset_button.click()
         self.assertEqual(self.requests[-1], {'settings': {'default_volume': 40}})
 
+    def test_app_icon_selection_saves_and_resets(self):
+        self.dialog.nav.setCurrentRow(PAGE_INDEX['appearance'])
+        control = self.dialog.appearance_page.app_icon_control
+        self.assertEqual(control.currentData(), 'd')
+        self.assertEqual([control.itemData(i) for i in range(control.count())], ['d', 'b', 'f'])
+        self.assertTrue(all(not control.itemIcon(i).isNull() for i in range(control.count())))
+        for style in ('b', 'f'):
+            control.setCurrentIndex(control.findData(style))
+            self.assertTrue(self.dialog.auto_save.timer.isActive())
+            self.dialog.auto_save.flush()
+            self.assertEqual(self.requests[-1], {'settings': {'app_icon_style': style}})
+        reopened = SettingsDialog({**config.DEFAULT_SETTINGS, 'app_icon_style': 'f'}, {}, preview=True)
+        try:
+            self.assertEqual(reopened.appearance_page.app_icon_control.currentData(), 'f')
+        finally:
+            reopened.deleteLater()
+        self.dialog.reset_button.click()
+        self.assertEqual(self.requests[-1]['settings']['app_icon_style'], 'd')
+
     def test_danmaku_shared_controls_trigger_autosave_and_reopen(self):
         from PySide6.QtGui import QFont
         self.dialog.nav.setCurrentRow(2)
@@ -181,6 +201,15 @@ class AutoSaveTests(unittest.TestCase):
                     self.assertFalse(getattr(getattr(window, '_theme_transition', None), 'overlays', []),
                                      'Settings changes must repaint in place without a window-covering wave')
                     self.assertTrue(dialog.isVisible())
+                from ddm import app_icon
+                previous_icon = APP.windowIcon()
+                self.addCleanup(APP.setWindowIcon, previous_icon)
+                control = dialog.appearance_page.app_icon_control
+                control.setCurrentIndex(control.findData('b'))
+                dialog.auto_save.flush()
+                self.assertEqual(config.load()['settings']['app_icon_style'], 'b')
+                self.assertEqual(window.windowIcon().pixmap(32, 32).toImage(),
+                                 app_icon.load_icon('b').pixmap(32, 32).toImage())
                 material = dialog.appearance_page.material_editor
                 with patch.object(window, 'apply_danmaku_settings', wraps=window.apply_danmaku_settings) as apply_chat:
                     material.controls['settings_segment_motion'].click()
@@ -312,18 +341,27 @@ app.shutdown()
         def persist(message):
             visibility.append(client.visible)
             persisted.append(message['changes'])
-            QTimer.singleShot(40, lambda: client._send({'kind': 'auto-saved', 'error': ''}))
+            def acknowledge():
+                client.push_settings({'app_icon_style': message['changes']['settings']['app_icon_style']})
+                client._send({'kind': 'auto-saved', 'error': ''})
+            QTimer.singleShot(40, acknowledge)
+
         client.autoSaveRequested.connect(persist)
+        client.hostRequest.connect(lambda message: client._send({'kind': 'host-flushed'})
+                                   if message['kind'] == 'host-flush' else None)
         with patch.object(settings_process, 'worker_command', return_value=(sys.executable, [str(Path(__file__).resolve()), '--worker'])), \
                 patch.object(settings_process, '_allow_foreground'):
             try:
-                client.open(dict(config.DEFAULT_SETTINGS), {})
+                client.open({**config.DEFAULT_SETTINGS, 'app_icon_style': 'f'}, {})
                 until = time.monotonic() + 12
                 while not any(message['kind'] == 'result' for message in messages) and time.monotonic() < until:
                     APP.processEvents()
                     QTest.qWait(10)
                 self.assertTrue(any(message['kind'] == 'result' for message in messages), messages)
-                self.assertEqual(persisted, [{'settings': {'default_volume': 17}}])
+                self.assertEqual(persisted, [{'settings': {'default_volume': 17, 'app_icon_style': 'b'}}])
+                icon_states = [(message['style'], message['matches']) for message in messages
+                               if message['kind'] == 'worker-icon']
+                self.assertEqual(icon_states, [('f', True), ('b', True)])
                 self.assertEqual(visibility, [True])
                 self.assertFalse(client.visible)
             finally:
@@ -344,6 +382,21 @@ if __name__ == '__main__':
                     self._exercised = True
                     QTimer.singleShot(0, self.exercise)
             def exercise(self):
+                from ddm import app_icon
+
+                def report(style):
+                    expected = app_icon.load_icon(style).pixmap(32, 32).toImage()
+                    actual = self.windowIcon().pixmap(32, 32).toImage()
+                    print(settings_process.PREFIX + json.dumps({
+                        'kind': 'worker-icon', 'style': style, 'matches': actual == expected,
+                    }), flush=True)
+
+                report('f')
+                self.auto_save.statusChanged.connect(
+                    lambda state, _error: report('b') if state == 'saved' else None)
+                self.nav.setCurrentRow(PAGE_INDEX['appearance'])
+                icon = self.appearance_page.app_icon_control
+                icon.setCurrentIndex(icon.findData('b'))
                 self.general_page.volume_slider.setValue(17)
                 self.window_header.close_button.click()
         dialogs.SettingsDialog = ExerciseDialog

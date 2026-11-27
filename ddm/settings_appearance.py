@@ -1,9 +1,9 @@
 """Settings appearance; owned page implementations with legacy exports in dialogs."""
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+    QComboBox, QFrame, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
-from . import theme
+from . import app_icon, theme
 from .ui import page_header as _page_head
 from .ui import SegmentedControl
 from .settings_layout import SettingsColumns, SettingsSection
@@ -29,7 +29,7 @@ class AppearanceSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
-        layout.addLayout(_page_head("外观", "设置主题、背景与界面分区样式。"))
+        layout.addLayout(_page_head("外观", "设置主题、应用图标、背景与界面分区样式。"))
         self.sections = SettingsColumns(content)
         colors = SettingsSection('主题')
         colors.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
@@ -41,10 +41,21 @@ class AppearanceSettingsPage(QWidget):
         self.group = self.mode_control.group
         self.mode_control.valueChanged.connect(self._choose)
         colors.grid.addWidget(self.mode_control, 0, 1, Qt.AlignRight)
+        icon_label = QLabel('应用图标')
+        self.app_icon_control = QComboBox(colors)
+        self.app_icon_control.setAccessibleName(icon_label.text())
+        self.app_icon_control.setIconSize(QSize(22, 22))
+        for style, label in (('d', 'D · 蓝发金瞳'), ('b', 'B · 三角徽章'), ('f', 'F · 经典 DD CE')):
+            self.app_icon_control.addItem(app_icon.load_icon(style), label, style)
+        self.app_icon_control.setCurrentIndex(self.app_icon_control.findData(
+            app_icon.normalize_style(settings.get('app_icon_style'))))
+        icon_label.setBuddy(self.app_icon_control)
+        colors.grid.addWidget(icon_label, 1, 0)
+        colors.grid.addWidget(self.app_icon_control, 1, 1, Qt.AlignRight)
         from .settings_theme_editor import SettingsThemeEditor
         self.theme_editor = measure('appearance.theme-editor', SettingsThemeEditor, settings)
         self.theme_editor.changed.connect(self._preferences_changed)
-        colors.grid.addWidget(self.theme_editor, 1, 0, 1, 2)
+        colors.grid.addWidget(self.theme_editor, 2, 0, 1, 2)
         self.sections.add_section('theme', colors)
         from .settings_material_editor import SettingsMaterialEditor
         self.material_editor = measure('appearance.material-editor', SettingsMaterialEditor, settings, content)
@@ -79,7 +90,8 @@ class AppearanceSettingsPage(QWidget):
         self.modeChanged.emit(mode)
 
     def values(self):
-        return {"appearance_mode": self._mode, **self.material_editor.values(),
+        return {"appearance_mode": self._mode, "app_icon_style": self.app_icon_control.currentData(),
+                **self.material_editor.values(),
                 **self.theme_editor.values(), **self.skin_settings.values()}
 
     def _preferences_changed(self):
@@ -102,6 +114,7 @@ class AppearanceSettingsPage(QWidget):
         self._emit_material()
 
     def reset(self):
+        self.app_icon_control.setCurrentIndex(self.app_icon_control.findData(app_icon.DEFAULT_STYLE))
         self.theme_editor.set_values({})
         self.material_editor.reset()
         self._preferences_changed()

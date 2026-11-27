@@ -45,6 +45,11 @@
 - `docs/features/picture-in-picture.md`
 - `docs/development/ui-components.md`
 
+### 应用图标图稿
+
+- `design/icon-concepts/app-icon-badge.png`
+- `design/icon-concepts/app-icon-character.png`
+
 ### 独立诊断工具
 
 - `dev/watch_development_hang.py`
