@@ -26,6 +26,8 @@ async def request(pid, action, **args):
                 transport.close()
     except TimeoutError as error:
         raise ValueError('Host timed out. Read state before retrying an action.') from error
+    except PermissionError as error:
+        raise ValueError('Windows denied access to the host pipe. Check the host and client user contexts.') from error
     except OSError as error:
         raise ValueError('Host pipe unavailable. Refresh list_instances.') from error
     if not line:

@@ -3,12 +3,22 @@ import asyncio
 import json
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
 async def check(pid):
+    from server import request
+    loop = asyncio.get_running_loop()
+    with patch.object(loop, 'create_pipe_connection', side_effect=PermissionError()):
+        try:
+            await request(pid, 'state')
+        except ValueError as error:
+            assert 'denied access' in str(error)
+        else:
+            raise AssertionError('Missing pipe permission error')
     params = StdioServerParameters(command=sys.executable, args=[str(Path(__file__).with_name('server.py'))])
     async with stdio_client(params) as streams, ClientSession(*streams) as session:
         await session.initialize()
