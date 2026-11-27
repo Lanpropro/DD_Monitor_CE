@@ -64,3 +64,5 @@ codex mcp add dd-monitor-host -- $python (Resolve-Path tools/host_mcp/server.py)
 `slow_intervals` 按活动保存最慢的三个 ≥50 毫秒心跳。每段最多八次主线程 Python 调用位置采样，只代表采样瞬间。通过侧栏打开组合画中画时，`phases` 记录构造、候选卡、布局、显示等阶段（嵌套耗时不可相加），`picker_first_paint_ms` 从进入打开函数计至面板第一次 paintEvent 返回。
 
 根目录 `run.cmd --check-host-mcp` 验证隔离窗口及本地管道。将环境变量 `DDM_MCP_PYTHON` 指向安装了本目录依赖的 Python 后执行同一命令，还会启动独立 stdio 服务和 SDK 客户端验证全部工具。
+
+在 `measure_sidebar_interactions` 采样期间从画中画返回主墙，`pip-return` 记录整墙返回回调耗时，子项分别记录挂回主窗口布局、恢复格位布局、显示画面墙、同步浮层和激活主窗。并行播放的独立小墙使用另一条返回路径。

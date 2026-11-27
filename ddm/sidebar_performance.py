@@ -26,6 +26,7 @@ class SidebarPerformance(QObject):
         self.slow_intervals = {}
         self.picker_started = None
         self.picker_paints = []
+        self.returning_wall = False
         self.beat = QTimer(self)
         self.beat.setTimerType(Qt.PreciseTimer)
         self.beat.timeout.connect(self.pulse)
@@ -49,6 +50,15 @@ class SidebarPerformance(QObject):
         pip = getattr(self.sidebar.window(), 'picture_in_picture', None)
         if pip is not None:
             from .pip_picker import PictureInPictureDialog
+            self.hook(pip, 'restore', 'pip-return', lambda **_: pip.moves_main_wall)
+            wall = pip.host.wall
+            def returning(*_args, **_kwargs):
+                return self.returning_wall
+            for owner, method, label in ((pip.host._content.layout(), 'insertWidget', 'attach'),
+                                         (wall, 'set_picture_in_picture', 'layout'),
+                                         (wall, 'show', 'show'), (pip, '_sync_overlays', 'overlays'),
+                                         (pip.host._tray, 'restore', 'activate')):
+                self.hook(owner, method, 'pip-return-' + label, returning)
             self.hook(pip, 'manage', 'picker-open', lambda **kw: kw.get('anchor') is not None and pip.dialog is None)
             self.hook(PictureInPictureDialog, '__init__', 'picker-build',
                       lambda dialog, controller, **kw: controller is pip and kw.get('compact'))
@@ -67,11 +77,19 @@ class SidebarPerformance(QObject):
     def hook(self, owner, name, label, relevant):
         original = getattr(owner, name)
         existed = name in vars(owner)
+        if label.startswith('pip-return'):
+            activity = 'pip-return'
+        elif label.startswith('picker-'):
+            activity = 'picker'
+        else:
+            activity = 'scroll' if label == 'scroll-covers' else 'drag'
+
         def measured(*args, **kwargs):
             if self.stopped.is_set() or not relevant(*args, **kwargs):
                 return original(*args, **kwargs)
-            self.activities.add('picker' if label.startswith('picker-') else
-                                'scroll' if label == 'scroll-covers' else 'drag')
+            self.activities.add(activity)
+            if label == 'pip-return':
+                self.returning_wall = True
             if label == 'drop':
                 self.dropping = True
             started = time.perf_counter()
@@ -85,6 +103,8 @@ class SidebarPerformance(QObject):
                     self.outcomes['cancelled'] += 1
                 return result
             finally:
+                if label == 'pip-return':
+                    self.returning_wall = False
                 if label == 'drop':
                     self.dropping = False
                 elapsed = round((time.perf_counter() - started) * 1000, 3)

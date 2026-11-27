@@ -132,7 +132,13 @@ def main():
                 assert state['orientation'] == 'portrait' and state['last_layout_change']['sync_ms'] >= 0
                 assert call('open_pip', slots=[1])['result']['state']['picture_in_picture']
                 assert call('remove', slot=1)['reason'] == 'slot-unavailable'
+                socket = capture('sidebar-performance', seconds=2)
+                assert response(socket)['status'] == 'armed'
                 assert not call('close_pip')['result']['state']['picture_in_picture']
+                phases = next(row['phases'] for row in response(socket)['records']
+                              if row['stage'] == 'sidebar-performance')
+                for phase in ('pip-return', 'pip-return-attach', 'pip-return-layout', 'pip-return-show'):
+                    assert phases[phase]['calls'] == 1
                 tile = window.wall.tiles[0]
                 window._pending_capture[tile] = True
                 try:
