@@ -283,8 +283,12 @@ class TileState:
         host = self.host
         host.room["uname"] = uname or ""
         host.room["title"] = title or ""
+        if (host.title_badge.uname, host.title_badge.title) == (host.room["uname"], host.room["title"]):
+            return
         host.title_badge.set_text(host.room["uname"], host.room["title"])
-        host.title_badge.setVisible(bool(host.room["uname"]) and host._overlay_visible)
+        host.presentation_control.layout_status_badges()
+        if host._overlay_visible:
+            host._update_quick_danmaku_mask()
 
     def set_watched(self, watched_text: str) -> None:
         """实时在线人数（高能榜 onlineNum，和 B 站页面一致）。"""
@@ -303,8 +307,9 @@ class TileState:
         host.stream_badge.set_state(live, watched or (WATCHING_TEXT if live and supports_count else ""))
         # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵。
         # 宽度够不够同时放下它和控制条，交给 _sync_stream_badge() 一起算
-        host._sync_stream_badge()
-        host._layout_areas()          # 浮标宽度会变（人数位数不同），标题要跟着重新让位
+        host.presentation_control.layout_status_badges()
+        if host._overlay_visible:
+            host._update_quick_danmaku_mask()
         if not supports_count:
             host.stream_badge.setToolTip("直播中" if live else "未开播")
         elif watched and popularity:

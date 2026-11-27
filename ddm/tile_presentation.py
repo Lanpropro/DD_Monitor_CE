@@ -351,9 +351,14 @@ class TilePresentation:
 
     def layout_hover_badges(self) -> None:
         host = self.host
-        video_right = host.video.geometry().right() + 1
         host.stream_badge.move(10, 8)
         host._layout_controls()
+        self.layout_status_badges()
+        host.time_badge.setVisible(host._elapsed_visible())
+
+    def layout_status_badges(self) -> None:
+        host = self.host
+        video_right = host.video.geometry().right() + 1
         # 第一行要同时站得下「LIVE 浮标」和「控制条」，控制条永远钉在右上角。
         # 以前是让控制条折到第二行去给浮标腾地方，结果它跑出了右上角、还压在
         # 画面中间的封面文字上（用户报的「竖屏格子右上角按钮错位」）。现在反过来
@@ -373,8 +378,6 @@ class TilePresentation:
             host.title_badge.set_max_width(room)
             host.title_badge.move(title_left, 8)
         host.title_badge.setVisible(show_title)
-        # 摆位和显隐放在一起：重排（改窗口大小、切布局）之后状态不会走丢
-        host.time_badge.setVisible(host._elapsed_visible())
 
     def layout_time_badge(self) -> None:
         host = self.host
