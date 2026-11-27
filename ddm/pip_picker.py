@@ -218,10 +218,8 @@ class PictureInPictureDialog(QDialog):
 
     def _create_choice(self, key, room, holder, face, checked, folder_names=''):
         name = (f'{key + 1} · ' if isinstance(key, int) else '') + str(room.get('uname') or room['room_id'])
-        index = self.checks[key].avatar._index if key in self.checks else len(self.checks)
-        button = RoomChoice(room, name, index, face, holder)
-        if self._compact:
-            button.setMinimumHeight(54)
+        index = self.checks[key].avatar_index if key in self.checks else len(self.checks)
+        button = RoomChoice(room, name, index, face, holder, compact=self._compact)
         button.choice = key
         button.folder_names = folder_names
         button.setChecked(checked)
@@ -248,7 +246,7 @@ class PictureInPictureDialog(QDialog):
         for key in extras:
             if key not in mirrors:
                 source = self.checks[key]
-                mirror = self._create_choice(key, self.rooms[key], heading.parentWidget(), source.avatar._source, True)
+                mirror = self._create_choice(key, self.rooms[key], heading.parentWidget(), source.face, True)
                 mirror.setVisible(self._matches(mirror, words))
                 mirrors[key] = mirror
         buttons[self._wall_count:] = [mirrors[key] for key in extras]
@@ -260,7 +258,8 @@ class PictureInPictureDialog(QDialog):
         for button in self.choice_buttons[key]:
             with QSignalBlocker(button):
                 button.setChecked(checked)
-            button.badge.setVisible(checked)
+            if not self._compact:
+                button.badge.setVisible(checked)
         self._refresh()
 
     def _filter(self, value):

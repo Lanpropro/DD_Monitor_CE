@@ -70,6 +70,35 @@ class PipPickerTests(unittest.TestCase):
         self.assertTrue(dialog.rect().contains(QRect(dialog.start.mapTo(dialog, QPoint()), dialog.start.size())))
         dialog.reject()
 
+    def test_toolbar_choices_paint_portraits_and_mirror_checked_rooms(self):
+        from ddm import theme
+        window = self.window([dict(room_id='1', uname='Wall', live=True)])
+        window.sidebar.add_room(dict(room_id='2', uname='Extra', live=True))
+        face = QPixmap(28, 28)
+        face.fill(QColor('red'))
+        with patch.object(window.sidebar.items()[0].thumb, 'face_pixmap', return_value=face):
+            window.sidebar.picture_in_picture_button.click()
+        dialog = window.picture_in_picture.dialog
+        wall = dialog.checks[0]
+        self.assertFalse(wall.findChildren(QWidget))
+        def color_at(button, x, y):
+            image = button.grab().toImage()
+            scale = image.devicePixelRatio()
+            return image.pixelColor(round(x * scale), round(y * scale))
+        self.assertEqual(color_at(wall, wall.width() // 2, 19), QColor('red'))
+        dialog.search.setText('Extra')
+        extra = dialog.checks['2']
+        self.assertFalse(extra.isHidden())
+        extra.click()
+        mirror, = [b for b in dialog.choice_buttons['2'] if b is not extra]
+        self.assertTrue(mirror.isChecked())
+        self.assertEqual(color_at(extra, extra.width() - 12, 6), QColor(theme.ACCENT))
+        mirror.click()
+        self.assertFalse(extra.isChecked())
+        self.assertNotEqual(color_at(extra, extra.width() - 12, 6), QColor(theme.ACCENT))
+        dialog.reject()
+        self.assertFalse(window.picture_in_picture.active)
+
     def test_toolbar_picker_dismisses_on_outside_click_or_lost_activation(self):
         from PySide6.QtWidgets import QApplication
 
