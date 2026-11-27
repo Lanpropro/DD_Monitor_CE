@@ -200,7 +200,7 @@ class DragDiagnosticsTests(unittest.TestCase):
         self.assertLess(len(json.dumps(probe.timing_summary())), 140)
 
     def test_trace_files_rotate_and_keep_only_three_backups(self):
-        from dev.diagnose_drag_windows import Recorder
+        from ddm.drag_diagnostics import Recorder
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'drag.jsonl'
             recorder = Recorder(path)
