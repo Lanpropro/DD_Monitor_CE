@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication
 
 from .live_diagnostics import LiveDiagnostics, SPECIALTIES
 
-TIMED_MODES = ('sidebar-performance', *SPECIALTIES)
+TIMED_MODES = ('playback', 'sidebar-performance', *SPECIALTIES)
 
 
 def folder_snapshot(sidebar):
@@ -186,7 +186,7 @@ class DiagnosticEndpoint(QObject):
                 keys.add('seconds')
                 seconds = request['seconds']
             if (not isinstance(request, dict) or type(request.get('protocol')) is not int or request['protocol'] != 1
-                    or request.get('mode') not in ('folders', 'drag', 'playback', 'dock-hover', *TIMED_MODES)
+                    or request.get('mode') not in ('folders', 'drag', 'dock-hover', *TIMED_MODES)
                     or set(request) != keys or type(seconds) is not int or not 1 <= seconds <= 60):
                 raise ValueError('invalid-request')
         except (ValueError, TypeError):
@@ -232,7 +232,7 @@ class DiagnosticEndpoint(QObject):
             else:
                 if request['mode'] == 'playback':
                     from .playback_capture import PlaybackCapture
-                    observer = PlaybackCapture(self.window, emit, done)
+                    observer = PlaybackCapture(self.window, emit, done, seconds=seconds)
                 elif request['mode'] == 'dock-hover':
                     from .dock_hover_diagnostics import DockHoverTrace
                     observer = DockHoverTrace(self.window, emit, done)

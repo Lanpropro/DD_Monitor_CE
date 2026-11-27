@@ -34,10 +34,8 @@ def main():
             'Path(__file__).with_name("settings.txt").write_text(os.environ.get("DDM_SETTINGS_PROCESS", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("pythonpath.txt").write_text(os.environ.get("PYTHONPATH", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("no-save.txt").write_text(os.environ.get("DDM_NO_SAVE", ""), encoding="utf-8")\n'
-            'Path(__file__).with_name("fullscreen-input.txt").write_text(os.environ.get("DDM_FULLSCREEN_INPUT_CAPTURE", ""), encoding="utf-8")\n'
             'Path(__file__).with_name("legacy-capture.txt").write_text("".join(os.environ.get(key, "") for key in '
             '("DDM_FOLDER_MOTION_CAPTURE", "DDM_THEME_CAPTURE", "DDM_FULLSCREEN_CAPTURE")), encoding="utf-8")\n'
-            'Path(__file__).with_name("arguments.txt").write_text(" ".join(sys.argv[1:]), encoding="utf-8")\n'
             'Path(__file__).with_name("started.txt").write_text("启动成功", encoding="utf-8")\n'
             'sys.exit(7)\n', encoding="utf-8")
         (root / 'dev').mkdir()
@@ -86,47 +84,22 @@ def main():
         assert (root / 'no-save.txt').read_text(encoding='utf-8') == '1', 'Keep an explicit no-save request'
         assert not (root / 'trace-enabled.txt').exists(), 'Normal launch must bypass temporary drag tracing'
         assert not (root / 'legacy-capture.txt').read_text(), 'Normal launch must not start specialist captures'
-        (root / 'fullscreen-input.txt').unlink()
-        result = invoke(root / 'run.cmd', inherited, ('--diagnose-fullscreen-input',))
-        assert result.returncode == 0
-        deadline = time.monotonic() + 10
-        while not (root / 'fullscreen-input.txt').exists() and time.monotonic() < deadline:
-            time.sleep(.05)
-        assert (root / 'fullscreen-input.txt').read_text() == '1'
-        assert (foreign / 'injected.txt').read_text() == '1', 'Explicit diagnostics allow isolated fixtures'
-        assert (root / 'trace-enabled.txt').read_text() == '1', 'Unmigrated diagnostics use the specialist launcher'
-        (root / 'trace-enabled.txt').unlink()
         (root / 'started.txt').unlink()
-        result = invoke(root / 'run.cmd', env, ('--diagnose-session=drag',))
-        assert result.returncode == 0
-        deadline = time.monotonic() + 10
-        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
-            time.sleep(.05)
-        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
-        assert not (root / 'trace-enabled.txt').exists(), 'Explicit session must bypass the ordinary trace launcher'
-        (root / 'started.txt').unlink()
-        result = invoke(root / 'run.cmd', env, ('--diagnose-session', 'dock-hover'))
-        assert result.returncode == 0, result.stderr
-        deadline = time.monotonic() + 10
-        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
-            time.sleep(.05)
-        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=dock-hover'
-        (root / 'started.txt').unlink()
+        for flag in (
+            '--diagnose-session', '--diagnose-responsiveness', '--diagnose-fullscreen',
+            '--diagnose-douyu', '--diagnose-douyu-deep', '--diagnose-notice-close',
+            '--diagnose-fullscreen-input', '--diagnose-settings-scroll', '--diagnose-settings-performance',
+            '--diagnose-control-swap', '--diagnose-wall-replacement', '--diagnose-sc',
+            '--diagnose-danmaku-motion', '--diagnose-match-d3d11', '--diagnose-match-d3d11-quick',
+            '--diagnose-window-resize', '--diagnose-window-dpi-profile', '--diagnose-live-elapsed',
+            '--capture-playback',
+        ):
+            result = invoke(root / 'run.cmd', env, (flag,))
+            assert result.returncode == 2 and b'prepare_startup_diagnostics' in result.stdout, (flag, result)
+            assert not (root / 'started.txt').exists() and not (root / 'trace-enabled.txt').exists()
         (root / 'quoted-session.cmd').write_bytes(b'@echo off\r\ncall run.cmd "--diagnose-session=drag"\r\n')
         result = invoke(root / 'quoted-session.cmd', env)
-        assert result.returncode == 0
-        deadline = time.monotonic() + 10
-        while not (root / 'started.txt').exists() and time.monotonic() < deadline:
-            time.sleep(.05)
-        assert (root / 'arguments.txt').read_text(encoding='utf-8') == '--diagnose-session=drag'
-        assert not (root / 'trace-enabled.txt').exists()
-        (root / 'started.txt').unlink()
-        for args in (('--diagnose-douyu',), ('--diagnose-fullscreen',), ('--diagnose-notice-close',),
-                     ('--diagnose-session', 'fullscreen'), ('--diagnose-session', 'douyu'),
-                     ('--diagnose-session', 'notices')):
-            result = invoke(root / 'run.cmd', env, args)
-            assert result.returncode == 2 and b'capture_diagnostics' in result.stdout, (args, result)
-            assert not (root / 'started.txt').exists() and not (root / 'trace-enabled.txt').exists()
+        assert result.returncode == 2 and not (root / 'started.txt').exists()
         result = invoke(root / 'run.cmd', env, ('--sc-simulator', '--smoke'))
         assert result.returncode == 0
         deadline = time.monotonic() + 10

@@ -2,9 +2,15 @@
 import asyncio
 import json
 import os
+from pathlib import Path
+import sys
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from ddm import diagnostic_startup_request
 
 server = FastMCP('DD Monitor CE host')
 PREFIX = 'DDMonitorCE-diagnostics-'
@@ -52,24 +58,42 @@ async def pipe_request(pid, payload, timeout=15):
 async def capture_diagnostics(
     pid: int,
     mode: Literal['folders', 'drag', 'playback', 'dock-hover', 'douyu', 'fullscreen', 'notices'],
-    seconds: int = 30,
+    seconds: int | None = None,
 ) -> dict:
-    """Capture an already-running host. For Douyu, fullscreen, or notices, reproduce during the 1–60 s window.
+    """Capture an already-running host. Douyu, fullscreen, notices and playback accept 1–60 seconds.
 
-    Folders is an immediate snapshot, drag observes one attempt, and playback and dock-hover use their own 60 s limits.
+    Folders is an immediate snapshot and drag observes one attempt. Drag and dock-hover are limited to 60 seconds.
     Douyu samples the current route and upcoming requests without replacing the transport.
     """
-    if not 1 <= seconds <= 60:
+    if seconds is not None and not 1 <= seconds <= 60:
         raise ValueError('Capture duration must be 1–60 seconds')
     payload = dict(protocol=1, mode=mode)
     if mode in ('douyu', 'fullscreen', 'notices'):
-        payload['seconds'] = seconds
+        payload['seconds'] = seconds = 30 if seconds is None else seconds
+    elif mode == 'playback':
+        payload['seconds'] = seconds = 60 if seconds is None else seconds
     else:
         seconds = 60
     reply = await pipe_request(pid, payload, seconds + 15)
     if reply['reason'] == 'capture-error':
         raise ValueError('Host could not start the capture')
     return reply
+
+
+@server.tool()
+def list_startup_diagnostics() -> dict:
+    """List source-checkout diagnostics that must be armed before the next normal launch."""
+    return {'modes': diagnostic_startup_request.available_modes(ROOT)}
+
+
+@server.tool()
+def prepare_startup_diagnostics(mode: str) -> dict:
+    """Arm a single source startup capture for ten minutes. The user exits normally and runs run.cmd.
+
+    A newer request replaces the pending one. This tool neither launches nor closes the application.
+    The started host reports the matching request_id through get_state.
+    """
+    return diagnostic_startup_request.prepare(ROOT, mode)
 
 
 @server.tool()

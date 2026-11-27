@@ -1651,7 +1651,7 @@ def _launch_update(plan_path) -> bool:
     return started
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, startup_diagnostics=None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
@@ -1712,6 +1712,7 @@ def main(argv: list[str] | None = None) -> int:
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    window.startup_diagnostics = startup_diagnostics
     from .on_demand_diagnostics import DiagnosticEndpoint
     window._on_demand_diagnostics = DiagnosticEndpoint(
         window, os.path.join(config_module.data_root(), 'logs'), config_module.REPO)

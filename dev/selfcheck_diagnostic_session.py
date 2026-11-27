@@ -2,15 +2,24 @@
 import json
 import os
 from pathlib import Path
+import runpy
+import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from ddm.diagnostic_session import MODES, requested_mode
+from ddm.diagnostic_session import MODES
+from ddm.diagnostic_startup_request import (
+    MATCH_MODES, REQUEST_NAME, SOURCE_MODES, available_modes, consume, prepare,
+)
 
 
 def child(mode, directory):
@@ -157,16 +166,53 @@ def child(mode, directory):
 
 
 class SessionTests(unittest.TestCase):
-    def test_mode_selection_is_explicit_and_rejects_unknown_or_repeated_modes(self):
-        self.assertIsNone(requested_mode([]))
-        self.assertIsNone(requested_mode(['--unrelated']))
-        self.assertEqual(requested_mode(['--diagnose-session=dock-hover']), 'dock-hover')
-        for mode in MODES:
-            self.assertEqual(requested_mode(['--diagnose-session=' + mode]), mode)
-        for arguments in (['--diagnose-session=all'], ['--diagnose-session='],
-                          ['--diagnose-session=folders', '--diagnose-session=notices']):
-            with self.assertRaises(ValueError):
-                requested_mode(arguments)
+    def test_startup_request_is_checkout_scoped_single_use_and_expires(self):
+        with tempfile.TemporaryDirectory() as directory, tempfile.TemporaryDirectory() as other:
+            root, other = Path(directory), Path(other)
+            self.assertIsNone(consume(root))
+            self.assertFalse((root / 'work').exists())
+            for mode in ('all', '../drag', *MATCH_MODES):
+                with self.assertRaises(ValueError):
+                    prepare(root, mode)
+            for mode in available_modes(root):
+                request = prepare(root, mode)
+                self.assertIsNone(consume(other))
+                self.assertEqual(consume(root), request)
+                self.assertIsNone(consume(root))
+            prepare(root, 'drag')
+            request = prepare(root, 'fullscreen-input')
+            with ThreadPoolExecutor(4) as readers:
+                results = list(readers.map(consume, [root] * 4))
+            self.assertEqual([item for item in results if item], [request])
+            path = root / 'work' / REQUEST_NAME
+            prepare(root, 'drag')
+            with closing(sqlite3.connect(path)) as db, db:
+                db.execute('UPDATE pending SET expires_at = ?', (int(time.time()) - 1,))
+            self.assertIsNone(consume(root))
+            self.assertIsNone(consume(root))
+
+    def test_source_modes_install_in_the_main_process(self):
+        for mode in (*SOURCE_MODES, *(mode for mode in MATCH_MODES if mode in available_modes(ROOT))):
+            if mode == 'live-elapsed' and sys.platform != 'win32':
+                continue
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if mode in MATCH_MODES:
+                    for name in ('dev/match_gui_dispatch.py', 'work/match-d3d11-prototype/presenter.exe',
+                                 'work/match-d3d11-prototype/mailbox.dll'):
+                        path = root / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.touch()
+                request = prepare(root, mode)
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / 'dev/checks/bootstrap.py'), __file__, '--source-child', directory],
+                    env=dict(os.environ, DDM_NO_SAVE='1', QT_QPA_PLATFORM='offscreen', DDM_CHECK_MODE='offline'),
+                    capture_output=True, timeout=45,
+                )
+                output = result.stdout.decode('utf-8', 'replace') + result.stderr.decode('utf-8', 'replace')
+                self.assertEqual(result.returncode, 0, output)
+                self.assertIn(request['request_id'], output)
+                self.assertIsNone(consume(root))
 
     def test_modes_collect_without_changing_rooms_or_capturing_text(self):
         for mode in MODES:
@@ -181,8 +227,65 @@ class SessionTests(unittest.TestCase):
                                  + result.stderr.decode('utf-8', errors='replace'))
 
 
+def source_child(root):
+    from ddm import app, diagnostics
+    from ddm.app import MainWindow
+    from ddm.room_placement import RoomPlacement
+    from ddm.wall_replacement import WallReplacement
+    from ddm.video_danmaku import SuperChatOverlay
+    from ddm.danmaku_diagnostics import MotionTrace
+    from dev.startup_diagnostics import ENVIRONMENT, install
+
+    hooks = {
+        'window-resize': (MainWindow, 'nativeEvent'),
+        'window-dpi-profile': (MainWindow, 'nativeEvent'),
+        'control-swap': (RoomPlacement, 'hot_swap'),
+        'wall-replacement': (WallReplacement, 'place'),
+        'sc': (SuperChatOverlay, '_render_layered'),
+        'danmaku-motion': (MotionTrace, 'install'),
+        'live-elapsed': (MainWindow, '_on_status_updated'),
+        'responsiveness-profile': (MainWindow, '__init__'),
+    }
+    with closing(sqlite3.connect(root / 'work' / REQUEST_NAME)) as db:
+        mode, request_id = db.execute('SELECT mode, request_id FROM pending').fetchone()
+    if mode == 'settings-scroll':
+        launcher = root / 'main.py'
+        shutil.copyfile(ROOT / 'main.py', launcher)
+        with patch.object(app, 'main', return_value=0) as launch, \
+                patch.object(diagnostics, 'start'), patch.object(sys, 'argv', [str(launcher)]):
+            for expected in (dict(mode=mode, request_id=request_id), None):
+                try:
+                    runpy.run_path(str(launcher), run_name='__main__')
+                except SystemExit as exit_result:
+                    assert exit_result.code == 0
+                launch.assert_called_once_with(startup_diagnostics=expected)
+                launch.reset_mock()
+        assert os.environ['DDM_SETTINGS_SCROLL_CAPTURE'] == '1'
+        print(request_id)
+        return
+    request = consume(root)
+    mode = request['mode']
+    hook = hooks.get(mode)
+    if mode == 'danmaku-motion' or mode in MATCH_MODES:
+        # Observe the real MotionTrace installation without leaving fixture hooks behind.
+        with patch.object(MotionTrace, 'install', autospec=True, side_effect=MotionTrace.install) as called:
+            state = install(ROOT, root / 'logs', request)
+            called.assert_called_once()
+    else:
+        original = getattr(*hook) if hook else None
+        state = install(ROOT, root / 'logs', request)
+        if hook:
+            assert getattr(*hook) is not original, mode
+    assert state == dict(mode=mode, request_id=request['request_id'])
+    for name, value in ENVIRONMENT.get(mode, {}).items():
+        assert os.environ[name] == value
+    print(state['request_id'])
+
+
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--child':
         child(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) > 1 and sys.argv[1] == '--source-child':
+        source_child(Path(sys.argv[2]))
     else:
         unittest.main()

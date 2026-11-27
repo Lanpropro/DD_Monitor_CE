@@ -15,7 +15,8 @@ def wall_state(host):
     return dict(layout=host.wall.layout_id, orientation=host.orientation, slots=slots,
                 playing=sum(row['state'] == 'playing' and not row['paused'] for row in slots),
                 picture_in_picture=host.picture_in_picture.active,
-                last_layout_change=host.last_layout_change)
+                last_layout_change=host.last_layout_change,
+                startup_diagnostics=getattr(host, 'startup_diagnostics', None))
 
 
 def settings_state(host):

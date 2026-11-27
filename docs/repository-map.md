@@ -188,7 +188,7 @@
 - `dev/selfcheck_sidebar_hit_test.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_control_swap.py`
-- `dev/diagnose_drag_windows.py`
+- `dev/startup_diagnostics.py`
 - `dev/diagnose_super_chat.py`
 - `dev/diagnose_danmaku_motion.py`
 - `dev/diagnose_notice_close.py`
@@ -286,7 +286,6 @@
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
 - `dev/selfcheck_playback_capture.py`
-- `dev/capture_playback.py`
 - `dev/selfcheck_browser_accounts.py`
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`

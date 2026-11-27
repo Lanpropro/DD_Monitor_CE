@@ -304,7 +304,7 @@ SelectControl由组合框继续持有唯一模型和选中值，关闭时仅绘�
 
 开播提醒在可见画面墙满员时，通过 `ddm/wall_replacement.py` 选择替换目标；选择、取消和鼠标事件属于 UI 层，实际换房复用 `ddm/room_placement.py` 的播放与录制协调。
 
-未决问题的显式专项入口由 `ddm/diagnostic_session.py` 统一安装；通知、弹幕数值运动和原生拖放采集分别位于 `notice_diagnostics.py`、`danmaku_diagnostics.py`、`drag_diagnostics.py`，原 `dev/diagnose_*` 保留兼容入口。独立诊断工具只在点击专项启动按钮后启动主软件，生成包时仅收集白名单已有日志，不自动采集或上传。
+开发诊断从本体 MCP 发起。运行中采集由本地管道按 PID 调度。启动专项由 `ddm/diagnostic_startup_request.py` 保存一次性请求，源码版 `main.py` 领取后交给 `dev/startup_diagnostics.py` 安装对应采集器。用户仍可从设置或独立工具导出已有诊断日志。
 
 直播状态和人数轮询的请求协调、完成回调及状态落地集中在 `ddm/room_status.py`；主窗口保留原入口，按调用时的构造器创建轮询线程，并继续持有 Qt 线程引用和关闭流程，兼容既有平台与检查替身。
 
