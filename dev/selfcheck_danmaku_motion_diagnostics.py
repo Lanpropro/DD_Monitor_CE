@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from ddm.danmaku_float_window import DanmakuFloatWindow
 from ddm.video_danmaku_quick import QuickDanmakuLayer
-from dev.diagnose_danmaku_motion import MotionTrace
+from ddm.danmaku_diagnostics import MotionTrace
 
 
 class MotionDiagnosticsTests(unittest.TestCase):

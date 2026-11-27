@@ -278,7 +278,7 @@ class NoticeCloseTests(unittest.TestCase):
             self.assertEqual(trace.count, count, 'Shutdown callbacks must not resume capture or touch deleted timers')
 
     def test_capture_is_read_only_bounded_and_does_not_record_notice_text(self):
-        from dev.diagnose_notice_close import NoticeCloseTrace
+        from ddm.notice_diagnostics import NoticeCloseTrace
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             trace = NoticeCloseTrace(Path(directory) / 'close.jsonl')
             stack.callback(trace.stop)

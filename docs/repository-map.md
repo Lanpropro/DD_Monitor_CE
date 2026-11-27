@@ -195,8 +195,6 @@
 - `dev/diagnose_control_swap.py`
 - `dev/startup_diagnostics.py`
 - `dev/diagnose_super_chat.py`
-- `dev/diagnose_danmaku_motion.py`
-- `dev/diagnose_notice_close.py`
 - `dev/selfcheck_notice_close.py`
 - `dev/selfcheck_danmaku_motion_diagnostics.py`
 - `dev/diagnose_wall_replacement.py`
