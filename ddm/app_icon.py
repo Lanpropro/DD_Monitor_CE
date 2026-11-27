@@ -28,16 +28,6 @@ def load_icon(style):
     return icon
 
 
-def icon_for_tray(style, window_icon):
-    if style != DEFAULT_STYLE:
-        return window_icon
-
-    from PySide6.QtGui import QIcon
-
-    icon = QIcon(str(RESOURCE_ROOT / 'assets/app-icons/character-tray.ico'))
-    return window_icon if icon.isNull() else icon
-
-
 def apply_icon(style, window=None):
     from PySide6.QtWidgets import QApplication
 
