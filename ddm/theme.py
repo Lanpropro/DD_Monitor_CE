@@ -1662,6 +1662,7 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     border-color: {ACCENT};
 }}
 #LayoutPresetBoard #LayoutCard:focus {{border-color: {ACCENT};}}
+#PictureInPicture {{background: #000;}}
 #PipRoomChoice {{
     background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px; padding: 0;

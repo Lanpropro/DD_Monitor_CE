@@ -488,17 +488,35 @@ class PictureInPicture(QObject):
             self._remove_extra(rid)
         self.selection = [wall.tiles.index(tile) for tile in selected if tile in wall.tiles]
         self.primary = wall.tiles.index(primary_tile) if primary_tile in wall.tiles else None
+        # Restore the main window while it still contains only the placeholder.
+        # Showing a minimized host after mounting the wall exposes every native pane twice.
+        if activate and self.host.isMinimized():
+            self.host.setWindowState(self.host.windowState() & ~Qt.WindowMinimized)
+        wall.hide()
         floating.box.removeWidget(wall)
         content = self.host._content.layout()
+        target_geometry = self.placeholder.geometry()
         content.removeWidget(self.placeholder)
         self.placeholder.hide()
         content.insertWidget(0, wall, 1)
         for tile, minimum in self._minimums.items():
             tile.setMinimumSize(minimum)
-        wall.set_picture_in_picture(None)
-        floating.hide()
-        floating.deleteLater()
-        wall.show()
+        # Resize and show events would each lay out native video and controls.
+        # Apply their final geometry once, under the restored wall.
+        previous = {tile: getattr(tile, '_presentation_changing', False) for tile in wall.tiles}
+        for tile in previous:
+            tile._presentation_changing = True
+        try:
+            wall.setGeometry(target_geometry)
+            wall.set_picture_in_picture(None)
+            floating.hide()
+            floating.deleteLater()
+            wall.show()
+        finally:
+            for tile, changing in previous.items():
+                tile._presentation_changing = changing
+        for tile in wall.tiles:
+            tile._layout_areas()
         self.host._tray.sync_picture_in_picture()
         self._sync_overlays()
         self.host.sidebar.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')

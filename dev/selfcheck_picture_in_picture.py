@@ -931,7 +931,15 @@ def exercise(app, window, native, directory):
     panel.rows[tiles[1]].mute.click()
     assert window.current_state()['wall'][1]['volume'] == 73
     panel.hide()
-    pip.restore()
+    target = pip.placeholder.geometry()
+    restore_layout = wall.set_picture_in_picture
+    def check_return_layout(selection):
+        assert selection is None and wall.isHidden()
+        assert wall.geometry() == target and wall.parentWidget() is window._content
+        return restore_layout(selection)
+    with patch.object(wall, 'set_picture_in_picture', side_effect=check_return_layout) as layout:
+        pip.restore()
+        layout.assert_called_once_with(None)
     QTest.qWait(100)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not pip.active and wall.parentWidget() is window._content
@@ -951,7 +959,13 @@ def exercise(app, window, native, directory):
     assert pip.active and pip.floating is not None
     QTest.qWait(80)
     assert tiles[0].y() < tiles[1].y() and tiles[0].x() == tiles[1].x()
-    pip.floating.tools.back.click()
+    attach = window._content.layout().insertWidget
+    def check_return_attach(*args):
+        assert not window.isMinimized(), 'Expose the main window before mounting native panes'
+        return attach(*args)
+    with patch.object(window._content.layout(), 'insertWidget', side_effect=check_return_attach) as mount:
+        pip.floating.tools.back.click()
+        mount.assert_called_once()
     QTest.qWait(80)
     assert not pip.active and window.isVisible()
     assert not window.isMinimized(), 'Closing PiP must restore the main window'
