@@ -338,6 +338,7 @@ class UpdateDownloadTests(unittest.TestCase):
         layout.addWidget(progress)
         surface.show()
         self.app.processEvents()
+        self.assertIsNone(progress.bar)
         original = progress.geometry()
         button_width, button_height = button.width(), button.height()
         state = dict(received=50 * 1024 * 1024, total=250 * 1024 * 1024,
