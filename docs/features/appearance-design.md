@@ -25,7 +25,7 @@
 
 ## 应用图标
 
-在「设置 → 外观 → 应用图标」切换「A · DD娘1」「B · DD娘2」或「C · 经典DDCE」。默认选中 A。选项自动保存并立即应用到运行中的窗口和系统托盘，重启后恢复选择。Windows 从 EXE 或安装器读取的文件图标使用 A。
+在「设置 → 外观 → 应用图标」切换「A · DD娘1」「B · DD娘2」或「C · 经典DDCE」。默认选中 A。选项自动保存并立即应用到运行中的窗口和系统托盘，重启后恢复选择。Windows 托盘使用留边更窄的 A 图案。Windows 从 EXE 或安装器读取的文件图标使用 A。
 
 图标资源由 `dev/tools/build_brand_assets.py` 生成。D 和 B 的图稿位于 `design/icon-concepts/`，F 沿用 `assets/logo.svg`。侧栏品牌图继续使用 `assets/logo.png`。
 

@@ -21,6 +21,8 @@ ASSET_ICO_PATH = REPO / "assets" / "favicon.ico"
 ROOT_ICO_PATH = REPO / "favicon.ico"
 CLASSIC_ICO_PATH = REPO / "assets/app-icons/classic.ico"
 BADGE_ICO_PATH = REPO / "assets/app-icons/badge.ico"
+TRAY_ICO_PATH = REPO / "assets/app-icons/character-tray.ico"
+TRAY_ICON_TRIM = 0.04
 CHARACTER_SOURCE = REPO / "design/icon-concepts/app-icon-character.png"
 BADGE_SOURCE = REPO / "design/icon-concepts/app-icon-badge.png"
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 128, 256)
@@ -62,10 +64,14 @@ def pack_ico(images: list[tuple[int, bytes]]) -> bytes:
     return header + b"".join(entries) + b"".join(payloads)
 
 
-def render_icon(source: Path) -> bytes:
+def render_icon(source: Path, *, trim: float = 0) -> bytes:
     image = QImage(str(source))
     if image.isNull() or image.width() != image.height():
         raise RuntimeError(f"invalid square icon source: {source}")
+    if trim:
+        inset = round(image.width() * trim)
+        side = image.width() - 2 * inset
+        image = image.copy(inset, inset, side, side)
     return pack_ico([
         (size, png_bytes(image.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)))
         for size in ICON_SIZES
@@ -86,6 +92,7 @@ def build() -> tuple[bytes, bytes]:
     CLASSIC_ICO_PATH.parent.mkdir(exist_ok=True)
     CLASSIC_ICO_PATH.write_bytes(classic_ico)
     BADGE_ICO_PATH.write_bytes(badge_ico)
+    TRAY_ICO_PATH.write_bytes(render_icon(CHARACTER_SOURCE, trim=TRAY_ICON_TRIM))
     ASSET_ICO_PATH.write_bytes(ico)
     ROOT_ICO_PATH.write_bytes(ico)
     return png, ico

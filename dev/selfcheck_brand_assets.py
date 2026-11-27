@@ -51,9 +51,11 @@ from ddm import app_icon
 
 default_ico = brand.render_icon(brand.CHARACTER_SOURCE)
 badge_ico = brand.render_icon(brand.BADGE_SOURCE)
+tray_ico = brand.render_icon(brand.CHARACTER_SOURCE, trim=brand.TRAY_ICON_TRIM)
 assert brand.PNG_PATH.read_bytes() == expected_png, "logo.png 必须由 logo.svg 生成"
 for path, expected in ((brand.ASSET_ICO_PATH, default_ico), (brand.ROOT_ICO_PATH, default_ico),
-                       (brand.BADGE_ICO_PATH, badge_ico), (brand.CLASSIC_ICO_PATH, classic_ico)):
+                       (brand.BADGE_ICO_PATH, badge_ico), (brand.CLASSIC_ICO_PATH, classic_ico),
+                       (brand.TRAY_ICO_PATH, tray_ico)):
     assert path.read_bytes() == expected, f"{path.name} 已过期"
     assert ico_sizes(expected) == list(brand.ICON_SIZES)
 
@@ -66,4 +68,14 @@ def pixels(style):
 assert len({pixels(style) for style in ('d', 'b', 'f')}) == 3
 for invalid in (None, 'invalid', ['b']):
     assert pixels(invalid) == pixels('d')
-print("品牌资源自检通过：三款应用图标可复现，每款包含", len(brand.ICON_SIZES), "种尺寸")
+def visible_pixels(icon, size):
+    image = icon.pixmap(size, size).toImage()
+    return sum(image.pixelColor(x, y).alpha() > 128 for y in range(size) for x in range(size))
+
+
+default_icon = app_icon.load_icon('d')
+tray_icon = app_icon.icon_for_tray('d', default_icon)
+for size in (16, 20, 24, 32):
+    assert visible_pixels(tray_icon, size) >= visible_pixels(default_icon, size) * 1.12, size
+
+print("品牌资源自检通过：三款应用图标和托盘专用图标可复现，每款包含", len(brand.ICON_SIZES), "种尺寸")
