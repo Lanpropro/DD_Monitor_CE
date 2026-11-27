@@ -134,6 +134,12 @@ async def set_layout(pid: int, layout: str) -> dict:
 
 
 @server.tool()
+async def set_pip_picker_visible(pid: int, visible: bool) -> dict:
+    """Open or dismiss the sidebar composition picker without starting or changing PiP playback."""
+    return await request(pid, 'pip_picker', visible=visible)
+
+
+@server.tool()
 async def open_picture_in_picture(pid: int, slots: list[int]) -> dict:
     """Open the selected occupied one-based wall slots in a PiP window."""
     return await request(pid, 'open_pip', slots=slots)

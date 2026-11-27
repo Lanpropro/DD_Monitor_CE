@@ -81,6 +81,10 @@ async def check_tools(pid, root):
         sidebar = await call('measure_sidebar_interactions', pid=pid, seconds=1)
         assert sidebar['pid'] == pid and sidebar['heartbeat']['idle']['intervals'] > 0
         assert not sidebar['phases'] and not sidebar['scroll'] and not any(sidebar['drag_outcomes'].values())
+        assert (await call('set_pip_picker_visible', pid=pid, visible=True))['visible']
+        assert (await call('set_pip_picker_visible', pid=pid, visible=True))['visible']
+        assert not (await call('set_pip_picker_visible', pid=pid, visible=False))['visible']
+        assert not (await call('get_state', pid=pid))['picture_in_picture']
         assert (await call('get_state', pid=pid))['slots'][0]['occupied']
         assert '2x2' in (await call('list_layouts', pid=pid))['builtin']
         assert (await call('set_layout', pid=pid, layout='2x2'))['state']['orientation'] == 'landscape'

@@ -164,8 +164,25 @@ class OnDemandTests(unittest.TestCase):
         socket.abort()
         self.wait(lambda: self.endpoint.active is None)
         self.assertTrue(observer.stopped.is_set())
+        self.assertFalse(observer.sampler.worker.is_alive())
         self.assertIs(NavItem._drag_pixmap, original)
         self.assertFalse(observer.scroll.connections)
+
+    def test_delay_stacks_belong_to_the_completed_heartbeat_only(self):
+        from ddm.heartbeat_stacks import HeartbeatStacks
+        sampler = HeartbeatStacks()
+        sampler.worker.start()
+        try:
+            deadline = time.monotonic() + 3
+            while not sampler.samples and time.monotonic() < deadline:
+                time.sleep(.01)
+            elapsed, samples = sampler.pulse(time.perf_counter())
+            self.assertGreaterEqual(elapsed, 45)
+            self.assertTrue(any(frame['function'] == self._testMethodName
+                                for sample in samples for frame in sample['stack']))
+            self.assertEqual(sampler.pulse(time.perf_counter())[1], [])
+        finally:
+            sampler.stop()
 
     def test_dock_hover_uses_bounded_capture_and_stops_on_disconnect(self):
         socket = self.request('dock-hover')
