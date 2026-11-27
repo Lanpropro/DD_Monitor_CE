@@ -14,7 +14,7 @@ def wall_state(host):
     return dict(layout=host.wall.layout_id, orientation=host.orientation, slots=slots,
                 playing=sum(row['state'] == 'playing' and not row['paused'] for row in slots),
                 picture_in_picture=host.picture_in_picture.active,
-                last_layout_change=host.window_layout.last_change)
+                last_layout_change=host.last_layout_change)
 
 
 def dispatch(host, request):
