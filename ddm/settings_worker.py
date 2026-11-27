@@ -22,9 +22,9 @@ def run_worker():
     import tempfile
     import threading
     from PySide6.QtCore import QEvent, Qt
-    from PySide6.QtGui import QIcon, QWindow
+    from PySide6.QtGui import QWindow
     from PySide6.QtWidgets import QApplication, QCheckBox, QLabel, QVBoxLayout, QWidget
-    from . import config, theme
+    from . import app_icon, config, theme
     from .dialogs import SettingsDialog
     from .shortcut_actions import SHORTCUT_ACTIONS
 
@@ -34,10 +34,7 @@ def run_worker():
     performance = install('worker')
     from .localization import install_chinese_translations
     install_chinese_translations(app)
-    for icon_path in (Path(config.REPO) / 'assets/favicon.ico', Path(config.REPO) / 'favicon.ico'):
-        if icon_path.is_file():
-            app.setWindowIcon(QIcon(str(icon_path)))
-            break
+    app_icon.apply_icon(app_icon.DEFAULT_STYLE)
 
     def send(message):
         print(host_api.PREFIX + json.dumps(message), flush=True)
@@ -307,6 +304,8 @@ def run_worker():
                 theme.apply(message['mode'])
             elif kind == 'host-settings' and self.dialog is not None:
                 values = message.get('values') or {}
+                if 'app_icon_style' in values:
+                    app_icon.apply_icon(values['app_icon_style'], self.dialog)
                 self.dialog.host_values.update(values)
                 self.dialog.initial_settings.update(values)
                 self.dialog.auto_save.adopt('settings', values)
@@ -338,6 +337,7 @@ def run_worker():
                 dialog.select_page(message.get('page'))
                 QTimer.singleShot(0, dialog, lambda: self.activate(dialog))
             elif kind == 'open' and self.dialog is None:
+                app_icon.apply_icon(message['settings'].get('app_icon_style'))
                 mode = theme.normalize_mode(message['settings'].get('appearance_mode'))
                 theme.configure_appearance(message['settings'])
                 theme.apply(mode)

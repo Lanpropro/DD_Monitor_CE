@@ -631,7 +631,7 @@ exit /b %errorlevel%
 :trayMenuCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "TRAY_CHECK_FAILED="
-for %%T in (SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests TrayMenuChoicesTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
+for %%T in (SystemTrayTests.test_window_icon_changes_update_the_tray SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests TrayMenuChoicesTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
     "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_system_tray -- %%T
     if errorlevel 1 set "TRAY_CHECK_FAILED=1"
 )

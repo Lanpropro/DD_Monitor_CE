@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEvent, QLoggingCategory, QProcess,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
-from PySide6.QtGui import QCursor, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QMediaDevices
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from . import bili
+from . import app_icon, bili
 from . import config as config_module
 from . import diagnostics, qt_lifecycle
 from . import layouts
@@ -229,6 +229,7 @@ class MainWindow(QMainWindow):
                 if saved_settings["video_danmaku_outline"] else 0)
             self.settings.pop("video_danmaku_outline", None)
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
+        self.settings["app_icon_style"] = app_icon.normalize_style(self.settings.get("app_icon_style"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
         theme.configure_appearance(self.settings)
@@ -1673,14 +1674,10 @@ def main(argv: list[str] | None = None) -> int:
     install_chinese_translations(app)
     app.setApplicationName(version_module.DISPLAY_NAME)
     app.setStyleSheet(theme.qss())
-    for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
-                      os.path.join(config_module.REPO, "favicon.ico")):
-        if os.path.isfile(icon_path):        # 有图标文件就用，没有也不影响启动
-            app.setWindowIcon(QIcon(icon_path))
-            break
-
     state = config_module.load()
-    theme.apply((state.get("settings") or {}).get("appearance_mode", "dark"))
+    saved_settings = state.get("settings") or {}
+    app_icon.apply_icon(saved_settings.get("app_icon_style"))
+    theme.apply(saved_settings.get("appearance_mode", "dark"))
     from .user_notice import confirm_user_notice
     confirm_user_notice(state)
     from .update_install import clean_previous

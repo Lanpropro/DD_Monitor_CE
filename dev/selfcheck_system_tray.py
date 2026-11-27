@@ -28,6 +28,10 @@ class FakeTray(QObject):
         super().__init__(parent)
         self.visible = False
         self.messages = []
+        self.current_icon = icon
+
+    def setIcon(self, icon):
+        self.current_icon = icon
 
     @classmethod
     def isSystemTrayAvailable(cls):
@@ -73,6 +77,15 @@ class SystemTrayTests(unittest.TestCase):
                 window._tray.request_exit()
             window.deleteLater()
         self.app.processEvents()
+
+    def test_window_icon_changes_update_the_tray(self):
+        from ddm import app_icon
+
+        window = self.window()
+        for style in ('b', 'f', 'd'):
+            icon = app_icon.load_icon(style)
+            window.setWindowIcon(icon)
+            self.assertEqual(window._tray.icon.current_icon.cacheKey(), icon.cacheKey())
 
     def window(self, behavior='ask', state=None, layout_id='1x1'):
         state = state or {'plugins_enabled': [], 'settings': {'close_behavior': behavior}}

@@ -4,6 +4,10 @@
 
 已发布内容见 [v0.9.1 发布说明](RELEASE-v0.9.1.md) 和[发布时的完整开发记录](https://github.com/Lanpropro/DD_Monitor_CE/blob/v0.9.1/docs/releases/UNRELEASED.md)。配套插件的 [DDCut #161](https://github.com/Lanpropro/DD_Monitor_CE/pull/161) 和[同传 #234](https://github.com/Lanpropro/DD_Monitor_CE/pull/234) 等各自插件验收后再处理。
 
+## 应用图标选择（待人工验收）
+
+- 本体默认使用 D 蓝发金瞳。可在「设置 → 外观 → 应用图标」切换为 B 三角徽章或 F 经典 DD CE，运行中的窗口和系统托盘立即更新，重启后保留选择。
+
 ## 插件接管本体录制设置（暂缓）
 
 - 兼容插件接管本体录制设置留待后续版本，等配套插件验收一并处理。

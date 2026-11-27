@@ -142,8 +142,11 @@ class SystemTray(QObject):
             self._layout_snapshot = capture_layout(self.window.wall)
 
     def eventFilter(self, watched, event):
-        if watched is self.window and event.type() == QEvent.WindowStateChange and self.window.isMinimized():
-            self.remember_layout()
+        if watched is self.window:
+            if event.type() == QEvent.WindowStateChange and self.window.isMinimized():
+                self.remember_layout()
+            elif event.type() == QEvent.WindowIconChange and self.icon is not None:
+                self.icon.setIcon(self.window.windowIcon())
         return False
 
     def _restore_from_preview(self):
