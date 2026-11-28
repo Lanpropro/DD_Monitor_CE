@@ -248,7 +248,8 @@ def check_quick_occlusion(app):
     unrelated = QWidget()
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
-    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _presentation_window=None)
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(),
+                            _presentation_window=None, _child_occlusion=QRegion())
     layer._occluding_widgets = lambda: QuickDanmakuLayer._occluding_widgets(layer)
     layer._stack_below_floats = lambda widgets, settings: QuickDanmakuLayer._stack_below_floats(layer, widgets, settings)
     try:
@@ -1094,9 +1095,9 @@ def check_shared_canvas_interval():
         overlay._start_timer()
         assert overlay.timer.interval() == 16
         overlay._stop_timer()
-        overlay.set_native_video(True)
+        overlay.set_native_video(True, allow_quick=False)
         overlay._start_timer()
-        assert overlay.timer.interval() == 4
+        assert overlay.timer.interval() == 16
         overlay._stop_timer()
     overlay.close()
 
