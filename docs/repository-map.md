@@ -47,6 +47,15 @@
 
 ### 应用图标图稿
 
+- `design/character-concepts/粉发助手-DD星夜贴纸-B站小电视-v1.png`
+- `design/character-concepts/蓝灰发助手-DD休闲装Q版小人-v2.png`
+- `design/character-concepts/蓝灰发助手-DD休闲装比耶场景-v2.png`
+- `design/character-concepts/蓝灰发助手-DD全身Q版小人-v1.png`
+- `design/character-concepts/蓝灰发助手-DD星夜图标-B站小电视-v1.png`
+- `design/character-concepts/蓝灰发助手-DD比耶场景替换-v1.png`
+- `design/character-concepts/蓝灰发助手-DD简洁手绘图标-v2.png`
+- `design/icon-concepts/倒三角-Monitoring拼接图标-v1.png`
+
 - `design/icon-concepts/app-icon-badge.png`
 - `design/icon-concepts/app-icon-character.png`
 
@@ -85,6 +94,10 @@
 - `.github/workflows/issue-reproducibility.yml`
 
 ### 专项检查脚本
+
+- `dev/selfcheck_match_dev_launch.py`
+- `dev/selfcheck_quick_child_occlusion.py`
+- `dev/selfcheck_wall_replay.py`
 
 - `dev/selfcheck_image_cache.py`
 - `dev/selfcheck_picture_in_picture.py`
@@ -489,6 +502,9 @@
 
 ### 构建、维护与复现工具
 
+- `dev/match_gui_dispatch.py`
+- `dev/match_quick_trial.py`
+
 - `dev/benchmark_match_sync_ocr.ps1`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
@@ -523,6 +539,8 @@
 - `dev/selfcheck_documents.py`
 
 ### 版本说明
+
+- `docs/releases/RELEASE-v1.0.md`
 
 - `docs/releases/README.md`
 - `docs/releases/RELEASE-v0.1.md`

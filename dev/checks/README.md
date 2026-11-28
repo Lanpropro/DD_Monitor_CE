@@ -452,3 +452,11 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | --- | --- |
 | [selfcheck_settings_diagnostics](../selfcheck_settings_diagnostics.py) | 离屏单项；临时安装、实际C#后端导出、设置默认值、关闭清理、生命周期；不读取账号，不复现真实故障 |
 | [selfcheck_native_diagnostics](../selfcheck_native_diagnostics.py) | Windows单项；需要MSVC x64，受控原生子进程异常/退出码、模块偏移栈、显式转储有效性；不代表复现issue222 |
+
+
+### 开发启动与原生子窗口
+
+| 检查 | 范围 |
+| --- | --- |
+| [selfcheck_match_dev_launch](../selfcheck_match_dev_launch.py) | 专项检查开发插件启动路径，使用隔离数据，不打开直播。 |
+| [selfcheck_quick_child_occlusion](../selfcheck_quick_child_occlusion.py) | 专项检查 Qt Quick 遮罩随原生子窗口移动的区域，不播放视频。 |

@@ -4,8 +4,8 @@
 `UPDATE_REVISION` 记录该源码已包含的同版本热修复。
 """
 
-VERSION = "0.9.1"
+VERSION = "1.0"
 VERSION_TAG = f"v{VERSION}"
-UPDATE_REVISION = 1
+UPDATE_REVISION = 0
 #: 界面/窗口标题/发布包都认这一个名字（用户 2026-09-18：改成 DD监控室CE）
 DISPLAY_NAME = "DD监控室CE"
