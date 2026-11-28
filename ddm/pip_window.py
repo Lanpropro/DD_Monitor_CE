@@ -121,7 +121,6 @@ class PictureInPictureWindow(QWidget):
         self.setWindowTitle('画中画 · DD监控室CE')
         self.setObjectName('PictureInPicture')
         self.setAttribute(Qt.WA_StyledBackground)
-        self.setStyleSheet('#PictureInPicture { background: #000; }')
         self.setFocusPolicy(Qt.StrongFocus)
         self.aspect = 16 / 9
         self._native_rounding = False
