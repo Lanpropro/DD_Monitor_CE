@@ -131,6 +131,9 @@ class SuperChatOverlay(BadgeSurface):
         rects = self.card_rects()
         if not rects:
             return
+        self._position_surface(owner, rects)
+
+    def _position_surface(self, owner, rects):
         viewport = self._stack_viewport.toAlignedRect()
         bounds = viewport.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
@@ -199,7 +202,7 @@ class SuperChatOverlay(BadgeSurface):
                               if key in self.presentation.ids}
         self._refresh()
 
-    def _refresh(self):
+    def _refresh(self, *, drag_origin=None):
         owner = self._video_danmaku
         if owner is None:
             return
@@ -209,8 +212,15 @@ class SuperChatOverlay(BadgeSurface):
             parent = owner.parentWidget() or owner
             visible = (visible and parent.isVisible() and not parent.window().isMinimized()
                        and QApplication.activeModalWidget() is None)
+        translate = (drag_origin is not None and self.qt_composited
+                     and len(self.chats) == 1 and not self._stack_maximum)
         if self.chats:
-            self.sync(owner)
+            if translate:
+                # A single card that fits exactly occupies the stack viewport.
+                self._stack_viewport.moveTopLeft(drag_origin)
+                self._position_surface(owner, [self._stack_viewport])
+            else:
+                self.sync(owner)
             for chat, button in zip(self.chats, self.close_buttons):
                 colour = SC_USER_COLOR
                 style = ('QPushButton {background:transparent;border:0;'
@@ -221,7 +231,10 @@ class SuperChatOverlay(BadgeSurface):
         if visible and not was_visible:
             self.raise_()
         self._refresh_quick_mask()
-        self.update()
+        # Qt moves the translucent tool window with its existing pixels. Content
+        # changes (including entrance, expiry and resize) still request a repaint.
+        if not translate:
+            self.update()
 
     def set_presentation_changing(self, active):
         self._presentation_changing = bool(active)
@@ -266,10 +279,12 @@ class SuperChatOverlay(BadgeSurface):
         delta = event.globalPosition() - self._press_global
         if not self._moved and abs(delta.x()) + abs(delta.y()) < QApplication.startDragDistance():
             return
+        first_move = not self._moved
         self._moved = True
         self.presentation.entrance.stop()
         self.presentation.progress = 1.0
         owner = self._video_danmaku
+        drag_origin = None
         if self._gesture == 'resize':
             dx = delta.x() * self._corner_sign[0] / max(1, self._start_extent.width())
             dy = delta.y() * self._corner_sign[1] / max(1, self._start_extent.height())
@@ -278,14 +293,20 @@ class SuperChatOverlay(BadgeSurface):
             owner.settings['super_chat_video_scale'] = value
             owner.settings['super_chat_scale'] = value
         else:
-            self._place_at(self._start_origin + delta)
+            previous = owner.settings.get('super_chat_position')
+            origin = self._place_at(self._start_origin + delta)
+            if not first_move and previous == owner.settings['super_chat_position']:
+                event.accept()
+                return
             self.setCursor(Qt.ClosedHandCursor)
-        self._refresh()
+            if not first_move:
+                drag_origin = origin
+        self._refresh(drag_origin=drag_origin)
         event.accept()
 
     def _place_at(self, point):
         owner = self._video_danmaku
-        self.card_rects()
+        # Press and every layout refresh already measured the current viewport.
         width, height = self._stack_viewport.width(), self._stack_viewport.height()
         spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
         values = []
@@ -297,6 +318,7 @@ class SuperChatOverlay(BadgeSurface):
                 value = span
             values.append(round(value / span, 6) if span else 0.0)
         owner.settings['super_chat_position'] = values
+        return QPointF(10 + spans[0] * values[0], 10 + spans[1] * values[1])
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or self._gesture is None:

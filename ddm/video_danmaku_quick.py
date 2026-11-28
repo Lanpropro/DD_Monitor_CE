@@ -565,6 +565,13 @@ class QuickDanmakuLayer(QObject):
         if group is not None:
             group.setProperty("rounded", bool(rounded))
 
+    def clips_sc_window(self, overlay):
+        # _update_occlusion already cuts owned top-level windows out of the
+        # entire Quick surface. Other presentation owners need a per-tile hole.
+        return (overlay.isWindow() and not overlay.testAttribute(Qt.WA_DontShowOnScreen)
+                and not overlay.property('behindFullscreen')
+                and _owned_by(overlay, self.parent.window()))
+
     def set_group_mask(self, identifier, image):
         group = self.groups.get(identifier)
         if group is None:
