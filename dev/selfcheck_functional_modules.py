@@ -248,6 +248,8 @@ class FunctionalModulesTests(unittest.TestCase):
                 if name == 'raster_control':
                     expected.update(motion_flush_timer=None, pending_motion_damage=None,
                                     joined_motion_updates=0, standalone_motion_updates=0)
+                if name == 'surface_control':
+                    expected['windowed_occluders'] = None
                 self.assertEqual(vars(control), expected)
         self.assertIs(VideoDanmaku._paint_super_chat, _paint_super_chat)
         self.assertIs(video.timer.parent(), video)

@@ -448,8 +448,13 @@ def main():
             mask_key = layer.group_masks[overlay._quick_group]
             mask_image = layer.images.images[mask_key]
             scale = mask_image.devicePixelRatioF()
-            assert mask_image.pixelColor(round(card_point.x() * scale),
-                                         round(card_point.y() * scale)).alpha() == 0, \
+            texture_hole = mask_image.pixelColor(round(card_point.x() * scale),
+                                                 round(card_point.y() * scale)).alpha() == 0
+            native_mask = layer.window.mask()
+            card_in_window = layer.window.mapFromGlobal(overlay.mapToGlobal(card_point.toPoint()))
+            native_hole = (QRect(QPoint(), layer.window.size()).contains(card_in_window) and
+                           not native_mask.isEmpty() and not native_mask.contains(card_in_window))
+            assert texture_hole or native_hole, \
                 "Quick 遮罩必须给固定 SC 卡片留出透明区域"
             normal_comment_point = target.video_danmaku.comments[0]
             normal_y = normal_comment_point.lane * overlay.lane_height()
