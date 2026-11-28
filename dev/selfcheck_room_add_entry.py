@@ -188,6 +188,7 @@ class AddRoomEntryTests(unittest.TestCase):
 
     def host(self):
         host = self.own(QWidget())
+        host.wall = SimpleNamespace(tiles=[])
         host._closing = False
         host._platform_info_running = set()
         host.sidebar = SimpleNamespace(rooms=lambda: [dict(room_id='old')])

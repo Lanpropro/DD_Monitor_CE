@@ -278,6 +278,7 @@ class TileState:
 
     def set_live(self, live: bool, viewers: str = "") -> None:
         host = self.host
+        previous_live = host.room.get("live")
         host.room["live"] = live
         if viewers:
             host.room["viewers"] = viewers
@@ -285,6 +286,8 @@ class TileState:
             host.room.pop("online", None)      # 下播后旧的在线人数不能再留着显
             host.stop_elapsed_timer()          # 右下角的时长浮标也立刻收掉
         host._refresh_badge()
+        if previous_live != live:
+            host._layout_cover()
 
     def set_uname_title(self, uname: str, title: str) -> None:
         """补上主播名/标题：启动占位后由状态刷新补齐（悬停浮标显示用）。"""

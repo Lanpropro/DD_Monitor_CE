@@ -1,5 +1,4 @@
 """Followed room collection, asynchronous add/remove and platform activation; original window owns state."""
-from PySide6.QtCore import QTimer, Qt
 
 
 ROOM_ADD_TIMEOUT_MS = 30_000
@@ -7,6 +6,7 @@ ROOM_ADD_TIMEOUT_MS = 30_000
 
 class RoomAddAttempt:
     def __init__(self, panel, on_timeout):
+        from PySide6.QtCore import QTimer
         self.panel = panel
         self.active = True
         self.timer = QTimer(panel)
@@ -270,6 +270,7 @@ class RoomCatalog:
         else:
             panel.show_error(message)
             if panel.isVisible():
+                from PySide6.QtCore import Qt
                 panel.entry.setFocus(Qt.OtherFocusReason)
             else:
                 self._clear_add_target()
