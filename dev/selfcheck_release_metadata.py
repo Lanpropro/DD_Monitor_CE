@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,6 +30,10 @@ def main():
     title, _, body = notes.partition('\n')
     assert title == f'# DD监控室CE {version.VERSION_TAG} 更新说明'
     assert body.strip(), 'Current release notes must have a body'
+    client = MagicMock()
+    client.get.return_value.__enter__.return_value.json.return_value = {
+        'tag_name': version.VERSION_TAG, 'body': notes.replace('\n', '\r\n')}
+    assert online.release_notes(client, version.VERSION) == notes, 'Update page must return the full reviewed text'
     for heading in ('画面墙与播放', '主播监控与录制', '设置与交互'):
         assert f'## {heading}\n' in body
     body = (root / 'docs/releases/RELEASE-v0.9.1.md').read_text(encoding='utf-8')
