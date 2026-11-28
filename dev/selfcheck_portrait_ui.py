@@ -85,7 +85,7 @@ class PortraitUiTests(unittest.TestCase):
     def test_compact_header_keeps_essential_access_in_both_collapse_states(self):
         previous = dict(theme._preferences)
         self.addCleanup(theme.configure_appearance, previous)
-        for font_size, width in ((13, 360), (13, 450), (13, 480), (13, 720), (13, 1000), (20, 450), (20, 480), (20, 720), (20, 1000), (13, 480)):
+        for font_size, width in ((13, 360), (13, 420), (13, 450), (13, 480), (13, 720), (13, 1000), (20, 450), (20, 480), (20, 720), (20, 1000), (13, 480)):
             theme.configure_appearance({'appearance_font_size': font_size})
             self.host.setStyleSheet(theme.qss())
             self.portrait(width)
@@ -105,10 +105,15 @@ class PortraitUiTests(unittest.TestCase):
                     self.assertTrue(widget.isVisible(), (width, collapsed, widget.accessibleName()))
                     self.assertTrue(self.sidebar.rect().contains(widget.mapTo(
                         self.sidebar, widget.rect().bottomRight())), (width, collapsed, widget.geometry()))
-                ordered = [self.sidebar.navigation.follow_button, self.sidebar.workspace_controls.launcher, self.sidebar.layout_button,
-                           self.sidebar.picture_in_picture_button, self.sidebar.clear_wall_button,
-                           self.sidebar.notification_button, self.sidebar.appearance_button,
-                           self.sidebar.settings_button, self.sidebar.account_row]
+                ordered = [self.sidebar.navigation.follow_button, self.sidebar.workspace_controls.launcher,
+                           self.sidebar.layout_button, self.sidebar.wall_settings_button]
+                if width >= 420:
+                    ordered.append(self.sidebar.replay_button)
+                ordered.extend((self.sidebar.picture_in_picture_button, self.sidebar.clear_wall_button,
+                                self.sidebar.notification_button, self.sidebar.appearance_button,
+                                self.sidebar.settings_button, self.sidebar.account_row))
+                if collapsed:
+                    ordered.append(self.sidebar.navigation.collapsed_add_button)
                 for previous_button, next_button in zip(ordered, ordered[1:]):
                     right = previous_button.mapTo(self.sidebar, previous_button.rect().bottomRight()).x()
                     left = next_button.mapTo(self.sidebar, next_button.rect().topLeft()).x()
@@ -187,8 +192,10 @@ class PortraitUiTests(unittest.TestCase):
         for width in (360, 450, 720):
             self.portrait(width)
             row = sidebar.presentation_control.orientation.portrait.controls
-            tools = (sidebar.search, nav.filters, nav.folder_toggle_button, sidebar.batch_button,
-                     sidebar.refresh_button, sidebar.toggle_button, nav.add_button, nav.manage_button)
+            tools = [sidebar.search, nav.filters, nav.folder_toggle_button, sidebar.batch_button, sidebar.refresh_button]
+            if width < 420:
+                tools.append(sidebar.replay_button)
+            tools.extend((sidebar.toggle_button, nav.add_button, nav.manage_button))
             for button in tools:
                 self.assertTrue(button.isVisible() and row.rect().contains(button.geometry()), (width, button.geometry()))
             for left, right in zip(tools, tools[1:]):

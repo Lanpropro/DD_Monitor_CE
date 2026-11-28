@@ -63,10 +63,10 @@ class NavigationButton(QPushButton):
         self._label = text
         super().setText('' if self._navigation_mode else text)
 
-    def set_navigation_mode(self, enabled):
+    def set_navigation_mode(self, enabled, width=34):
         if (enabled and self._navigation_mode and self.objectName() == 'NavigationButton'
                 and getattr(self, '_navigation_dock_rail', None) == self.property('dockRail')
-                and self.minimumSize() == self.maximumSize() == QSize(34, 34)
+                and self.minimumSize() == self.maximumSize() == QSize(width, 34)
                 and self.sizePolicy().horizontalPolicy() == QSizePolicy.Fixed
                 and self.sizePolicy().verticalPolicy() == QSizePolicy.Fixed
                 and not self.text()):
@@ -76,7 +76,7 @@ class NavigationButton(QPushButton):
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
         if enabled:
-            self.setFixedSize(34, 34)
+            self.setFixedSize(width, 34)
         self.setSizePolicy(QSizePolicy.Fixed if enabled else QSizePolicy.Preferred, QSizePolicy.Fixed)
         super().setText('' if enabled else self._label)
         self.style().unpolish(self)
