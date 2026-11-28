@@ -481,7 +481,7 @@ class Sidebar(QFrame):
 
     def contextMenuEvent(self, event) -> None:
         child = self.childAt(event.pos())
-        if child is None or child in (self._head_strip, self._head_scroll.viewport(), self.scroll.viewport()):
+        if child is None or child in (self._column, self._head_strip, self._head_scroll.viewport(), self.scroll.viewport()):
             self._folder_create_menu().exec_context(event)
             event.accept()
         else:
