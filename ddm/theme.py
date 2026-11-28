@@ -301,7 +301,7 @@ _THUMB_TEXT_SELECTORS = ('NavThumbCover', 'NavThumbHint')
 _THEME_SELECTORS = frozenset((*_THUMB_TEXT_SELECTORS, 'NavigationButton', 'BadgeOff', 'Search',
     'DanmakuInput', 'PrimaryButton', 'Sidebar', 'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom',
     'TilePlaceholder', 'TileVolumePopup', 'PauseOverlay', 'DanmakuHeader', 'DanmakuCount',
-    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid', 'HistoryNoticeGlyph'))
+    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'BiliVolumeButton', 'WallGrid', 'HistoryNoticeGlyph'))
 _signals = None
 _preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
 _applied_typography = None
@@ -448,38 +448,44 @@ def _conditional_light_style(style):
     return ''.join(rules)
 
 
+@lru_cache(maxsize=32)
+def _tile_button_style(selector, overlay, light):
+    ink = '#202630' if light else '#e7ebf0'
+    rgb = '32, 38, 48' if light else '231, 235, 240'
+    idle = '#15171c' if overlay else 'transparent'
+    hover = '#282c33' if overlay else f'rgba({rgb}, 0.15)'
+    pressed = '#1d2026' if overlay else f'rgba({rgb}, 0.27)'
+    return f'''
+        {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
+        {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
+        {selector}[playbackPopupOpen="true"]:!disabled {{
+            background: {hover}; color: {ink};
+        }}
+        {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
+        {selector}[overVideo="true"] {{color: #ffffff;}}
+        {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
+        {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
+            background: rgba(231, 235, 240, 0.15); color: #ffffff;
+        }}
+        {selector}[overVideo="true"]:!disabled:pressed {{
+            background: rgba(231, 235, 240, 0.27); color: #ffffff;
+        }}
+        {selector}[recording="true"]:!disabled {{color: #e5484d;}}
+        {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
+        {selector}:disabled {{background: {idle}; color: palette(placeholder-text);}}
+        {selector}[refreshing="true"]:disabled {{background: {idle if overlay else hover};}}
+    '''
+
+
 def _light_style(widget):
     name = widget.objectName()
     if widget.property('tileButton'):
         selector = f'#{name}[tileButton="true"]'
         parent = widget.parentWidget()
-        overlay = parent is not None and parent.objectName() == 'TileControls'
-        light = _light and not overlay
-        ink = '#202630' if light else '#e7ebf0'
-        rgb = '32, 38, 48' if light else '231, 235, 240'
-        idle = '#15171c' if overlay else 'transparent'
-        hover = '#282c33' if overlay else f'rgba({rgb}, 0.15)'
-        pressed = '#1d2026' if overlay else f'rgba({rgb}, 0.27)'
-        return f'''
-            {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
-            {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
-            {selector}[playbackPopupOpen="true"]:!disabled {{
-                background: {hover}; color: {ink};
-            }}
-            {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
-            {selector}[overVideo="true"] {{color: #ffffff;}}
-            {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
-            {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
-                background: rgba(231, 235, 240, 0.15); color: #ffffff;
-            }}
-            {selector}[overVideo="true"]:!disabled:pressed {{
-                background: rgba(231, 235, 240, 0.27); color: #ffffff;
-            }}
-            {selector}[recording="true"]:!disabled {{color: #e5484d;}}
-            {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
-            {selector}:disabled {{background: {idle}; color: palette(placeholder-text);}}
-            {selector}[refreshing="true"]:disabled {{background: {idle if overlay else hover};}}
-        '''
+        if parent is not None and parent.objectName() == 'TileControls':
+            return _tile_button_style(selector, True, False)
+        return (_tile_button_style(selector + '[appearanceLight="false"]', False, False) +
+                _tile_button_style(selector + '[appearanceLight="true"]', False, True))
     if name == 'TileToggle':
         return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'DanmakuComposer':
