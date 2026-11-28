@@ -34,7 +34,7 @@ def main():
     client.get.return_value.__enter__.return_value.json.return_value = {
         'tag_name': version.VERSION_TAG, 'body': notes.replace('\n', '\r\n')}
     assert online.release_notes(client, version.VERSION) == notes, 'Update page must return the full reviewed text'
-    for heading in ('画面墙与播放', '主播监控与录制', '设置与交互'):
+    for heading in ('画面墙与播放', '主播监控与录制', '设置与交互', '性能与交互优化'):
         assert f'## {heading}\n' in body
     body = (root / 'docs/releases/RELEASE-v0.9.1.md').read_text(encoding='utf-8')
     sections = ('## 0.9.1 hotfix.1\n', '## 0.9.1 首发正文\n')
