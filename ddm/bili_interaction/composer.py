@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from ddm import theme
 from . import bili_api as bili
 from .emoticons import EmoticonButton, EmoticonPopup, _style_button
+from .recent_emoticons import RecentEmoticons
 from .gift_popup import GiftButton, GiftPopup
 from .gift_controller import GiftController, GiftCoordinator
 from .catalog_cache import CatalogCache, preview_packages
@@ -54,11 +55,13 @@ class DanmakuComposer(QWidget):
     deviceCookieReady = Signal()
     HEIGHT = 26
 
-    def __init__(self, session, parent=None, *, coordinator=None, catalog_cache=None, notifier=None):
+    def __init__(self, session, parent=None, *, coordinator=None, catalog_cache=None, notifier=None,
+                 recent=None):
         super().__init__(parent)
         self.coordinator = coordinator if coordinator is not None else GiftCoordinator(self)
         self.gift_controller = self.gift_popup = None
         self.session = session
+        self.recent = recent if recent is not None else RecentEmoticons()
         self.catalog_cache = catalog_cache if catalog_cache is not None else CatalogCache()
         self._requests = set()
         self.session.changed.connect(self._session_changed)
@@ -100,7 +103,7 @@ class DanmakuComposer(QWidget):
         self.emote_button = EmoticonButton()
         self.emote_button.setAccessibleName("选择直播间表情")
         self.emote_button.setToolTip("选择表情；大表情点击后直接发送")
-        self.emote_button.clicked.connect(self.open_emoticons)
+        self.emote_button.clicked.connect(self._toggle_emoticons)
         row.addWidget(self.emote_button)
         self.gift_button = GiftButton()
         self.gift_button.clicked.connect(self.open_gifts)
@@ -233,8 +236,11 @@ class DanmakuComposer(QWidget):
             self._feedback("请先登录 B 站" if not cookies.get("SESSDATA") else
                            "登录缺少 bili_jct，请退出 B 站账号后重新登录", error="请重新登录 B 站", login_required=True)
             return
-        context = (*self._context(), self._revision, dm_type)
+        keys = self.recent.sent_keys(message, dm_type, self._packages or [])
+        context = (*self._context(), self._revision, dm_type, keys)
         self._pending = context
+        if dm_type == 0 and self.popup:
+            self.popup.hide()
         self._feedback("正在检测表情权限…" if check_emoticon else "正在发送…")
         self._update_buttons()
         room_id = self._room_id
@@ -295,7 +301,9 @@ class DanmakuComposer(QWidget):
     def _sent(self, context, _result):
         self.deviceCookieReady.emit()
         if self._finish_send(context):
-            if context[4] == 0 and context[3] == self._revision:
+            revision, dm_type, sent_emotes = context[3:]
+            self.recent.record(sent_emotes)
+            if dm_type == 0 and revision == self._revision:
                 self.edit.clear()
             self._feedback("")
 
@@ -313,16 +321,23 @@ class DanmakuComposer(QWidget):
         return self._pending is not None
 
     def choose_emoticon(self, pkg_type, emote):
-        if self._closing:
+        if self._closing or self.busy:
             return
         self.sync_credentials()
         if emote.get("perm") != 1:
             return
         if pkg_type == 3:
             self.edit.insert(str(emote.get("emoji") or ""))
+            self.edit.window().activateWindow()
+            self.edit.setFocus(Qt.OtherFocusReason)
         elif pkg_type in (1, 2, 5) and emote.get("emoticon_unique"):
             self._send(str(emote["emoticon_unique"]), 1)
-        self.edit.setFocus(Qt.OtherFocusReason)
+
+    def _toggle_emoticons(self):
+        if self.popup and self.popup.isVisible():
+            self.popup.hide()
+        else:
+            self.open_emoticons()
 
     def open_emoticons(self, _checked=False,*,force=False):
         if self.gift_popup:
@@ -335,7 +350,7 @@ class DanmakuComposer(QWidget):
             self._feedback("请先登录 B 站后选择表情",error="请先登录 B 站后选择表情",login_required=True)
             return
         if self.popup is None:
-            self.popup = EmoticonPopup(self)
+            self.popup = EmoticonPopup(self, recent=self.recent)
             self.popup.selected.connect(self._choose_cached_emoticon)
             self.popup.retryRequested.connect(self._reload_emoticons)
         if not force or not self.popup.isVisible():self.popup.open_at(self.emote_button)

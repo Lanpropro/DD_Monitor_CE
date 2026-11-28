@@ -277,7 +277,8 @@ if __name__ == '__main__':
             'selfcheck_player_lifetime', 'selfcheck_playback_recovery', 'selfcheck_stream_playback', 'selfcheck_codec_control',
             'selfcheck_main_notices', 'selfcheck_widget_lifetime',
             'selfcheck_notification_center', 'selfcheck_layout_16',
-            'selfcheck_bili_plugin_boundary', 'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
+            'selfcheck_bili_plugin_boundary', 'selfcheck_bili_builtin_recent',
+            'selfcheck_plugin_contract', 'selfcheck_frequent_sort',
             'selfcheck_system_tray'])
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
         for text in ('name: Functional smoke', 'python -m pip install -r requirements.txt',

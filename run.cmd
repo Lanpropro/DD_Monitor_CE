@@ -507,6 +507,8 @@ exit /b %errorlevel%
 :biliInteractionCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_plugin_boundary
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_builtin_recent
 exit /b %errorlevel%
 
 :appUpdatesCheck
