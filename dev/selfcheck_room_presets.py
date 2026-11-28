@@ -210,10 +210,14 @@ def check_layout_only_presets(app, directory):
         app.processEvents()
         QTest.keySequence(window, QKeySequence('Ctrl+2'))
         assert wall.layout_id == '1x1' and len(wall.visible_tiles()) == 1
+        assert wall.tiles == [before[0][0]]
         QTest.keySequence(window, QKeySequence('Ctrl+1'))
         assert wall.layout_id == 'corner' and wall.corner_ratios() == saved
-        assert [(tile, tile.room['room_id'], tile.volume, tile.muted, tile.audio_channel,
-                 int(tile.video.winId())) for tile in wall.tiles] == before
+        kept = wall.tiles[0]
+        assert (kept, kept.room['room_id'], kept.volume, kept.muted, kept.audio_channel,
+                int(kept.video.winId())) == before[0]
+        assert len(wall.tiles) == 6 and all(not tile.room.get('room_id') for tile in wall.tiles[1:])
+        assert {room['room_id'] for room in window.sidebar.rooms()} == {entry[1] for entry in before}
         window.sidebar.search.setFocus()
         app.processEvents()
         assert not window._handle_shortcut('Ctrl+2')
@@ -364,6 +368,7 @@ def check_snap_grid_and_other_presets(app):
         presets.select_builtin('dm_pair')
         app.processEvents()
         video, chat = wall._preset_widgets().values()
+        assert wall.tiles == [tiles[0]]
         assert abs(video.width() / (video.width() + chat.width()) - .8) < .005
         editor = presets.edit('dm_pair')
         assert editor.preview.base == 'dm_pair'
@@ -372,6 +377,11 @@ def check_snap_grid_and_other_presets(app):
         for base, count in (('custom_grid9', 3), ('custom_grid16', 4)):
             presets.select_builtin(base)
             app.processEvents()
+            if count == 3:
+                assert wall.visible_tiles() == tiles[:1]
+                window.add_to_wall(rooms[1])
+                tiles[1] = window._tile_of('702')
+                handles[1] = int(tiles[1].video.winId())
             assert wall.acceptDrops() and wall.visible_tiles() == tiles
             units = snap_grid.geometry(count, layouts.even_cells(count, count),
                                        wall._corner_area(), wall.grid.spacing())

@@ -301,7 +301,7 @@ _THUMB_TEXT_SELECTORS = ('NavThumbCover', 'NavThumbHint')
 _THEME_SELECTORS = frozenset((*_THUMB_TEXT_SELECTORS, 'NavigationButton', 'BadgeOff', 'Search',
     'DanmakuInput', 'PrimaryButton', 'Sidebar', 'Tile', 'TileVideo', 'DanmakuPanel', 'TileBottom',
     'TilePlaceholder', 'TileVolumePopup', 'PauseOverlay', 'DanmakuHeader', 'DanmakuCount',
-    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'WallGrid', 'HistoryNoticeGlyph'))
+    'DanmakuBody', 'DanmakuBar', 'TileCtrl', 'TileToggle', 'BiliVolumeButton', 'WallGrid', 'HistoryNoticeGlyph'))
 _signals = None
 _preferences = {'appearance_accent': '', 'appearance_font': '', 'appearance_font_size': 13}
 _applied_typography = None
@@ -448,38 +448,44 @@ def _conditional_light_style(style):
     return ''.join(rules)
 
 
+@lru_cache(maxsize=32)
+def _tile_button_style(selector, overlay, light):
+    ink = '#202630' if light else '#e7ebf0'
+    rgb = '32, 38, 48' if light else '231, 235, 240'
+    idle = '#15171c' if overlay else 'transparent'
+    hover = '#282c33' if overlay else f'rgba({rgb}, 0.15)'
+    pressed = '#1d2026' if overlay else f'rgba({rgb}, 0.27)'
+    return f'''
+        {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
+        {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
+        {selector}[playbackPopupOpen="true"]:!disabled {{
+            background: {hover}; color: {ink};
+        }}
+        {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
+        {selector}[overVideo="true"] {{color: #ffffff;}}
+        {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
+        {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
+            background: rgba(231, 235, 240, 0.15); color: #ffffff;
+        }}
+        {selector}[overVideo="true"]:!disabled:pressed {{
+            background: rgba(231, 235, 240, 0.27); color: #ffffff;
+        }}
+        {selector}[recording="true"]:!disabled {{color: #e5484d;}}
+        {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
+        {selector}:disabled {{background: {idle}; color: palette(placeholder-text);}}
+        {selector}[refreshing="true"]:disabled {{background: {idle if overlay else hover};}}
+    '''
+
+
 def _light_style(widget):
     name = widget.objectName()
     if widget.property('tileButton'):
         selector = f'#{name}[tileButton="true"]'
         parent = widget.parentWidget()
-        overlay = parent is not None and parent.objectName() == 'TileControls'
-        light = _light and not overlay
-        ink = '#202630' if light else '#e7ebf0'
-        rgb = '32, 38, 48' if light else '231, 235, 240'
-        idle = '#15171c' if overlay else 'transparent'
-        hover = '#282c33' if overlay else f'rgba({rgb}, 0.15)'
-        pressed = '#1d2026' if overlay else f'rgba({rgb}, 0.27)'
-        return f'''
-            {selector}, {selector}:checked {{background: {idle}; color: {ink}; border: none;}}
-            {selector}:!disabled:hover, {selector}[hovered="true"]:!disabled,
-            {selector}[playbackPopupOpen="true"]:!disabled {{
-                background: {hover}; color: {ink};
-            }}
-            {selector}:!disabled:pressed {{background: {pressed}; color: {ink};}}
-            {selector}[overVideo="true"] {{color: #ffffff;}}
-            {selector}[overVideo="true"]:!disabled:hover, {selector}[overVideo="true"][hovered="true"]:!disabled,
-            {selector}[overVideo="true"][playbackPopupOpen="true"]:!disabled {{
-                background: rgba(231, 235, 240, 0.15); color: #ffffff;
-            }}
-            {selector}[overVideo="true"]:!disabled:pressed {{
-                background: rgba(231, 235, 240, 0.27); color: #ffffff;
-            }}
-            {selector}[recording="true"]:!disabled {{color: #e5484d;}}
-            {selector}[overVideo="true"][recording="true"]:!disabled {{color: #fb7299;}}
-            {selector}:disabled {{background: {idle}; color: palette(placeholder-text);}}
-            {selector}[refreshing="true"]:disabled {{background: {idle if overlay else hover};}}
-        '''
+        if parent is not None and parent.objectName() == 'TileControls':
+            return _tile_button_style(selector, True, False)
+        return (_tile_button_style(selector + '[appearanceLight="false"]', False, False) +
+                _tile_button_style(selector + '[appearanceLight="true"]', False, True))
     if name == 'TileToggle':
         return _conditional_light_style('#TileToggle {background: transparent; color: #4A5565; border: none;} #TileToggle:hover, #TileToggle[hovered="true"] {background: #E7EFF7; color: #007BA8;} #TileToggle:!disabled:pressed {background: #CFE4F2; color: #007BA8;}') + FULLSCREEN_BAR_STYLE
     if name == 'DanmakuComposer':
@@ -542,6 +548,14 @@ class ThemeSignals(QObject):
 
     def eventFilter(self, widget, event):
         kind = event.type()
+        if (kind in (QEvent.Polish, QEvent.ParentChange) and isinstance(widget, QWidget)
+                and widget.isWindow() and (kind == QEvent.Polish or widget.testAttribute(Qt.WA_WState_Polished))):
+            from .window_chrome import install_window_chrome
+            install_window_chrome(widget)
+        if kind == QEvent.MouseButtonPress and isinstance(widget, QWidget) and event.button() == Qt.LeftButton:
+            from .window_chrome import start_edge_resize
+            if start_edge_resize(widget, event):
+                return True
         if kind in (QEvent.Enter, QEvent.Leave, QEvent.HoverEnter, QEvent.HoverLeave) and isinstance(widget, (QPushButton, QToolButton)):
             hovered = kind in (QEvent.Enter, QEvent.HoverEnter)
             if widget.property('hovered') != hovered:
@@ -783,16 +797,21 @@ QCheckBox::indicator:checked {{
     background: {ACCENT};
     border: 1px solid {ACCENT};
 }}
-QSpinBox, QDoubleSpinBox {{
+QSpinBox, QDoubleSpinBox, QTimeEdit, QDateEdit {{
     background: {CONTENT};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD}px;
     padding: 5px 8px;
     color: {TEXT1};
 }}
-QSpinBox:focus, QDoubleSpinBox:focus {{
+QSpinBox:focus, QDoubleSpinBox:focus, QTimeEdit:focus, QDateEdit:focus {{
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
+}}
+QTimeEdit QLineEdit, QTimeEdit QLineEdit:focus, QDateEdit QLineEdit, QDateEdit QLineEdit:focus {{
+    background: transparent;
+    border: none;
+    padding: 0;
 }}
 QSpinBox::up-button, QSpinBox::down-button,
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
@@ -986,6 +1005,42 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
 }}
 #PluginCard:hover {{
     border-color: {BORDER_STRONG};
+}}
+QFrame#RecordingKeywordTag {{
+    background: {CONTENT};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD}px;
+}}
+QPushButton#CalendarImageDrop {{
+    background: {CONTENT};
+    color: {TEXT2};
+    border: 1px dashed {BORDER_STRONG};
+    border-radius: {RADIUS_MD}px;
+    padding: 6px 10px;
+}}
+QPushButton#CalendarImageDrop:hover, QPushButton#CalendarImageDrop:focus,
+QPushButton#CalendarImageDrop[dropActive="true"] {{
+    background: {CONTENT_HOVER};
+    border: 1px dashed {ACCENT};
+    color: {TEXT1};
+}}
+QPushButton#CalendarImagePreview {{
+    background: {CONTENT};
+    border: 1px solid {BORDER_STRONG};
+    border-radius: {RADIUS_MD}px;
+    padding: 0;
+}}
+QPushButton#CalendarImagePreview:focus, QPushButton#CalendarImagePreview[dropActive="true"] {{
+    border-color: {ACCENT};
+}}
+QPushButton#CalendarImageRemove {{
+    background: {BG};
+    border: 1px solid {BORDER_STRONG};
+    border-radius: 13px;
+}}
+QPushButton#CalendarImageRemove:hover, QPushButton#CalendarImageRemove:focus {{
+    background: {CONTENT_HOVER};
+    border-color: {ACCENT};
 }}
 #PluginScroll, #PluginScroll > QWidget > QWidget {{
     background: transparent;
@@ -1227,6 +1282,8 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border: 1px solid {ACCENT};
     background: {CONTENT_HOVER};
 }}
+#Search[inSettingsHeader="true"]:hover {{background: {CONTENT_HOVER};}}
+#Search[inSettingsHeader="true"]:focus:hover {{background: {ACCENT_SOFT};}}
 /* 搜索没有匹配（或关注列表本来就空）时顶在列表位置上的提示 */
 #FilterHint {{
     color: {TEXT3};
@@ -1347,6 +1404,12 @@ QLabel#SettingsHint[settingsTextContrast="true"] {{color: #d9dde4;}}
     border: 1px solid rgba(0, 161, 214, 0.45);
     color: {ACCENT};
 }}
+#IconButton[followFolderSelect="true"] {{
+    border-radius: {RADIUS_MD}px;
+    text-align: left;
+    min-height: {CONTROL_HEIGHT - 2}px;
+    color: {TEXT1};
+}}
 QPushButton#IconButton:pressed {{
     background: {style_mix("CONTENT", "#000000", 0.12)};
     border: 1px solid {BORDER};
@@ -1388,10 +1451,13 @@ QPushButton#IconButton[cacheRefreshing="true"]:disabled {{
     color: #04161f;
     font-weight: 700;
 }}
+#RecordingScheduleDialog #PrimaryButton:disabled {{
+    background: {CONTENT}; color: {TEXT3}; border: 1px solid {BORDER_STRONG};
+}}
 #PrimaryButton:hover {{
     background: {style_mix("ACCENT", "#ffffff", 0.12)};
 }}
-#PrimaryButton[updateAction="true"]:disabled {{
+#PrimaryButton[updateAction="true"]:disabled, #FollowImportPage #PrimaryButton:disabled {{
     background: {CONTENT}; color: {TEXT3}; border: 1px solid {BORDER_STRONG};
 }}
 QPushButton#PrimaryButton:pressed {{
@@ -1658,16 +1724,21 @@ QLineEdit#ShortcutEdit[mouseShortcut="true"]:focus {{
     border-radius: {RADIUS_LG}px;
 }}
 #LayoutPresetBoard #LayoutCard:checked {{
-    background: {CONTENT_HOVER};
     border-color: {ACCENT};
 }}
 #LayoutPresetBoard #LayoutCard:focus {{border-color: {ACCENT};}}
+#PictureInPicture {{background: #000;}}
 #PipRoomChoice {{
     background: {CONTENT}; color: {TEXT1}; border: 1px solid {BORDER_STRONG};
     border-radius: {RADIUS_MD}px; padding: 0;
 }}
 #PipRoomChoice:hover, #PipRoomChoice:checked {{background: {CONTENT_HOVER};}}
 #PipRoomChoice:checked, #PipRoomChoice:focus {{border: 1px solid {ACCENT}; outline: none;}}
+#LayoutCard:checked:hover, #PipRoomChoice:checked:hover {{background: {ACCENT_SOFT};}}
+#LayoutCard:pressed, #LayoutCard:checked:pressed,
+#PipRoomChoice:pressed, #PipRoomChoice:checked:pressed {{
+    background: {style_mix("CONTENT", "#000000", .12)};
+}}
 #PipChoiceBadge {{background: {ACCENT}; color: white; border: none; border-radius: 8px;}}
 #PluginCard[pipDropTarget="true"] {{border: 1px solid {ACCENT};}}
 #LayoutCard:focus {{

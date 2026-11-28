@@ -163,6 +163,9 @@ class SegmentMotion(QObject):
     def dragging(self):
         return self._press is not None and self._dragging
 
+    def pressed_inside(self, rect):
+        return self._press is not None and not self._dragging and rect.contains(self._press[1])
+
     def finish(self):
         self._press = None
         self._timer.stop()
@@ -227,6 +230,7 @@ class SegmentMotion(QObject):
                 self._last_drag_x = point.x()
                 self._pointer_clock.start()
                 watched.setFocus(Qt.MouseFocusReason)
+                self.surface.update()
                 return True
         if self._press is None:
             return False
@@ -244,6 +248,7 @@ class SegmentMotion(QObject):
             self.finish()
         elif kind == QEvent.KeyPress and event.key() == Qt.Key_Escape:
             self._press = None
+            self.surface.update()
             self._settle(self._selected_rect())
             return True
         return False
@@ -279,6 +284,7 @@ class SegmentMotion(QObject):
         elif key not in items or not items[key].contains(point):
             key = None
         self._press = None
+        self.surface.update()
         if key is not None:
             self._committing = True
             try:
@@ -353,6 +359,13 @@ class _SegmentButton(QAbstractButton):
             edge.setColorAt(1, QColor(0, 0, 0, 20 if shadows_enabled(self) else 0))
             painter.setPen(QPen(edge, 1))
             painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+        pressed = self.isDown() or self.parentWidget()._selection.pressed_inside(self.geometry())
+        if self.isEnabled() and (pressed or (self.isChecked() and self.underMouse())):
+            tint = theme.qcolor(theme.ACCENT)
+            tint.setAlpha(90 if pressed else 42)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(tint)
             painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
         if self.hasFocus() and not self._pointer_focus:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1.5))

@@ -16,12 +16,14 @@ from .ui.labels import ElidedLabel
 
 class RoomAddPanel(QFrame):
     submitted = Signal(str, str)
+    cancel_requested = Signal()
     dismissed = Signal()
     followed_requested = Signal()
     followed_selected = Signal(str)
+    followed_filter_changed = Signal(bool)
     preset_selected = Signal(dict, str)
 
-    def __init__(self, sidebar):
+    def __init__(self, sidebar, *, followed_live_only=False):
         windows = QApplication.platformName() == 'windows'
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint if windows else Qt.Widget
         super().__init__(sidebar.window(), flags)
@@ -68,6 +70,9 @@ class RoomAddPanel(QFrame):
         self.folder_button = ActionButton()
         self.folder_button.setMaximumWidth(120)
         self.folder_button.setToolTip('添加到文件夹')
+        menu = QMenu(self.folder_button)
+        menu.aboutToShow.connect(self._populate_folders)
+        self.folder_button.setMenu(menu)
         footer.addWidget(self.folder_button)
         self.import_button = NavigationButton('从平台账号导入关注', 'import_follows')
         self.import_button.setFixedSize(24, 24)
@@ -85,22 +90,20 @@ class RoomAddPanel(QFrame):
         footer.addWidget(self.preset_button)
         self._file_filters = []
         footer.addStretch(1)
+        self.cancel_button = ActionButton('取消解析')
+        self.cancel_button.hide()
+        self.cancel_button.clicked.connect(self.cancel_requested)
+        footer.addWidget(self.cancel_button)
         self.submit_button = ActionButton('添加')
         self.submit_button.setObjectName('PrimaryButton')
         self.submit_button.clicked.connect(lambda: self.submitted.emit(self.entry.toPlainText(), self.folder_id))
         footer.addWidget(self.submit_button)
         box.addLayout(footer)
-        self.followed = FollowedRoomPicker(sidebar, self)
-        self.followed.selected.connect(self.followed_selected.emit)
-        self.followed.hide()
-        box.addWidget(self.followed)
+        self.followed = None
+        self._initial_live_only = followed_live_only
         self.followed_toggle.toggled.connect(self._toggle_followed)
-        self.presets = PresetRoomPicker(self)
-        self.presets.selected.connect(lambda room_id: self.preset_selected.emit(
-            self.presets.rooms[room_id], self.folder_id))
-        self.presets.file_button.clicked.connect(self._choose_files)
-        self.presets.hide()
-        box.addWidget(self.presets)
+        self.presets = None
+        self._initial_presets = []
         self.preset_button.toggled.connect(self._toggle_presets)
         escape = QShortcut(QKeySequence(Qt.Key_Escape), self)
         escape.setContext(Qt.WidgetWithChildrenShortcut)
@@ -108,7 +111,6 @@ class RoomAddPanel(QFrame):
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.timeout.connect(self.fit_to_search)
-        QApplication.instance().installEventFilter(self)
         theme.signals().changed.connect(self._theme)
         self._theme()
         self.hide()
@@ -138,25 +140,16 @@ class RoomAddPanel(QFrame):
             self._update_count()
             self.followed_toggle.setChecked(False)
             self.followed_toggle.setVisible(can_choose_followed)
-            self.followed.search.clear()
+            if self.followed is not None:
+                self.followed.search.clear()
             self.preset_button.setChecked(False)
-            self.presets.search.clear()
-            folders = self.sidebar.folder_state()
-            selected = self.folder_id
-            self.folder_names = {folder['name'] for folder in folders}
-            old = self.folder_button.menu()
-            if old is not None:
-                old.deleteLater()
-            menu = QMenu(self.folder_button)
-            self.folder_button.setMenu(menu)
-            _add_folder_option(self, menu, '', default_folder(folders)['name'])
-            for folder in folders:
-                if folder.get('type', 'normal') == 'normal':
-                    _add_folder_option(self, menu, folder['id'], folder['name'])
-            action = next((action for action in menu.actions() if action.data() == selected), menu.actions()[0])
-            self._select_folder(action)
-            menu.addSeparator()
-            menu.addAction('新建文件夹…').triggered.connect(lambda: _create_folder_for_dialog(self, self.folder_creator))
+            if self.presets is not None:
+                self.presets.search.clear()
+            selected = self.sidebar.get_folder(self.folder_id)
+            if selected is None or selected.get('type', 'normal') != 'normal':
+                self.folder_id = ''
+                selected = self.sidebar.default_folder()
+            self._set_folder_label(selected['name'])
         self.fit_to_search()
         self.ensurePolished()
         self.layout().activate()
@@ -169,6 +162,12 @@ class RoomAddPanel(QFrame):
     def _toggle_followed(self, expanded):
         if expanded:
             self.preset_button.setChecked(False)
+            if self.followed is None:
+                self.followed = FollowedRoomPicker(self.sidebar, self)
+                self.followed.live_only.setChecked(self._initial_live_only)
+                self.followed.live_only.toggled.connect(self.followed_filter_changed)
+                self.followed.selected.connect(self.followed_selected)
+                self.layout().addWidget(self.followed)
             self.followed_requested.emit()
         self.followed.setVisible(expanded)
         if self.isVisible():
@@ -181,6 +180,13 @@ class RoomAddPanel(QFrame):
     def _toggle_presets(self, expanded):
         if expanded:
             self.followed_toggle.setChecked(False)
+            if self.presets is None:
+                self.presets = PresetRoomPicker(self)
+                self.presets.selected.connect(lambda key: self.preset_selected.emit(self.presets.rooms[key], self.folder_id))
+                self.presets.file_button.clicked.connect(self._choose_files)
+                self.layout().addWidget(self.presets)
+                self.presets.load(self._initial_presets, bool(self._file_filters))
+                self._initial_presets = []
         self.presets.setVisible(expanded)
         if self.isVisible():
             self.fit_to_search()
@@ -190,11 +196,29 @@ class RoomAddPanel(QFrame):
             else:
                 self.preset_button.setFocus(Qt.OtherFocusReason)
 
+    def _populate_folders(self):
+        menu = self.folder_button.menu()
+        menu.clear()
+        folders = self.sidebar.folder_state()
+        self.folder_names = {folder['name'] for folder in folders}
+        selected = _add_folder_option(self, menu, '', default_folder(folders)['name'])
+        for folder in folders:
+            if folder.get('type', 'normal') == 'normal':
+                action = _add_folder_option(self, menu, folder['id'], folder['name'])
+                if folder['id'] == self.folder_id:
+                    selected = action
+        self._select_folder(selected)
+        menu.addSeparator()
+        menu.addAction('新建文件夹…').triggered.connect(lambda: _create_folder_for_dialog(self, self.folder_creator))
+
+    def _set_folder_label(self, name):
+        self._folder_name = name
+        self.folder_button.setText(name)
+        self.folder_button.setToolTip('添加到：' + name)
+
     def _select_folder(self, action):
         self.folder_id = action.data()
-        self._folder_name = action.text()
-        self.folder_button.setText(action.text())
-        self.folder_button.setToolTip('添加到：' + action.text())
+        self._set_folder_label(action.text())
         for option in self.folder_button.menu().actions():
             if option.isCheckable():
                 option.setChecked(option is action)
@@ -213,13 +237,16 @@ class RoomAddPanel(QFrame):
 
     def set_busy(self, busy):
         self.busy = busy
+        self.cancel_button.setVisible(busy)
         self.entry.setReadOnly(busy)
         self.folder_button.setEnabled(not busy)
         self.import_button.setEnabled(not busy)
         self.followed_toggle.setEnabled(not busy)
-        self.followed.setEnabled(not busy)
+        if self.followed is not None:
+            self.followed.setEnabled(not busy)
         self.preset_button.setEnabled(not busy)
-        self.presets.setEnabled(not busy)
+        if self.presets is not None:
+            self.presets.setEnabled(not busy)
         self._update_count()
 
     def show_error(self, message):
@@ -254,13 +281,24 @@ class RoomAddPanel(QFrame):
         self.close_editor()
         super().closeEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        QApplication.instance().installEventFilter(self)
+
+    def hideEvent(self, event):
+        QApplication.instance().removeEventFilter(self)
+        super().hideEvent(event)
+
     def _import(self):
         self.close_editor()
         self.sidebar.import_button.click()
 
     def set_presets(self, rooms, filters):
         self._file_filters = list(dict.fromkeys(filters))
-        self.presets.load(rooms, bool(self._file_filters))
+        if self.presets is None:
+            self._initial_presets = rooms
+        else:
+            self.presets.load(rooms, bool(self._file_filters))
         available = bool(rooms or self._file_filters)
         if not available:
             self.preset_button.setChecked(False)
@@ -280,7 +318,7 @@ class RoomAddPanel(QFrame):
         width = max(160, min(400, parent.width() - 16))
         height = 132 if self.error.isHidden() else 156
         expanded = self.presets if self.preset_button.isChecked() else self.followed
-        if not expanded.isHidden():
+        if expanded is not None and not expanded.isHidden():
             desired_height = 280 if expanded is self.followed or self.presets.rooms else expanded.sizeHint().height()
             expanded_height = max(0, min(desired_height, parent.height() - height - 6))
             expanded.setFixedHeight(expanded_height)
@@ -293,7 +331,8 @@ class RoomAddPanel(QFrame):
         icon_space = self.import_button.width() + (self.followed_toggle.width() + 6
                                                  if not self.followed_toggle.isHidden() else 0)
         preset_width = self.preset_button.width() + 6 if not self.preset_button.isHidden() else 0
-        used = 38 + icon_space + preset_width + self.submit_button.sizeHint().width()
+        cancel_width = self.cancel_button.sizeHint().width() + 6 if not self.cancel_button.isHidden() else 0
+        used = 38 + icon_space + preset_width + self.submit_button.sizeHint().width() + cancel_width
         folder_width = max(52, min(120, width - used))
         self.folder_button.setMaximumWidth(folder_width)
         if hasattr(self, '_folder_name'):

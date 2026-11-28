@@ -754,8 +754,25 @@ def exercise(app, window, native, directory):
     assert not pip.dialog.start.isEnabled()
     for index, check in pip.dialog.checks.items():
         check.setChecked(index < 2)
-    pip.dialog.start.click()
-    QTest.qWait(150)
+    # Unselected panes must never be exposed in the floating shell, even
+    # during the event-loop turn before the selected composition is ready.
+    exposed = []
+    class ExposureProbe(QObject):
+        def eventFilter(self, obj, event):
+            if event.type() == QEvent.Show and obj.window() is pip.floating:
+                exposed.append(obj)
+            return False
+
+    probe = ExposureProbe()
+    for tile in tiles[2:]:
+        tile.installEventFilter(probe)
+    try:
+        pip.dialog.start.click()
+        QTest.qWait(150)
+    finally:
+        for tile in tiles[2:]:
+            tile.removeEventFilter(probe)
+    assert not exposed, 'Unselected wall panes were shown while opening PiP'
     assert pip.active and pip.placeholder.isVisible()
     assert window.isMinimized(), 'Opening PiP must minimize the main window after accepting the picker'
     assert pip.floating.isVisible() and not pip.floating.isMinimized()
@@ -914,7 +931,15 @@ def exercise(app, window, native, directory):
     panel.rows[tiles[1]].mute.click()
     assert window.current_state()['wall'][1]['volume'] == 73
     panel.hide()
-    pip.restore()
+    target = pip.placeholder.geometry()
+    restore_layout = wall.set_picture_in_picture
+    def check_return_layout(selection):
+        assert selection is None and wall.isHidden()
+        assert wall.geometry() == target and wall.parentWidget() is window._content
+        return restore_layout(selection)
+    with patch.object(wall, 'set_picture_in_picture', side_effect=check_return_layout) as layout:
+        pip.restore()
+        layout.assert_called_once_with(None)
     QTest.qWait(100)
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     assert not pip.active and wall.parentWidget() is window._content
@@ -934,7 +959,13 @@ def exercise(app, window, native, directory):
     assert pip.active and pip.floating is not None
     QTest.qWait(80)
     assert tiles[0].y() < tiles[1].y() and tiles[0].x() == tiles[1].x()
-    pip.floating.tools.back.click()
+    attach = window._content.layout().insertWidget
+    def check_return_attach(*args):
+        assert not window.isMinimized(), 'Expose the main window before mounting native panes'
+        return attach(*args)
+    with patch.object(window._content.layout(), 'insertWidget', side_effect=check_return_attach) as mount:
+        pip.floating.tools.back.click()
+        mount.assert_called_once()
     QTest.qWait(80)
     assert not pip.active and window.isVisible()
     assert not window.isMinimized(), 'Closing PiP must restore the main window'
@@ -968,6 +999,70 @@ def exercise(app, window, native, directory):
     window.close()
     QTest.qWait(50)
     assert not pip.active and all(player._released for player in players)
+
+
+def check_transparent_gaps(pip, native):
+    assert pip.start([0, 1, 2], GRID_LAYOUT)
+    QTest.qWait(100)
+    floating = pip.floating
+    panes = pip.display_wall.visible_tiles()
+
+    def check_mask(mask, size):
+        assert not mask.isEmpty(), 'The native window must be clipped to the visible panes'
+        assert mask.contains(QPoint(size.width() // 2, size.height() * 3 // 4))
+        for x in (size.width() // 8, size.width() * 7 // 8):
+            assert not mask.contains(QPoint(x, size.height() * 3 // 4)), 'Empty lower corners must pass through'
+
+    check_mask(floating.mask(), floating.size())
+    assert not floating.property('presentationMask').contains(QPoint(0, 0))
+    if floating._native_rounding:
+        assert floating.mask().contains(QPoint(0, 0)), 'DWM owns the visible outer curve'
+    else:
+        assert floating.property('presentationMask') == floating.mask()
+    assert all(floating.mask().contains(tile.geometry().center()) for tile in panes)
+    lower = panes[-1].geometry()
+    assert floating._resize_edges(lower.bottomLeft() + QPoint(3, -3)) == Qt.LeftEdge | Qt.BottomEdge
+    with patch.object(floating, '_pointer_over', return_value=True):
+        floating._poll_tools()
+    assert floating.tools.isVisible() and floating.audio_tools.isVisible()
+    for control in (floating.tools, floating.audio_tools):
+        local = QRect(floating.mapFromGlobal(control.pos()), control.size())
+        assert QRegion(local).subtracted(floating.mask()).isEmpty()
+    if native:
+        from ddm.picture_in_picture_resize import LiveMove, LiveResize
+        for preview in (LiveMove, LiveResize):
+            live = preview(floating)
+            assert live.begin()
+            try:
+                rect = live.preview.geometry()
+                if preview is LiveResize:
+                    width = rect.width() + 96
+                    rect.setSize(QSize(width, round(width / floating.aspect)))
+                live.set_geometry(rect.translated(8, 6))
+                check_mask(live.preview.mask(), live.preview.size())
+            finally:
+                live.finish(immediate=True)
+            check_mask(floating.mask(), floating.size())
+    floating.resize_to_width(floating.width() + 65)
+    QTest.qWait(30)
+    check_mask(floating.mask(), floating.size())
+    assert pip.start([0, 1, 2], 0)
+    QTest.qWait(100)
+    lower = pip.display_wall.visible_tiles()[-1].geometry()
+    assert abs(lower.width() - floating.width()) <= 1
+    assert abs(lower.bottom() - floating.rect().bottom()) <= 1
+    assert abs(lower.width() - lower.height() * 16 / 9) <= 2
+    assert floating.property('presentationMask').contains(QPoint(12, floating.height() * 3 // 4))
+    assert floating._tool_position(floating.audio_tools.size(), bottom=True) == (
+        QPoint(floating.width() - 32, floating.height() - 32))
+    assert pip.start([0, 1], 0)
+    QTest.qWait(100)
+    assert floating.property('presentationMask').contains(floating.rect().bottomLeft() + QPoint(15, -15))
+    if floating._native_rounding:
+        assert floating.mask().isEmpty(), 'Filled layouts must return to native rounded corners'
+    pip.restore()
+    QTest.qWait(80)
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def check_focus_geometry():
@@ -1389,7 +1484,7 @@ def exercise_parallel(app, window, directory):
         ready(app, main_player)
         handle, generation = int(main.video.winId()), main_player.state_generation
         main_parent = wall.parentWidget()
-        assert pip.start([0, '3199'], parallel=True)
+        assert pip.start([0, '3199'], parallel=True, move_wall_streams=False)
         panes = list(pip.parallel_tiles)
         assert len(panes) == 2
         wait_for_players(panes)
@@ -1402,14 +1497,23 @@ def exercise_parallel(app, window, directory):
         assert window.players[main] is main_player and main_player.state_generation == generation
         check_resize_handoff(pip.floating)
         retained = [window.players[pane] for pane in panes]
-        assert pip.start([0, '3199', '3198'], MAIN_LAYOUT, '3199', parallel=True)
+        from ddm.pip_composition import PipChat
+        assert pip.start([0, '3199', '3198'], MAIN_LAYOUT, '3199', parallel=True,
+                         chat_slots=[(0, PipChat('fixture', None))])
         panes = list(pip.parallel_tiles)
         wait_for_players(panes)
+        panel, = pip.danmaku_panels.values()
+        assert panel.isVisible() and panel.window() is pip.floating
+        panel.add_message('Fixture', 'PiP chat alongside native video')
+        assert panel.body.isVisible() and 'PiP chat alongside native video' in panel.body.toPlainText()
+        check_resize_handoff(pip.floating)
+        assert pip.display_wall.rect().contains(panel.geometry())
+        assert all(not pane.geometry().intersects(panel.geometry()) for pane in panes)
         assert [window.players[pane] for pane in panes[:2]] == retained
         assert pip.display_wall.picture_in_picture_primary == 1
         assert panes[1].height() > panes[2].height()
         placement = ((0, 30, 320, 180), (320, 0, 152, 270), (0, 210, 286, 161))
-        assert pip.start([0, '3199', '3198'], FREE_LAYOUT, parallel=True, placement=placement)
+        assert pip.start([0, '3199', '3198'], FREE_LAYOUT, parallel=True, placement=placement, chat_slots=())
         QTest.qWait(80)
         assert [tile.geometry() for tile in pip.audio_tiles()] == pane_rectangles(
             3, pip.display_wall.rect(), FREE_LAYOUT, placement=placement)
@@ -1421,6 +1525,20 @@ def exercise_parallel(app, window, directory):
         assert window.players[main] is main_player and main_player.state_generation == generation
         assert int(main.video.winId()) == handle and wall.parentWidget() is main_parent
         assert wall.isVisible() and window.isVisible() and not window.isMinimized()
+
+        assert pip.start([0], parallel=True, move_wall_streams=True)
+        assert not wall.tiles[0].room.get('room_id')
+        assert list(pip.parallel_tiles) == [main]
+        wait_for_players([main])
+        moved_player = window.players[main]
+        ready(app, moved_player)
+        assert moved_player is not main_player
+        assert main.window() is pip.floating and list(window.players) == [main]
+        pip.floating.close()
+        wait_for_players([main])
+        ready(app, window.players[main])
+        assert window.players[main] is not moved_player
+        assert wall.tiles[0] is main and main.window() is window
 
 
 def main():
@@ -1448,7 +1566,7 @@ def main():
                 rectangles = pane_rectangles(count, area, columns, aspects)
                 assert len(rectangles) == count and all(area.contains(rect) and not rect.isEmpty() for rect in rectangles)
                 assert not any(first.intersects(second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
-                if columns or count <= 2:
+                if columns or count <= 3:
                     assert sum(rect.width() * rect.height() for rect in rectangles) >= area.width() * area.height() - area.width() - area.height()
                     assert all(abs(rect.width() - rect.height() * ratio) <= 2 for rect, ratio in zip(rectangles, aspects))
                 else:
@@ -1507,7 +1625,7 @@ def main():
             QTest.qWait(100)
             return window
 
-        if native:
+        if native and '--gaps-only' not in sys.argv:
             parallel_window = make_window()
             try:
                 exercise_parallel(app, parallel_window, directory)
@@ -1520,6 +1638,10 @@ def main():
 
         window = make_window()
         try:
+            if '--gaps-only' in sys.argv:
+                check_transparent_gaps(window.picture_in_picture, native)
+                print('PASS: PiP layout gaps pass through, including during native move and resize')
+                return
             if shortcuts_only:
                 pip = window.picture_in_picture
                 assert pip.start([0, 1])
@@ -1530,6 +1652,12 @@ def main():
             exercise(app, window, native, directory)
         finally:
             window.close()
+            app.processEvents()
+        gaps_window = make_window()
+        try:
+            check_transparent_gaps(gaps_window.picture_in_picture, native)
+        finally:
+            gaps_window.close()
             app.processEvents()
         exercise_focus(app, native, directory)
         if native:

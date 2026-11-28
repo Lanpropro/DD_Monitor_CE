@@ -13,20 +13,29 @@ from ddm import theme  # noqa: E402
 from ddm.widgets import LayoutPicker, Sidebar, Tile  # noqa: E402
 
 
-def check_button(app, button):
+def check_button(app, button, *, segment=False):
     clicked = []
     button.clicked.connect(lambda: clicked.append(True))
     button.clearFocus()
     QTest.mouseClick(button, Qt.LeftButton)
     app.processEvents()
     assert clicked, "鼠标点击必须仍能激活按钮"
-    assert not button.hasFocus(), f"{button.text()} 鼠标点击不应留下焦点框"
+    if segment:
+        # Segments accept pointer focus for keyboard continuation, but only
+        # show the ring for keyboard focus.
+        pointer = button.grab().toImage()
+        button.clearFocus()
+        assert button.grab().toImage() == pointer, '鼠标点击布局页签不应绘制焦点环'
+    else:
+        assert not button.hasFocus(), f"{button.text()} 鼠标点击不应留下焦点框"
     for _ in range(40):
         QTest.keyClick(button.window(), Qt.Key_Tab)
         app.processEvents()
         if button.hasFocus():
             break
     assert button.hasFocus(), "键盘操作必须能聚焦按钮"
+    if segment:
+        assert button.grab().toImage() != pointer, '键盘聚焦布局页签应显示焦点环'
     before = len(clicked)
     QTest.keyClick(button, Qt.Key_Space)
     app.processEvents()
@@ -52,7 +61,7 @@ def main():
     picker.activateWindow()
     app.processEvents()
     for button in picker._tabs.values():
-        check_button(app, button)
+        check_button(app, button, segment=True)
         assert button.isChecked(), "布局分类切换仍必须生效"
     picker.close()
     owner = QWidget()

@@ -12,11 +12,13 @@ from ddm.app import MainWindow
 
 device = [b"old"]
 players = {1: Mock(), 2: Mock()}
-window = cast(MainWindow, SimpleNamespace(_closing=False, players=players,
-    _audio_devices=SimpleNamespace(defaultAudioOutput=lambda: SimpleNamespace(id=lambda: device[0])),
-    _default_audio_output_id=b"old"))
+window = cast(MainWindow, SimpleNamespace(_closing=False, players=players, _audio_devices=None))
 from ddm.stream_playback import StreamPlayback
 window.stream_playback = StreamPlayback(window)
+MainWindow._check_audio_output_device(window)
+assert window._audio_devices is None
+window._audio_devices = SimpleNamespace(defaultAudioOutput=lambda: SimpleNamespace(id=lambda: device[0]))
+window._default_audio_output_id = b"old"
 MainWindow._check_audio_output_device(window)
 assert all(not player.refresh_audio_device.called for player in players.values())
 device[0] = b"new"

@@ -10,15 +10,15 @@ from .widget_support import BRAND_ASSETS_DIR, NAV_ITEM_GAP, _repolish
 class SidebarItems:
     def __init__(self, host):
         self.host = host
-        self._auto_record_rooms = set()
+        self._monitored_rooms = set()
         self._recording_rooms = set()
         self._recording_states = {}
 
-    def set_auto_record_rooms(self, room_ids) -> None:
+    def set_monitored_rooms(self, room_ids) -> None:
         enabled = set(room_ids)
-        if enabled == self._auto_record_rooms:
+        if enabled == self._monitored_rooms:
             return
-        self._auto_record_rooms = enabled
+        self._monitored_rooms = enabled
         self._sync_recording_states()
 
     def set_recording_rooms(self, room_ids) -> None:
@@ -29,8 +29,8 @@ class SidebarItems:
         self._sync_recording_states()
 
     def _sync_recording_states(self) -> None:
-        states = {room_id: 'recording' if room_id in self._recording_rooms else 'ready'
-                  for room_id in self._auto_record_rooms}
+        states = {room_id: 'recording' if room_id in self._recording_rooms else 'monitoring'
+                  for room_id in self._monitored_rooms}
         if states == self._recording_states:
             return
         self._recording_states = states

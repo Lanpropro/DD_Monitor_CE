@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, QRect, Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
@@ -23,6 +23,7 @@ from ddm.room_placement import RoomPlacement
 from ddm.room_list_import import RoomListImport
 from ddm.plugin_types import RoomInfo, RoomList
 from ddm.wall_widgets import WallGrid
+from ddm.window_fullscreen import set_window_topmost
 from selfcheck_room_add_entry import Resolver
 
 
@@ -174,7 +175,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertFalse(panel.isVisible())
         self.assertIs(self.app.focusWidget(), sidebar.search)
 
-    def test_sidebar_plus_turns_clockwise_before_opening_once(self):
+    def test_sidebar_plus_turns_clockwise_while_opening_once(self):
         sidebar = self.host.sidebar
         button = sidebar.navigation.add_button
         sidebar.addRoomClicked.connect(lambda: self.catalog.open_add_room(resolver_type=Resolver))
@@ -184,7 +185,9 @@ class InlineRoomAddTests(unittest.TestCase):
         with patch.object(motion, 'enabled', return_value=True):
             QTest.mouseClick(button, Qt.LeftButton)
             self.assertEqual(turn.state(), QAbstractAnimation.Running)
-            self.assertIsNone(self.catalog._add_panel)
+            panel = self.catalog._add_panel
+            self.assertTrue(panel.isVisible())
+            self.assertEqual(requests.count(), 1)
             start = button.grab().toImage()
             turn.setCurrentTime(turn.duration() // 4)
             self.assertGreater(button._angle, 0)
@@ -193,14 +196,13 @@ class InlineRoomAddTests(unittest.TestCase):
             elapsed = turn.currentTime()
             QTest.mouseClick(button, Qt.LeftButton)
             self.assertEqual(turn.currentTime(), elapsed)
-            self.assertEqual(requests.count(), 0)
+            self.assertEqual(requests.count(), 1)
             QTest.mousePress(button, Qt.LeftButton)
             QTest.qWait(turn.duration() + 60)
             QTest.mouseRelease(button, Qt.LeftButton)
             self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
             self.assertEqual(button._angle, 45)
             self.assertEqual(requests.count(), 1)
-            panel = self.catalog._add_panel
             self.assertTrue(panel.isVisible())
             self.assertGreaterEqual(self.panel_geometry(panel).left(), sidebar.geometry().right())
             self.assertIs(self.app.focusWidget(), panel.entry)
@@ -212,7 +214,8 @@ class InlineRoomAddTests(unittest.TestCase):
             self.assertLess(returning_angle, 45)
             QTest.mouseClick(button, Qt.LeftButton)
             self.assertAlmostEqual(button._angle, returning_angle)
-            self.assertFalse(panel.isVisible())
+            self.assertTrue(panel.isVisible())
+            self.assertEqual(turn.state(), QAbstractAnimation.Running)
             turn.setCurrentTime(turn.duration())
             self.assertTrue(panel.isVisible())
             self.assertEqual(button._angle, 45)
@@ -273,15 +276,60 @@ class InlineRoomAddTests(unittest.TestCase):
             turn.setCurrentTime(turn.duration())
             for method, cancel in (
                     ('outside click', lambda: QTest.mouseClick(sidebar.search, Qt.LeftButton)),
-                    ('Escape', lambda: QTest.keyClick(button, Qt.Key_Escape)),
+                    ('Escape', lambda: QTest.keyClick(panel.entry, Qt.Key_Escape)),
                     ('hide', self.host.hide)):
                 with self.subTest(method=method):
+                    before = requests.count()
                     QTest.mouseClick(button, Qt.LeftButton)
                     self.assertEqual(turn.state(), QAbstractAnimation.Running)
+                    self.assertTrue(panel.isVisible())
                     cancel()
+                    self.assertFalse(panel.isVisible())
+                    if turn.state() == QAbstractAnimation.Running:
+                        turn.setCurrentTime(turn.duration())
                     self.assertEqual(turn.state(), QAbstractAnimation.Stopped)
                     self.assertEqual(button._angle, 0)
-                    self.assertEqual(requests.count(), 2)
+                    self.assertEqual(requests.count(), before + 1)
+
+    def test_native_replacement_panel_stays_above_a_bar_that_lost_its_owner(self):
+        if self.app.platformName() != 'windows':
+            self.skipTest('requires Windows window composition')
+        tile = self.install_wall().tiles[0]
+        tile.set_room({'room_id': 'fixture', 'uname': '测试直播', 'live': True})
+        self.host.settings['windowed_transparent_controls'] = True
+        tile._layout_areas()
+        bar = tile.bottom
+        self.assertTrue(bar.qt_composited)
+        bar.hide()
+        panel = self.open(tile)
+        panel.followed_toggle.setChecked(True)
+        self.pump()
+        self.assertTrue(panel.followed.isVisible())
+        self.assertTrue(panel.frameGeometry().intersects(bar.geometry()))
+        bar.hide()
+
+        user32 = ctypes.windll.user32
+        get_window = user32.GetWindow
+        get_window.argtypes = (wintypes.HWND, wintypes.UINT)
+        get_window.restype = wintypes.HWND
+        set_window_long = user32.SetWindowLongPtrW
+        set_window_long.argtypes = (wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t)
+        set_window_long.restype = ctypes.c_ssize_t
+        bar_handle = int(bar.winId())
+        set_window_long(bar_handle, -8, 0)  # GWLP_HWNDPARENT
+        set_window_topmost(bar, True)
+        self.assertIsNone(get_window(bar_handle, 4))  # GW_OWNER
+
+        bar.show()
+        self.pump()
+        self.assertEqual(get_window(bar_handle, 4), int(self.host.winId()))
+        above = get_window(bar_handle, 3)  # GW_HWNDPREV
+        while above and above != int(panel.winId()):
+            above = get_window(above, 3)
+        self.assertEqual(above, int(panel.winId()))
+        self.assertTrue(bar.isVisible())
+        panel.close_editor()
+        self.assertTrue(bar.isVisible())
 
     def test_native_panel_composes_on_an_owned_surface_with_complete_border(self):
         if self.app.platformName() != 'windows':
@@ -381,7 +429,7 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertEqual(panel.followed_toggle.y(), panel.import_button.y())
         self.assertGreater(panel.followed_toggle.x(), panel.import_button.x())
         self.assertEqual(panel.followed_toggle.accessibleName(), '从关注列表选择')
-        self.assertTrue(panel.followed.isHidden())
+        self.assertIsNone(panel.followed)
         panel.entry.setPlainText('https://live.bilibili.com/1003')
         collapsed = self.panel_geometry(panel)
         QTest.mouseClick(panel.followed_toggle, Qt.LeftButton)
@@ -476,9 +524,11 @@ class InlineRoomAddTests(unittest.TestCase):
         panel.entry.setPlainText(draft)
         self.pump()
         compact = self.panel_geometry(panel)
-        for toggle, picker in ((panel.followed_toggle, panel.followed), (panel.preset_button, panel.presets)):
+        for toggle, name in ((panel.followed_toggle, 'followed'), (panel.preset_button, 'presets')):
             with self.subTest(picker=toggle.accessibleName()):
+                self.assertIsNone(getattr(panel, name))
                 QTest.mouseClick(toggle, Qt.LeftButton)
+                picker = getattr(panel, name)
                 self.pump()
                 self.assertTrue(picker.isVisible())
                 self.assertGreater(panel.height(), compact.height())
@@ -675,6 +725,80 @@ class InlineRoomAddTests(unittest.TestCase):
         self.assertEqual(panel.entry.toPlainText(), '1001')
         self.assertTrue(panel.submit_button.isEnabled())
 
+    def test_cancel_and_timeout_preserve_link_and_ignore_old_single_resolvers(self):
+        panel = self.open()
+        draft = 'https://live.bilibili.com/1001'
+        panel.entry.setPlainText(draft)
+        self.assertTrue(panel.cancel_button.isHidden())
+        panel.submit_button.click()
+        cancelled = Resolver.created[-1]
+        self.assertTrue(panel.cancel_button.isVisible())
+        self.assertTrue(panel.entry.isReadOnly())
+        panel.cancel_button.click()
+        self.assertTrue(panel.submit_button.isEnabled())
+        self.assertTrue(panel.cancel_button.isHidden())
+        self.assertFalse(panel.entry.isReadOnly())
+        self.assertIn('已取消解析', panel.error.toolTip())
+        self.assertEqual(panel.entry.toPlainText(), draft)
+
+        with patch('ddm.room_catalog.ROOM_ADD_TIMEOUT_MS', 1):
+            panel.submit_button.click()
+            timed_out = Resolver.created[-1]
+            QTest.qWait(25)
+        self.assertTrue(panel.submit_button.isEnabled())
+        self.assertTrue(panel.cancel_button.isHidden())
+        self.assertFalse(panel.entry.isReadOnly())
+        self.assertIn('解析超时', panel.error.toolTip())
+        self.assertEqual(panel.entry.toPlainText(), draft)
+
+        panel.submit_button.click()
+        retry = Resolver.created[-1]
+        cancelled.complete()
+        timed_out.complete()
+        self.assertTrue(panel.busy)
+        self.assertEqual(panel.entry.toPlainText(), draft)
+        self.host._on_room_added.assert_not_called()
+        retry.complete()
+        self.host._on_room_added.assert_called_once()
+        self.assertFalse(panel.isVisible())
+
+    def test_cancelled_batch_keeps_draft_and_never_starts_remaining_items(self):
+        draft = 'https://live.bilibili.com/1001\n1002\n1003'
+        panel = self.open()
+        panel.entry.setPlainText(draft)
+        panel.submit_button.click()
+        self.pump()
+        Resolver.created[-1].complete()
+        self.pump()
+        self.assertEqual([resolver.room_id for resolver in Resolver.created], ['1001', '1002'])
+        panel.cancel_button.click()
+        Resolver.created[-1].complete()
+        self.pump()
+        self.assertTrue(panel.submit_button.isEnabled())
+        self.assertEqual(panel.entry.toPlainText(), draft)
+        self.assertEqual(len(Resolver.created), 2)
+        self.host._on_room_added.assert_called_once()
+        self.assertEqual(self.host._on_room_added.call_args.args[0]['room_id'], '1001')
+
+    def test_cancelled_channel_lookup_never_imports_or_opens_picker(self):
+        draft = 'fixture:channels'
+        self.host._normalize_room_input = lambda text: text
+        self.host.plugins.platform_for = lambda room_id: SimpleNamespace(room_list=Mock())
+        panel = self.open()
+        panel.entry.setPlainText(draft)
+        with patch.object(RoomListImport, 'start', autospec=True) as start:
+            panel.submit_button.click()
+        lookup = start.call_args.args[0]
+        panel.cancel_button.click()
+        self.assertTrue(lookup._cancelled())
+        lookup.result = RoomList([RoomInfo('fixture:channel', '测试频道')])
+        with patch.object(lookup, '_choose') as choose:
+            lookup.finished.emit()
+        choose.assert_not_called()
+        self.host._on_room_added.assert_not_called()
+        self.assertTrue(panel.submit_button.isEnabled())
+        self.assertEqual(panel.entry.toPlainText(), draft)
+
     def test_auto_batch_deduplicates_and_keeps_only_failures_for_retry(self):
         panel = self.open()
         panel.entry.setPlainText('1001\n1001\n1002')
@@ -695,8 +819,17 @@ class InlineRoomAddTests(unittest.TestCase):
     def test_folder_selection_import_and_escape_reuse_original_actions(self):
         folder = self.host.sidebar.create_folder('赛事')
         panel = self.open()
-        action = next(a for a in panel.folder_button.menu().actions() if a.data() == folder)
-        action.trigger()
+        menu = panel.folder_button.menu()
+        self.assertFalse(menu.actions())
+        opened = QSignalSpy(menu.aboutToShow)
+        def choose_folder():
+            menu.setActiveAction(next(a for a in menu.actions() if a.data() == folder))
+            QTest.keyClick(menu, Qt.Key_Return)
+
+        menu.aboutToShow.connect(lambda: QTimer.singleShot(0, menu, choose_folder))
+        QTest.mouseClick(panel.folder_button, Qt.LeftButton)
+        self.pump()
+        self.assertEqual(opened.count(), 1)
         self.assertEqual(panel.folder_id, folder)
         imports = []
         self.host.sidebar.importFollowsClicked.connect(lambda: imports.append(True))
@@ -705,9 +838,27 @@ class InlineRoomAddTests(unittest.TestCase):
         panel.import_button.click()
         self.assertEqual(imports, [True])
         self.assertFalse(panel.isVisible())
+        self.host.activateWindow()
         self.open()
+        self.assertEqual(panel.folder_id, folder)
+        self.host.sidebar.delete_folder(folder)
+        self.open()
+        self.assertEqual(panel.folder_id, '')
         QTest.keyClick(panel.entry, Qt.Key_Escape)
         self.assertFalse(panel.isVisible())
+
+    def test_closed_entry_stops_observing_host_events(self):
+        panel = self.open()
+        with patch.object(panel, 'eventFilter', wraps=panel.eventFilter) as observe:
+            for visible in (True, False, True):
+                if not visible:
+                    panel.close_editor()
+                elif panel.isHidden():
+                    self.open()
+                observe.reset_mock()
+                event = QEvent(QEvent.User)
+                QApplication.sendEvent(self.host, event)
+                self.assertEqual(any(args == (self.host, event) for args, _ in observe.call_args_list), visible)
 
     def test_input_validation_is_shared_and_preserves_original_line_numbers(self):
         normalize = lambda text: normalize_room_text(text, None)

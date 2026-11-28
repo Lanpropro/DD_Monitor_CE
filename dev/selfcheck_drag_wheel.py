@@ -16,11 +16,12 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QPoint, QPointF, Qt, QTimer
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.player import TilePlayer
+from ddm.sidebar_hit_test import widget_at
 from ddm.widgets import Sidebar, Tile
 from selfcheck_mpv import mta_lifetime, pump, ready
 
@@ -94,7 +95,7 @@ def main():
     with mta_lifetime():
         app = QApplication([])
         app.setQuitOnLastWindowClosed(False)
-        window = QWidget()
+        window = QWidget(None, Qt.Window | Qt.WindowStaysOnTopHint)
         window.setGeometry(40, 40, 940, 720)
         sidebar = Sidebar([dict(room_id=str(i),uname=f'Fixture {i}',live=False) for i in range(30)],
                           window, auto_compact=False)
@@ -127,9 +128,9 @@ def main():
                 player.play(source)
                 ready(app, player)
                 before = player._prop('time-pos')
-                # Qt must resolve a real native video child to the existing drop receiver.
+                # Exercise the same native child lookup that sidebar drags use.
                 destination = video.mapToGlobal(video.rect().center())
-                hit = QApplication.widgetAt(destination)
+                hit = widget_at(destination)
                 assert hit is not None and (hit is video or video.isAncestorOf(hit)), type(hit)
                 timings = []
                 cpu_start = time.process_time()
@@ -148,7 +149,11 @@ def main():
                         QTest.mouseMove(window,window.mapFromGlobal(destination))
                         deadline = time.monotonic()+1
                         while sidebar.drag_session.active and sidebar.drag_session.target is not target and time.monotonic()<deadline:
-                            pump(app,.01)
+                            # Process the drag timer without mixing desktop pointer input
+                            # into the synthetic held-button sequence.
+                            loop = QEventLoop()
+                            QTimer.singleShot(10, loop.quit)
+                            loop.exec(QEventLoop.ExcludeUserInputEvents)
                         if sidebar.drag_session.target is not target:
                             print('TARGET FAILURE',cycle,'active',sidebar.drag_session.active,
                                 'target_type',type(sidebar.drag_session.target).__name__,

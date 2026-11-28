@@ -50,7 +50,7 @@ class Host:
         self.window_layout = WindowLayout(self)
 
 
-for name in ('_build_arrangement', '_saved_layout', '_apply_orientation', '_clear_expanded_slots',
+for name in ('_build_arrangement', '_saved_layout', '_apply_orientation',
              '_prioritize_live_tiles', '_on_layout_changed', '_reshape_window'):
     setattr(Host, name, getattr(MainWindow, name))
 
@@ -74,6 +74,7 @@ class WindowLayoutTests(unittest.TestCase):
         self.assertEqual(host._saved_layout('landscape'), layouts.DEFAULT_LAYOUT)
         self.assertEqual(host._saved_layout('portrait'), 'portrait_dm4')
         self.assertEqual(vars(host.window_layout), {'host': host})
+        self.assertIsNone(host.last_layout_change)
 
     def test_arrangement_keeps_qt_parents_and_native_child_identity(self):
         root = QWidget()
@@ -135,15 +136,22 @@ class WindowLayoutTests(unittest.TestCase):
             self.assertEqual(host._root_layout.setEnabled.call_args.args, (enabled,))
         host.wall.relayout.assert_not_called()
 
-    def test_expansion_clears_only_hidden_rooms_and_never_starts_them(self):
+    def test_overflow_clears_wall_assignments_and_retires_tiles_with_recordings(self):
         host = Host()
         current, hidden, empty = Tile('current', True), Tile('hidden', True), Tile('', False)
+        hidden.hide = Mock()
         host.wall.tiles, host.wall._capacity = [current, hidden, empty], lambda: 1
-        host._clear_expanded_slots('2x2')
+        host.wall._drop_tile = Mock(side_effect=host.wall.tiles.remove)
+        host._fullscreen_tile = None
+        host.plugins = Mock()
+        host.recorder = SimpleNamespace(sessions={hidden: object()})
+        host._preset_retired_tiles = set()
+        host.window_layout.clear_layout_overflow()
         host._clear_tile_room.assert_called_once_with(hidden)
-        host._clear_tile_room.reset_mock()
-        host._clear_expanded_slots('1x1')
-        host._clear_tile_room.assert_not_called()
+        host.wall._drop_tile.assert_called_once_with(empty)
+        hidden.hide.assert_called_once_with()
+        self.assertEqual(host.wall.tiles, [current])
+        self.assertEqual(host._preset_retired_tiles, {hidden})
 
     def test_shrinking_keeps_sound_at_position_and_preserves_player_identity(self):
         host = Host()

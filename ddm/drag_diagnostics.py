@@ -159,12 +159,29 @@ class DragStallProbe:
         return list(self.samples)
 
 
+class DragLogHandler(RotatingFileHandler):
+    def __init__(self, path, fallback=None):
+        super().__init__(path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8')
+        self.fallback = fallback
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError as error:
+            if getattr(error, 'winerror', None) != 32 or self.fallback is None:
+                raise
+            # Windows cannot rename the shared development log while another host has it open.
+            self.fallback.parent.mkdir(parents=True, exist_ok=True)
+            self.baseFilename = str(self.fallback.resolve())
+            self.fallback = None
+            print('[drag-diag] shared log in use, continuing at', self.baseFilename, file=sys.stderr)
+
+
 class Recorder:
-    def __init__(self, path, *, profile_first_drag=False):
+    def __init__(self, path, *, profile_first_drag=False, fallback=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handler = RotatingFileHandler(self.path, maxBytes=5 * 1024 * 1024,
-                                          backupCount=3, encoding='utf-8')
+        self.handler = DragLogHandler(self.path, fallback)
         self.logger = logging.Logger('ddm.dragtrace')
         self.logger.addHandler(self.handler)
         self.sequence = 0

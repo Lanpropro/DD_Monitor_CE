@@ -33,6 +33,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_responsiveness](../selfcheck_responsiveness.py) | `smoke` / `offline` |
 | [selfcheck_diagnostic_session](../selfcheck_diagnostic_session.py) | `offline`；隔离进程验证未决专项启动、手动现场标记、列表快照与消息隐私，不替代真实故障复现 |
 | [selfcheck_sidebar_diagnostics](../selfcheck_sidebar_diagnostics.py) | `offline`；模型对照、旧动画目标、拖放恢复、原生窗口只读、环形与记录大小上限、隐私；Windows单项原生后端补查现有HWND，不作为真实故障复现 |
+| [selfcheck_host_mcp](../selfcheck_host_mcp.py) | `offline`；隔离窗口验证本体管道、手动布局计时及画面操作，设置 `DDM_MCP_PYTHON` 时附加 stdio 端到端检查 |
 | [selfcheck_on_demand_diagnostics](../selfcheck_on_demand_diagnostics.py) | `offline`；空闲不采集、即时错位快照、一次拖放/取消/超时后的清理、请求校验、Windows .NET/Qt 管道通信与诊断包内容；仅隔离夹具，不作为真实故障复现 |
 
 - 当前回归：`repository`、`smoke`、`offline`、`native`、`live` 中明确登记的脚本；其中 smoke 复用离屏回归并增加临时插件接口检查，每个 PR 自动运行。
@@ -88,7 +89,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_documents](../selfcheck_documents.py) | `repository`；文档元信息、索引可达、相对链接与锚点、发布索引；只读 Git 跟踪的 Markdown |
 | [selfcheck_launch_scripts](../selfcheck_launch_scripts.py) | 单项执行前核对 |
 | [selfcheck_project_workflow](../selfcheck_project_workflow.py) | `repository` |
-| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`；临时日志目录，无控制台消息；字体库info原生过滤、并发回调、warning与fatal保留 |
+| [selfcheck_qt_log](../selfcheck_qt_log.py) | `offline`，使用临时日志目录验证字体库 info 和 Windows 平台字体 warning 的原生过滤，以及其他 warning、critical 和 fatal 的记录 |
 | [selfcheck_logging](../selfcheck_logging.py) | `offline`；临时日志、脱敏、轮转失败与并发 stderr 锁顺序、启动失败与线程异常；根 `run.cmd --check-qt-log` 包含此项 |
 | [selfcheck_readme](../selfcheck_readme.py) | `repository` |
 | [selfcheck_repository_files](../selfcheck_repository_files.py) | `repository` |
@@ -347,6 +348,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_auto_quality_live](../selfcheck_auto_quality_live.py) | 单项执行前核对 |
 | [selfcheck_auto_quality_switch_live](../selfcheck_auto_quality_switch_live.py) | 单项执行前核对 |
 | [selfcheck_bili_codec](../selfcheck_bili_codec.py) | `offline` |
+| [selfcheck_bili_catchup](../selfcheck_bili_catchup.py) | `offline`，验证 B 站画面墙及独立画中画的右键自动追帧开关、无重连切换、重连后保留、移动同一格进出画中画时保留选择及缓冲速率恢复 |
 | [selfcheck_bili_quality](../selfcheck_bili_quality.py) | 单项执行前核对 |
 | [selfcheck_douyin_stream_fallback](../selfcheck_douyin_stream_fallback.py) | 单项执行前核对 |
 | [selfcheck_mpv](../selfcheck_mpv.py) | `native` |
@@ -362,6 +364,8 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_recording](../selfcheck_recording.py) | `offline`；FFmpeg 与临时合成视频、本机 HTTP 的功能回归，含手动回放停止/恢复、缓存升级、录制计时、画质请求取消及过期源恢复；不能作为真实性能改善依据 |
 | [selfcheck_recording_shutdown](../selfcheck_recording_shutdown.py) | `offline`；FFmpeg 功能回归：退出保存完整录制、等待重连的分段和主动导出的回放，清理未保存缓存；隔离账号和安装插件 |
 | [selfcheck_recording_service](../selfcheck_recording_service.py) | `offline`；会话边界、未封口尾段、分段租约、录制后端归属/卸载恢复及增长索引边界；临时文件/替身，无账号或外网 |
+| [selfcheck_recording_schedule](../selfcheck_recording_schedule.py) | `offline`；每周时段、跨天、标题匹配、旧文件夹计划迁移、手动录制隔离及定时录制通知；可控时钟和录制替身 |
+| [selfcheck_wall_replay](../selfcheck_wall_replay.py) | `offline`；侧栏入口、确认与取消、缓存时长、换位与下墙、格内时间轴与输入区互换、悬停缩略图和历史弹幕。本地 FFmpeg 与 libmpv，无账号或外网 |
 | [selfcheck_recording_plugin_settings](../selfcheck_recording_plugin_settings.py) | 单项执行前核对；录制插件设置懒加载、Qt 父子归属与独立设置宿主页字段 |
 | [selfcheck_replay_scope](../selfcheck_replay_scope.py) | 单项执行前核对 |
 | [selfcheck_stream_recovery](../selfcheck_stream_recovery.py) | `offline` |
@@ -374,7 +378,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 
 | 脚本 | 执行分类 |
 | --- | --- |
-| [selfcheck_match_sync_host_release](../selfcheck_match_sync_host_release.py) | 单项执行前核对 |
+| [selfcheck_match_sync_host_release](../selfcheck_match_sync_host_release.py) | `offline`；工作区切换时静音、分批释放、快速返回和录制保护 |
 
 ## 直播平台
 
@@ -415,8 +419,8 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_douyin_room_verification](../selfcheck_douyin_room_verification.py) | 本地 WebEngine 验证页、身份核对、取消重试与首次添加复用 |
 | [selfcheck_douyin_ui_follows](../selfcheck_douyin_ui_follows.py) | 单项执行前核对 |
 | [selfcheck_follow_folders](../selfcheck_follow_folders.py) | `offline` |
-| [selfcheck_follow_import_ui](../selfcheck_follow_import_ui.py) | `offline`；十三项＋一项Windows专属（离屏跳过）：首次浏览器句柄稳定、平台栏完整尺寸、双列重排、平台溢出、圆角窗口、四种排序、隐藏后的勾选／归类保持、拼音搜索、回填和滚动点选；同组可在Windows后端运行，假账号数据 |
-| [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖32/33位原关注＋1位新增的归类隔离、结果提示与头像范围、主动勾选归类、取消勾选与保存 |
+| [selfcheck_follow_import_ui](../selfcheck_follow_import_ui.py) | `offline`；覆盖仅勾选新主播、跨筛选保留选择、双列重排、待识别回填和滚动点选；Windows 后端另检查窗口层级及首次浏览器句柄，使用假账号数据 |
+| [selfcheck_follow_import](../selfcheck_follow_import.py) | 离屏合成数据；覆盖 32／33 位已有主播与 1 位新增主播的归类、重复导入、取消及保存 |
 | [selfcheck_follow_stress](../selfcheck_follow_stress.py) | 隔离离屏压力测试：模拟登录、3000关注／750主播，无真实网络或配置写入；默认输出 `work/test-artifacts/host/follow-stress.json` |
 | [selfcheck_pinyin_search](../selfcheck_pinyin_search.py) | `offline`；中文/全拼/首字母共用匹配、关注及导入、插件商店与已安装筛选/排序、字体和功能搜索、750行缓存回归 |
 | [selfcheck_follow_refresh](../selfcheck_follow_refresh.py) | `offline`；合成关注列表、替身轮询器，检查刷新连点、头像补充阶段、失败与空列表恢复 |
@@ -448,3 +452,11 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | --- | --- |
 | [selfcheck_settings_diagnostics](../selfcheck_settings_diagnostics.py) | 离屏单项；临时安装、实际C#后端导出、设置默认值、关闭清理、生命周期；不读取账号，不复现真实故障 |
 | [selfcheck_native_diagnostics](../selfcheck_native_diagnostics.py) | Windows单项；需要MSVC x64，受控原生子进程异常/退出码、模块偏移栈、显式转储有效性；不代表复现issue222 |
+
+
+### 开发启动与原生子窗口
+
+| 检查 | 范围 |
+| --- | --- |
+| [selfcheck_match_dev_launch](../selfcheck_match_dev_launch.py) | 专项检查开发插件启动路径，使用隔离数据，不打开直播。 |
+| [selfcheck_quick_child_occlusion](../selfcheck_quick_child_occlusion.py) | 专项检查 Qt Quick 遮罩随原生子窗口移动的区域，不播放视频。 |

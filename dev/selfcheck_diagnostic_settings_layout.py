@@ -78,8 +78,10 @@ class DiagnosticLayoutTests(unittest.TestCase):
         self.assertIsInstance(page.dump_enabled, ToggleSwitch)
         self.assertIsInstance(page.progress, SettingsProgressBar)
         self.assertTrue(page.dump_enabled.isChecked())
+        self.assertEqual(page.dump_enabled.toolTip(), '仅对保存设置后的崩溃生效。')
         self.assertFalse(page.include_dumps.isChecked())
-        self.assertTrue(any('无法自动脱敏' in label.text() for label in page.findChildren(QLabel)))
+        privacy_hint = next(label for label in page.findChildren(QLabel) if '无法自动脱敏' in label.text())
+        self.assertTrue(privacy_hint.isHidden())
         with tempfile.TemporaryDirectory(prefix='ddm-diagnostic-form-') as root:
             page.destination.setText(root)
             page.description.setPlainText('fixture issue')
@@ -91,10 +93,33 @@ class DiagnosticLayoutTests(unittest.TestCase):
                 self.assertEqual(start.call_args.args[0], dict(
                     destination=root, description='fixture issue', happened='fixture time',
                     reproduction='稳定复现', attachments=[], evidence={'fixture': True}, include_native_dumps=False))
+                page.include_dumps.setChecked(True)
+                self.app.processEvents()
+                self.assertTrue(privacy_hint.isVisible())
+                self.assertGreaterEqual(privacy_hint.height(), privacy_hint.heightForWidth(privacy_hint.width()))
+                page.generate.click()
+                self.assertTrue(start.call_args.args[0]['include_native_dumps'])
         page._progress(37, 'fixture progress')
         self.assertEqual(page.progress_text.text(), '37%')
         page.reset()
         self.assertEqual(page.values(), {'native_crash_dump': False})
+        self.assertTrue(privacy_hint.isHidden())
+
+    def test_condensed_copy_keeps_attachment_limits_and_capture_tooltips(self):
+        _host, page = self.page(720, 600)
+        header = page.layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['诊断与反馈'])
+        attachments = page.sections.section('attachments')
+        self.assertEqual(attachments.grid.itemAtPosition(2, 0).widget().text(),
+                         '最多 5 张，每张不超过 20 MB。导出时移除元数据。')
+        collection = page.sections.section('collection')
+        visible_hints = [label.text() for label in collection.findChildren(QLabel, 'SettingsHint') if label.isVisible()]
+        self.assertEqual(visible_hints, [
+            '无需复现即可导出系统与版本信息、脱敏配置、插件版本、近期日志和已有崩溃记录，收集时不读取账号文件、不自动截图或上传。'])
+        self.assertEqual(page.sections.section('live').grid.count(), 1)
+        self.assertEqual(page.folders.toolTip(), '问题仍在时，点击读取当前文件夹状态。')
+        self.assertEqual(page.drag.toolTip(), '点击后回到主窗口复现拖放，最长采集 60 秒。')
+        self.assertEqual(page.dock_hover.toolTip(), '点击后回到主窗口，将鼠标移过左侧功能栏，最长采集 60 秒。')
 
     def test_function_rail_button_requests_capture_from_main_process(self):
         _host, page = self.page(720, 600)
@@ -120,6 +145,7 @@ class DiagnosticLayoutTests(unittest.TestCase):
     def test_issue_button_opens_the_template_picker_without_exporting(self):
         _host, page = self.page(500, 850)
         self.assertEqual(page.actions.indexOf(page.open_issue), 3)
+        self.assertEqual(page.open_issue.toolTip(), '打开 GitHub 问题模板，可手动附上诊断包。')
         page.description.setPlainText('本地填写的诊断内容')
         with patch('ddm.settings_diagnostics.QDesktopServices.openUrl') as browser, patch.object(page.export, 'start') as export:
             page.open_issue.click()

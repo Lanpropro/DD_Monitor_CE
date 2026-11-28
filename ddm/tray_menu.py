@@ -9,8 +9,9 @@ from .corner_geometry import continuous_path
 
 TRAY_MENU_ITEMS = (
     ('layout_preview', '布局示意'), ('streamer_monitor', '主播监控'), ('toggle', '显示/隐藏窗口'),
-    ('pip', '画中画'), ('exit', '退出'),
+    ('layout_pip', '当前布局画中画'), ('pip', '画中画'), ('exit', '退出'),
 )
+_OPTIONAL_ITEMS = {'streamer_monitor', 'layout_pip'}
 
 
 def tray_menu_choices(value):
@@ -20,12 +21,13 @@ def tray_menu_choices(value):
         if isinstance(entry, dict) and entry.get('id') in known and entry['id'] not in seen:
             key = entry['id']
             seen.add(key)
-            choices.append({'id': key, 'enabled': bool(entry.get('enabled', key != 'streamer_monitor'))})
+            choices.append({'id': key, 'enabled': bool(entry.get('enabled', key not in _OPTIONAL_ITEMS))})
     choices.extend({'id': key, 'enabled': True} for key, _label in TRAY_MENU_ITEMS
-                   if key not in seen and key != 'streamer_monitor')
-    if 'streamer_monitor' not in seen:
-        layout_index = next(index for index, entry in enumerate(choices) if entry['id'] == 'layout_preview')
-        choices.insert(layout_index + 1, {'id': 'streamer_monitor', 'enabled': False})
+                   if key not in seen and key not in _OPTIONAL_ITEMS)
+    for key, anchor, offset in (('streamer_monitor', 'layout_preview', 1), ('layout_pip', 'pip', 0)):
+        if key not in seen:
+            index = next(index for index, entry in enumerate(choices) if entry['id'] == anchor)
+            choices.insert(index + offset, {'id': key, 'enabled': False})
     return choices
 
 

@@ -320,8 +320,17 @@ class FolderIconDialog(QDialog):
             #FolderIconDialog #IconSave:hover {{background: {theme.mix(theme.ACCENT, '#ffffff', .12)};}}
             #FolderIconDialog #IconSave:pressed {{background: {theme.mix(theme.ACCENT, '#000000', .16)};}}
             #FolderIconDialog #IconReset, #FolderIconDialog #IconClose {{background: transparent; border: none; color: {secondary};}}
-            #FolderIconDialog #IconClose {{padding: 0; font-size: 20px;}}
-            #FolderIconDialog #IconDropArea {{border-style: dashed;}}
+            #FolderIconDialog #IconReset {{border-radius: 17px; min-height: 20px; padding: 6px 16px;}}
+            #FolderIconDialog #IconClose {{border-radius: 13px; padding: 0; font-size: 20px;}}
+            #FolderIconDialog #IconDropArea {{border-radius: {theme.RADIUS_MD}px; border-style: dashed;}}
+            #FolderIconDialog #IconChoice:hover, #FolderIconDialog #IconDropArea:hover,
+            #FolderIconDialog #IconReset:hover, #FolderIconDialog #IconClose:hover {{
+                background: {theme.mix(card, theme.ACCENT, .18)}; color: {text};
+            }}
+            #FolderIconDialog #IconChoice:pressed, #FolderIconDialog #IconDropArea:pressed,
+            #FolderIconDialog #IconReset:pressed, #FolderIconDialog #IconClose:pressed {{
+                background: {theme.mix(card, theme.ACCENT, .40)}; color: {text};
+            }}
             #FolderIconDialog #IconDropArea[dragging="true"] {{border-color: #00A1D6; background: {'#243A44' if dark else '#ECF7FC'};}}
             #FolderIconDialog #IconError {{color: #E5484D;}}
         ''')

@@ -39,6 +39,8 @@ class BrowserAccountDialog(QDialog):
         super().__init__(parent)
         if embedded:
             self.setWindowFlags(Qt.Widget)
+        else:
+            self.setWindowTitle('浏览器登录')
         self.platform, self._owner, self.login_only = platform, owner or parent, login_only
         self.account, self.rooms, self._cookies = {}, [], []
         self._worker, self._pending_done = None, None

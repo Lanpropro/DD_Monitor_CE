@@ -49,6 +49,7 @@ class Window(QObject):
         self._stats_poller = None
         self._poller = None
         self._refresh_queued = False
+        self.settings = {}
         self.plugins = SimpleNamespace(platforms={})
         self.room_status = RoomStatus(self)
         room = {"room_id": "7001", "live": True}

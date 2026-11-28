@@ -248,7 +248,8 @@ def check_quick_occlusion(app):
     unrelated = QWidget()
     unrelated.setGeometry(400, 400, 100, 100)
     unrelated.show()
-    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(), _presentation_window=None)
+    layer = SimpleNamespace(parent=wall, window=Mock(), _occlusion_timer=Mock(),
+                            _presentation_window=None, _child_occlusion=QRegion())
     layer._occluding_widgets = lambda: QuickDanmakuLayer._occluding_widgets(layer)
     layer._stack_below_floats = lambda widgets, settings: QuickDanmakuLayer._stack_below_floats(layer, widgets, settings)
     try:
@@ -948,11 +949,11 @@ def check_settings(app):
         page.video_danmaku_scale_curve.set_curve(points)
         assert page.values()['video_danmaku_scale_curve'] == points
         labels = [label.text() for label in page.findChildren(QLabel)]
-        assert "弹幕格字号" in labels and "屏蔽词（每行一个）" in labels
+        assert "弹幕格字号" in labels and "屏蔽词" in labels
         assert not {"滚动速度", "顶部显示区域"}.intersection(labels)
         assert {box.accessibleName() or box.text() for box in page.findChildren(QCheckBox)} == {
             '显示醒目留言', 'SC 随画面缩放', '同步画面与弹幕栏的 SC 位置', '弹幕随画面缩放',
-            '关闭后保留直播格', '启用浮窗毛玻璃'}, \
+            '关闭后保留直播格', '浮窗毛玻璃'}, \
             'Global danmaku settings expose SC and scaling curves without unrelated rolling-text controls'
         page.super_chat_enabled.setChecked(False)
         page.super_chat_opacity.setValue(35)
@@ -1082,6 +1083,25 @@ def check_qt_picture_surface(app):
     print('PASS: Quick-enabled launcher restores visible scrolling comments on Qt plugin pictures')
 
 
+def check_shared_canvas_interval():
+    overlay = VideoDanmaku()
+    with patch.object(overlay, 'screen', return_value=Mock(refreshRate=lambda: 240)):
+        overlay.set_native_video(False)
+        overlay._start_timer()
+        assert overlay.timer.interval() == 4
+        overlay.set_raster_frame_interval(16)
+        assert overlay.timer.interval() == 16
+        overlay._stop_timer()
+        overlay._start_timer()
+        assert overlay.timer.interval() == 16
+        overlay._stop_timer()
+        overlay.set_native_video(True, allow_quick=False)
+        overlay._start_timer()
+        assert overlay.timer.interval() == 16
+        overlay._stop_timer()
+    overlay.close()
+
+
 def main():
     main_window_only = '--main-window-only' in sys.argv
     if not main_window_only:
@@ -1101,6 +1121,7 @@ def main():
     check_initial_background_raster(app)
     check_resize_rebuild_coalescing(app)
     check_qt_picture_surface(app)
+    check_shared_canvas_interval()
     check_quick_occlusion(app)
     check_quick_controller_mask()
     check_super_chat_overlay(app)

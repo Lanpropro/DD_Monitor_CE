@@ -154,6 +154,13 @@ class RecordingServiceTests(unittest.TestCase):
         self.assertEqual(set(auto.watched_rooms()), {'1001', '1002'})
         self.assertEqual(auto.apply_status(live), {'1001': 'fixture-avatar'})
         self.assertEqual([row.live for row in CaptureControl(host).monitor_rows()], [True, True])
+        host.capture_control = CaptureControl(host)
+        service = RecordingService(SimpleNamespace(window=host, _active=True))
+        self.assertEqual({row['room_id']: row['live'] for row in service.monitoring_status()},
+                         {'1001': True, '1002': True})
+        auto.apply_status({'1002': {'live': False}})
+        self.assertEqual({row['room_id']: row['live'] for row in service.monitoring_status()},
+                         {'1001': True, '1002': False})
         recorder.start_background.assert_not_called()
         auto.apply_status({'1001': {'live': False, 'live_known': False}})
         self.assertTrue(auto.room_details['1001']['live'])

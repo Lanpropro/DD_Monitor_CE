@@ -22,7 +22,7 @@ class SuperChatPlacementPreview(SkinPreview):
         self.setFixedHeight(300)
         self.setMouseTracking(True)
         self.setAccessibleName('SC 位置与大小预览')
-        self.setToolTip('拖动卡片摆放，拖动右下角调整当前布局大小；位置是否同步由下方开关决定，双击恢复当前位置和大小')
+        self.setToolTip('拖动卡片调整位置，拖动右下角调整大小。双击恢复当前布局的默认位置和大小。')
         self._positions = {'video': None, 'panel': None}
         self.position_sync = True
         self._scales = {'video': 100, 'panel': 100}

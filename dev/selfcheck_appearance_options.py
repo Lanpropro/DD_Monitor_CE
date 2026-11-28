@@ -14,7 +14,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QImage, QPainter, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QPushButton, QVBoxLayout, QWidget
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_layout import SettingsColumns, SettingsSection
@@ -396,6 +396,8 @@ class AppearanceOptionsTests(unittest.TestCase):
             editor.show()
             settle()
             try:
+                self.assertIn('背景图库', [label.text() for label in editor.findChildren(QLabel)])
+                self.assertEqual(editor.gallery_location.text(), '重复导入会保留副本。')
                 self.assertEqual(editor.gallery.count(), 3)
                 item = editor.gallery.item(1)
                 self.assertEqual(editor.gallery.visualItemRect(editor.gallery.item(0)).size(),
@@ -414,6 +416,9 @@ class AppearanceOptionsTests(unittest.TestCase):
                                  pos=editor.gallery.visualItemRect(item).center())
                 wait_for_gallery_image(editor)
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
+                self.assertEqual(editor.status.text(), '当前背景')
+                self.assertTrue(editor.background_name.isVisible())
+                self.assertEqual(editor.background_name.toolTip(), 'fixture.png')
                 self.assertEqual(len(list(folder.iterdir())), 1)
                 self.assertIsNotNone(controller.layer.image)
                 with patch('ddm.skin_settings.QFileDialog.getOpenFileName', return_value=('', '')) as picker:
@@ -452,6 +457,7 @@ class AppearanceOptionsTests(unittest.TestCase):
                 editor._select_background('utils/skins/missing.png')
                 wait_for_gallery_image(editor)
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
+                self.assertTrue(editor.background_name.isHidden())
                 package = dict(version=1, owner='fixture', name='Fixture', mask=22,
                                path=str(folder / 'fixture.png'), parts={})
                 owner.plugins = SimpleNamespace(active_skin=lambda: package)
@@ -460,12 +466,44 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertFalse(editor.gallery.isEnabled())
                 self.assertFalse(editor.mask_toggle.isEnabled())
                 self.assertFalse(choose.isEnabled())
+                self.assertTrue(editor.background_name.isHidden())
                 editor._select_background('')
                 self.assertEqual(owner.settings['skin_background'], 'utils/skins/fixture.png')
             finally:
                 dispose(editor)
                 controller.stop()
                 dispose(owner)
+
+    def test_background_filename_is_emphasized_with_full_tooltip_at_narrow_width(self):
+        from ddm.skin_settings import SkinSettings
+
+        filename = '雨夜港湾-' + 'BackgroundName' * 5 + '.png'
+        stored_name = 'a' * 32 + '_' + filename
+        with tempfile.TemporaryDirectory() as directory, patch.object(config, 'DATA_ROOT', directory):
+            editor = SkinSettings({'skin_background': 'utils/skins/' + stored_name})
+            editor.setStyleSheet(theme.qss())
+            editor.show()
+            try:
+                editor.resize(350, 520)
+                settle()
+                name = editor.background_name
+                self.assertTrue(name.isVisible())
+                self.assertEqual(editor.status.text(), '当前背景')
+                self.assertGreater(name.font().pixelSize(), editor.status.font().pixelSize())
+                self.assertTrue(name.font().bold())
+                self.assertGreater(name.y(), editor.status.y())
+                self.assertTrue(name.text().endswith('…'))
+                self.assertEqual(name.toolTip(), filename)
+                self.assertEqual(name.accessibleName(), filename)
+                self.assertEqual(editor.width(), 350)
+                editor.resize(1500, 520)
+                settle()
+                self.assertEqual(name.text(), filename)
+                editor.reset()
+                self.assertTrue(name.isHidden())
+                self.assertEqual(editor.status.text(), '当前：默认背景')
+            finally:
+                dispose(editor)
 
     def test_gallery_decodes_off_thread_and_default_wins_over_an_inflight_image(self):
         from threading import Event, get_ident
@@ -640,6 +678,14 @@ class AppearanceOptionsTests(unittest.TestCase):
         settle()
         try:
             page = dialog.appearance_page
+            header = page.scroll.widget().layout().itemAt(0).layout()
+            self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['外观'])
+            size_hint = '字体与字号用于主界面、设置、按钮和列表；弹幕及视频内文字仍由各自设置控制。'
+            theme_labels = page.theme_editor.findChildren(QLabel)
+            size_label = next(label for label in theme_labels if label.text() == '界面字号')
+            self.assertEqual(size_label.toolTip(), size_hint)
+            self.assertEqual(page.theme_editor.font_size.toolTip(), size_hint)
+            self.assertNotIn(size_hint, [label.text() for label in theme_labels])
             for size in (11, 13, 20):
                 page.theme_editor.font_size.setValue(size)
                 settle()
@@ -655,6 +701,13 @@ class AppearanceOptionsTests(unittest.TestCase):
                 self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
                 self.assertEqual(dialog.width(), 760)
             editor = page.material_editor
+            material_labels = [label.text() for label in editor.findChildren(QLabel)]
+            self.assertIn('毛玻璃效果', material_labels)
+            self.assertNotIn('启用毛玻璃效果', material_labels)
+            self.assertIn('设置窗口、公告详情和直播流信息使用系统模糊。'
+                          '通知菜单和播放弹窗跟随底色不透明度。', material_labels)
+            self.assertIn('点选或拖动时滑动切换。关闭系统动画后直接切换。', material_labels)
+            self.assertNotIn('关闭卡片外投影与选择控件的阴影。', material_labels)
             for slider, _label in editor.sliders.values():
                 self.assertTrue(editor.glass_parameters.isAncestorOf(slider))
                 self.assertFalse(slider.isEnabled())

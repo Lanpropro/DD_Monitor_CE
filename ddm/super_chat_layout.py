@@ -5,10 +5,17 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QTextCharFormat, QTextCursor, QTextDocument, QTextOption
 from .corner_geometry import continuous_path
 from . import theme
-from .super_chat_model import SC_CONTENT_COLOR, SC_BODY_PADDING
+from .super_chat_model import SC_CONTENT_COLOR, SC_BODY_PADDING, SC_USER_COLOR
 
 
 MIN_SC_SCALE = .9
+
+
+def sc_close_button_style(scale):
+    return (f'QPushButton {{background:transparent;color:{SC_USER_COLOR};border:0;padding:0;'
+            f'font-size:{round(18 * scale)}px;border-radius:{round(10 * scale)}px;}}'
+            'QPushButton:hover {background:rgba(0,0,0,32);color:#202124;}'
+            'QPushButton:pressed {background:rgba(0,0,0,120);color:white;}')
 
 
 def sc_compact_viewport(width, height):

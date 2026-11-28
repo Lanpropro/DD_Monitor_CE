@@ -8,7 +8,6 @@ import uuid
 
 from PySide6.QtCore import QEvent, QObject, QRunnable, QRectF, Qt, QThread, QThreadPool, QUrl, Signal, Slot
 from PySide6.QtGui import QImage, QImageReader, QPainter
-from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 
 from . import config, theme

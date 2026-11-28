@@ -15,11 +15,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 from PySide6.QtCore import QMimeData, QPoint, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDragLeaveEvent, QDropEvent
 from PySide6.QtWidgets import QApplication
 from ddm import app as app_module, config, plugins as plugin_api
 from ddm.app import MainWindow
 from ddm.dialogs import PluginSettingsPage, SettingsDialog
+from ddm.online_ui import PluginStorePage
 from ddm.plugins import PluginManager
 
 
@@ -82,24 +83,47 @@ def main():
     parser.add_argument("--domestic-package")
     args = parser.parse_args()
     app = QApplication([])
-    with tempfile.TemporaryDirectory(prefix="ddm_plugin_drop_") as root:
+    with tempfile.TemporaryDirectory(prefix="ddm_plugin_drop_") as root, patch.object(PluginStorePage, 'open_catalog'):
         manager = PluginManager(plugins_dir=os.path.join(root, "plugins"))
         page = PluginSettingsPage(manager)
         page.show()
         app.processEvents()
-        first = os.path.join(root, "first.zip")
+        first = os.path.join(root, "第一个插件.ZIP")
         second = os.path.join(root, "second.exe")
         package(first, "first")
         package(second, "second", b"MZ self extracting stub\0")
         mime = QMimeData()
-        mime.setUrls([QUrl.fromLocalFile(first), QUrl.fromLocalFile(second)])
-        enter = QDragEnterEvent(QPoint(5, 5), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
-        QApplication.sendEvent(page, enter)
-        assert enter.isAccepted(), "插件包拖入页面应被接受"
-        drop = QDropEvent(QPoint(5, 5), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
-        with patch("ddm.dialogs.QMessageBox.information"):
-            QApplication.sendEvent(page, drop)
-        assert drop.isAccepted() and set(page.checks) == {"first", "second"}
+        point = QPoint(5, 5)
+        actions = Qt.CopyAction | Qt.MoveAction
+        search = page.installed_browser.search
+        mime.setUrls([QUrl.fromLocalFile(first), QUrl.fromLocalFile(os.path.join(root, '说明.txt'))])
+        enter = QDragEnterEvent(point, actions, mime, Qt.LeftButton, Qt.ShiftModifier)
+        QApplication.sendEvent(search, enter)
+        assert enter.isAccepted() and enter.dropAction() == Qt.CopyAction
+        drop = QDropEvent(point, actions, mime, Qt.LeftButton, Qt.ShiftModifier)
+        QApplication.sendEvent(search, drop)
+        assert drop.isAccepted() and drop.dropAction() == Qt.CopyAction
+        assert not search.text() and set(page.checks) == {"first"}
+        assert os.path.isfile(first), "拖入安装必须保留源文件"
+
+        mime.setUrls([QUrl.fromLocalFile(second)])
+        for index, targets in enumerate(((page.installed_scroll.viewport(), page),
+                                         (page.store_page.search, page.store_page.scroll.viewport()))):
+            page.tabs.setCurrentIndex(index)
+            app.processEvents()
+            for target in targets:
+                enter = QDragEnterEvent(point, actions, mime, Qt.LeftButton, Qt.NoModifier)
+                QApplication.sendEvent(target, enter)
+                assert enter.isAccepted(), target
+                assert page.drop_feedback.isVisible()
+                QApplication.sendEvent(target, QDragLeaveEvent())
+                assert page.drop_feedback.isHidden()
+        viewport = page.store_page.scroll.viewport()
+        QApplication.sendEvent(viewport, QDragEnterEvent(point, actions, mime, Qt.LeftButton, Qt.NoModifier))
+        drop = QDropEvent(point, actions, mime, Qt.LeftButton, Qt.NoModifier)
+        QApplication.sendEvent(viewport, drop)
+        assert drop.isAccepted() and page.drop_feedback.isHidden()
+        assert set(page.checks) == {"first", "second"}
         assert manager.plugins == [], "安装不能执行插件或 EXE"
         assert all(entry["status"] == "待重启" for entry in manager.catalog())
 

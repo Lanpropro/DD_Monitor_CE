@@ -19,10 +19,11 @@ def session():
     return client
 
 
-def releases(repository, client, cache=None):
+def releases(repository, client, cache=None, *, include_preview=False):
     from . import online as api
     if repository not in (api.APP_REPOSITORY, api.PLUGIN_REPOSITORY):
         raise ValueError('不支持的更新仓库')
+    include_preview = include_preview and repository == api.PLUGIN_REPOSITORY
     data, page, first_response = [], 1, None
     conditional = api._conditional_headers(cache, 'releases')
     if (cache or {}).get('releases', {}).get('paginated'):
@@ -44,7 +45,8 @@ def releases(repository, client, cache=None):
             raise ValueError('仓库版本列表格式无效')
         if first_response is None:
             first_response = response
-        data.extend(release for release in batch if not release.get('draft') and not release.get('prerelease'))
+        data.extend(release for release in batch if not release.get('draft')
+                    and (include_preview or not release.get('prerelease')))
         if repository != api.PLUGIN_REPOSITORY or len(batch) < 30:
             break
         page += 1

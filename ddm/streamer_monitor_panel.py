@@ -13,7 +13,7 @@ from .ui.labels import ElidedLabel
 
 
 STATUS_LABELS = {
-    'recording': '正在录制',
+    'recording': '录制中',
     'reconnecting': '等待重连',
     'preparing': '准备录制',
     'stopping': '正在收尾',
@@ -32,12 +32,31 @@ def monitor_platform_badge(parent, platform, size=16):
     return badge
 
 
-def monitor_status_badge(state):
-    badge = QLabel(STATUS_LABELS[state], objectName='BadgeLive' if state == 'recording' else 'BadgeOff')
-    if state == 'monitoring':
-        badge.setStyleSheet(f'background: #006fa3; color: white; border: none; '
-                            f'border-radius: {theme.RADIUS_MD}px;')
+def monitor_status_badge(state, *, live=None):
+    badge = QLabel(objectName='BadgeLive' if state == 'recording' else 'BadgeOff')
+    apply_monitor_status_badge(badge, state, live=live)
     return badge
+
+
+def apply_monitor_status_badge(badge, state, *, live=None):
+    """Apply the shared monitor status to a label or a plugin action button."""
+    label = STATUS_LABELS[state]
+    live_label = monitored_live_label(state, live)
+    detail = f'{label} · {live_label}' if live_label else label
+    badge.setAccessibleDescription(detail)
+    if state == 'monitoring':
+        badge.setText('直播中' if live is True else label)
+        background, foreground = ('#48549a' if live is True else '#006fa3'), '#ffffff'
+    elif state == 'recording':
+        badge.setText(label)
+        background, foreground = theme.PINK, '#3a0d1c'
+    else:
+        badge.setText(detail)
+        return
+    badge.setStyleSheet(f'QLabel, QPushButton {{ background: {background}; color: {foreground}; '
+                        f'border: 1px solid transparent; border-radius: {theme.RADIUS_MD}px; '
+                        f'padding: 0px 5px; font-size: 11px; font-weight: 700; }} '
+                        f'QPushButton:hover, QPushButton:focus {{ border-color: {foreground}; }}')
 
 
 def monitor_elapsed(started_at, now):
@@ -52,9 +71,9 @@ def monitor_identifier(entry):
     return f'房间号 {entry.display_room_id or entry.room_id}'
 
 
-def monitored_live_label(entry):
-    if entry.state in ('monitoring', 'failed') and entry.live is not None:
-        return '直播中' if entry.live else '未开播'
+def monitored_live_label(state, live):
+    if state in ('monitoring', 'failed') and live is not None:
+        return '直播中' if live else '未开播'
     return ''
 
 
@@ -99,14 +118,17 @@ class _MonitorRow(QWidget):
         self.identifier.setToolTip(identifier)
         self.identifier.setObjectName('AppSubtitle')
         identity.addWidget(self.identifier)
+        if entry.schedule_hint:
+            schedule = ElidedLabel(entry.schedule_hint)
+            schedule.setObjectName('AppSubtitle')
+            schedule.setToolTip(entry.schedule_hint)
+            identity.addWidget(schedule)
         box.addLayout(identity, 1)
 
         status_box = QVBoxLayout()
         status_box.setAlignment(Qt.AlignVCenter)
         status_box.setSpacing(2)
-        self.status = monitor_status_badge(entry.state)
-        if live_label := monitored_live_label(entry):
-            self.status.setText(f'{self.status.text()} · {live_label}')
+        self.status = monitor_status_badge(entry.state, live=entry.live)
         status_box.addWidget(self.status, 0, Qt.AlignRight | Qt.AlignVCenter)
         self.elapsed = QLabel(self, objectName='AppSubtitle')
         self.elapsed.setAccessibleName('录制时长')

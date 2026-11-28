@@ -120,6 +120,12 @@ class RecordingService:
             result.append(row)
         return result
 
+    def monitoring_status(self):
+        """Read the same monitoring snapshot as the host sidebar."""
+        return tuple({'room_id': row.room_id, 'name': row.name, 'platform': row.platform,
+                      'state': row.state, 'display_room_id': row.display_room_id, 'live': row.live}
+                     for row in self._host().capture_control.monitor_rows())
+
     def _tile(self, source_id):
         host = self._host()
         return next((tile for tile in self._sources(host) if str(id(tile)) == source_id), None)

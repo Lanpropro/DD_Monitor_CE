@@ -383,6 +383,26 @@ class PluginContext:
         controller = getattr(self.window, 'skin_controller', None)
         return controller.layer.mask if controller is not None else 0
 
+    def workspace_background_image(self):
+        """Return the current static workspace background as an independent Qt image."""
+        from pathlib import Path
+        from PySide6.QtGui import QImage
+        from .skin_assets import IMAGES
+        layer = getattr(getattr(self.window, 'skin_controller', None), 'layer', None)
+        if layer is not None and layer.image is not None and Path(layer.path).suffix.lower() in IMAGES:
+            return QImage(layer.image)
+        return QImage()
+
+    def settings_presentation(self) -> dict:
+        """Read the host's settings window material and wheel preferences."""
+        from .settings_focus import normalize_wheel_speed
+        from .settings_material import normalize
+        values = getattr(self.window, 'settings', {})
+        presentation = normalize(values)
+        presentation.pop('settings_card_layout')
+        presentation['settings_wheel_speed'] = normalize_wheel_speed(values.get('settings_wheel_speed'))
+        return presentation
+
     @property
     def workspace_background_changed(self):
         """Host signal for changes to the effective background, if available."""
@@ -429,6 +449,15 @@ class PluginContext:
             from .recording_service import RecordingService
             self._recording = RecordingService(self)
         return self._recording
+
+    def set_recording_settings_managed(self, enabled):
+        """Control editing ownership of the native recording preferences page."""
+        self._manager.recording_settings_access.set_managed(self, enabled)
+
+    def create_recording_preferences_editor(self, parent):
+        """Create a host-bound recording editor for a plugin's own settings UI."""
+        from .recording_preferences import PluginRecordingPreferencesEditor
+        return PluginRecordingPreferencesEditor(self._manager.recording_settings_access, self, parent)
 
     @property
     def window(self):
@@ -485,8 +514,15 @@ class Plugin:
         """本体播报事件。只读，别在这里改 ``payload`` 里的对象。"""
 
     # ---- 界面 ----
+    # Optional hook for the shortcut on the host recording page while this plugin manages it.
+    open_managed_recording_settings = None
+
     def create_embedded_widget(self, capability, parent, caller, **options):
         """Optionally supply a child widget to another plugin."""
+        return None
+
+    def recording_settings_view(self, parent, controls):
+        """Optionally lay out the host-owned inputs in a replacement recording page."""
         return None
 
     def recording_settings(self, parent):

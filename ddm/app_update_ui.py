@@ -11,7 +11,7 @@ from . import config, online, update_install, version
 from .update_version import release_label, running_revision
 from .online_tasks import OnlinePage
 from .settings_layout import SettingsSection
-from .ui import ActionButton, HintLabel, ToggleSwitch, page_header
+from .ui import ActionButton, ToggleSwitch, page_header
 from .update_progress_ui import UpdateProgress
 
 
@@ -45,7 +45,7 @@ class AppUpdatePage(OnlinePage):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(14)
-        root.addLayout(page_header('软件更新', '检查正式版本，查看更新内容并管理本地数据。'))
+        root.addLayout(page_header('软件更新', ''))
         self.scroll = QScrollArea(self)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setWidgetResizable(True)
@@ -65,15 +65,15 @@ class AppUpdatePage(OnlinePage):
         self.check.clicked.connect(self.check_update)
         self.auto = ToggleSwitch('启动时检查更新')
         self.auto.setChecked(bool((settings or {}).get('auto_update', False)))
-        self.auto.setToolTip('开启后，启动软件时检查新版；点击悬浮提示进入此页，自行下载并安装。')
+        self.auto.setToolTip('发现新版时只提醒，下载和安装由你决定。')
         auto_row = QHBoxLayout()
         auto_label = QLabel('启动时检查更新')
         auto_label.setBuddy(self.auto)
+        auto_label.setToolTip(self.auto.toolTip())
         auto_label.setWordWrap(True)
         auto_row.addWidget(auto_label, 1)
         auto_row.addWidget(self.auto)
         grid.addLayout(auto_row, 1, 0, 1, 2)
-        grid.addWidget(HintLabel('发现新版时提醒，由你决定何时下载和安装。'), 2, 0, 1, 2)
         self.action = ActionButton('下载更新')
         self.action.setObjectName('PrimaryButton')
         self.action.setProperty('updateAction', True)
@@ -85,8 +85,19 @@ class AppUpdatePage(OnlinePage):
         actions.addWidget(self.download_progress)
         actions.addWidget(self.check)
         actions.addStretch(1)
-        grid.addLayout(actions, 3, 0, 1, 2)
-        grid.addWidget(self.status, 4, 0, 1, 2)
+        grid.addLayout(actions, 2, 0, 1, 2)
+        grid.addWidget(self.status, 3, 0, 1, 2)
+        self.plugin_preview = ToggleSwitch('接收插件 Preview 更新')
+        self.plugin_preview.setChecked(bool((settings or {}).get('plugin_preview_updates', False)))
+        self.plugin_preview.setToolTip('开启后，插件商店和启动检查也会查找 Preview。')
+        preview_row = QHBoxLayout()
+        preview_label = QLabel('接收插件 Preview 更新')
+        preview_label.setBuddy(self.plugin_preview)
+        preview_label.setToolTip(self.plugin_preview.toolTip())
+        preview_label.setWordWrap(True)
+        preview_row.addWidget(preview_label, 1)
+        preview_row.addWidget(self.plugin_preview)
+        grid.addLayout(preview_row, 4, 0, 1, 2)
         self.notes_section = SettingsSection('当前版本 ' + version.VERSION + ' 更新说明')
         layout.addWidget(self.notes_section)
         self.notes_title = self.notes_section.layout().itemAt(0).widget()
@@ -107,8 +118,8 @@ class AppUpdatePage(OnlinePage):
         self.data_page = DataSettingsPage()
         layout.addWidget(self.data_page)
         layout.addStretch(1)
-        self.status.setText('点击“检查更新”查询可下载的新版。' if getattr(sys, 'frozen', False) else
-                            '源码运行可检查版本；自动替换仅适用于 Windows EXE 版。')
+        if not getattr(sys, 'frozen', False):
+            self.status.setText('源码版可检查更新，需从仓库获取新版。')
         message = update_install.result_message(config.REPO, config.data_root(), version.VERSION)
         if message:
             self.status.setText(message)
@@ -136,7 +147,7 @@ class AppUpdatePage(OnlinePage):
         self.action.setToolTip(hint)
 
     def values(self):
-        return {'auto_update': self.auto.isChecked()}
+        return {'auto_update': self.auto.isChecked(), 'plugin_preview_updates': self.plugin_preview.isChecked()}
 
     def show_current_notes(self):
         self.notes_title.setText('当前版本 ' + version.VERSION + ' 更新说明')
@@ -147,7 +158,7 @@ class AppUpdatePage(OnlinePage):
                 path = Path(config.REPO) / filename
             notes = path.read_text(encoding='utf-8-sig')
         except OSError:
-            notes = '本地未附带当前版本的更新说明，可点击“打开发布页面”查看。'
+            notes = '本地无更新说明，可打开发布页面查看。'
         self.notes.setMarkdown(notes)
 
     def stop(self):
@@ -244,4 +255,4 @@ class AppUpdatePage(OnlinePage):
         self._transfer_progress(dict(self.download_state, phase='ready', percent=100))
         self.action.setText('重启并更新')
         permission = ' 更新程序文件时将请求管理员授权；取消授权会保留原版本。' if plan.get('elevate') else ''
-        self.status.setText('下载和校验完成。点击重启并更新，将先保存设置并收尾录制。' + permission)
+        self.status.setText('更新包已就绪。重启前会保存设置并结束录制。' + permission)

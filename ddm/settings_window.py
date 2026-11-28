@@ -30,7 +30,8 @@ class SettingsCloseButton(QAbstractButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        painter.setBrush(theme.qcolor(theme.CONTENT_HOVER if self.underMouse() or self.isDown() else theme.CONTENT))
+        painter.setBrush(theme.qcolor(theme.ACCENT if self.isDown() else
+                                      theme.CONTENT_HOVER if self.underMouse() else theme.CONTENT))
         painter.setPen(QPen(theme.qcolor(theme.ACCENT if self.hasFocus() else theme.BORDER_STRONG), 1))
         painter.drawEllipse(rect)
         painter.setPen(QPen(theme.qcolor(theme.TEXT1), 1.6, Qt.SolidLine, Qt.RoundCap))
@@ -39,7 +40,7 @@ class SettingsCloseButton(QAbstractButton):
 
 
 class SettingsTitleBar(QWidget):
-    def __init__(self, window):
+    def __init__(self, window, *, close_action=None):
         super().__init__(window)
         self.setMinimumHeight(52)
         self.row = QHBoxLayout(self)
@@ -51,7 +52,7 @@ class SettingsTitleBar(QWidget):
         self.row.addWidget(self.breadcrumb)
         self.row.addStretch(1)
         self.close_button = SettingsCloseButton(self)
-        self.close_button.clicked.connect(window.reject)
+        self.close_button.clicked.connect(close_action if close_action is not None else window.reject)
         self.row.addWidget(self.close_button)
 
     def set_search(self, search):

@@ -4,14 +4,15 @@ from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QDialog, QGridLayout, QHBoxLayout, QLabel, QMenu, QLineEdit, QListWidget, QListWidgetItem,
-    QPushButton, QSizePolicy, QVBoxLayout, QWidget
+    QSizePolicy, QVBoxLayout, QWidget
 )
 from . import theme
 from .follow_folders import default_folder
 from .folder_icons import create_folder_dialog
 from .search import matches_text
 from .motion import AnimatedDialog
-from .follow_import_ui import FollowImportDelegate, FollowImportItem, FollowImportList
+from .follow_import_ui import FollowImportDelegate, FollowImportFolderButton, FollowImportItem, FollowImportList
+from .ui.basics import ActionButton
 from .ui.select import SelectControl
 from pypinyin import lazy_pinyin
 
@@ -23,22 +24,19 @@ from .add_room_dialog import (AddRoomDialog)
 
 
 class FollowImportDialog(QDialog):
-    """从关注列表里挑要加入监控室的直播间。
-
-    整行点击即可切换勾选；已在关注列表里的默认勾选（重复导入不会重复添加）。
-    """
+    """从关注列表里挑要加入监控室的直播间。"""
 
     def __init__(self, rooms: list[dict], existing: set[str], parent=None, *, folders=None,
                  folder_creator=None, room_menu=False, channels=False, sidebar_avatars=None):
         super().__init__(parent)
         self.room_menu = room_menu
         self.channels = channels
+        self.setObjectName("FollowImportPage")
         self.setWindowTitle("导入频道" if channels else "导入关注")
         self.resize(660, 620)
         self.rooms = rooms
         self.existing = {str(item) for item in existing}
         self._sidebar_avatars = sidebar_avatars or {}
-        self._explicitly_checked = set()
         self.folder_id = ""
         self.folder_changed = False
         self.folder_names = {folder['name'] for folder in folders or []}
@@ -50,10 +48,6 @@ class FollowImportDialog(QDialog):
         self.header = QLabel()
         self.header.setObjectName("AppSubtitle")
         self.header.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.removal_hint = QLabel()
-        self.removal_hint.setObjectName("SettingsHint")
-        self.removal_hint.setWordWrap(True)
-        self.removal_hint.hide()
         self._summary_timer = QTimer(self)
         self._summary_timer.setSingleShot(True)
         self._summary_timer.timeout.connect(self._update_header)
@@ -92,19 +86,17 @@ class FollowImportDialog(QDialog):
         self.folder_controls = QWidget()
         folder_row = QHBoxLayout(self.folder_controls)
         folder_row.setContentsMargins(0, 0, 0, 0)
-        self.folder_button = QPushButton(default_folder(folders)["name"])
-        self.folder_button.setObjectName("IconButton")
-        self.folder_button.setMaximumWidth(160)
-        self.folder_button.setAutoDefault(False)
+        self.folder_button = FollowImportFolderButton(default_folder(folders)["name"])
         self.folder_button.setToolTip("仅为新增频道设置文件夹" if channels else
-                                      "仅调整新增或主动勾选的主播；默认勾选的已有关注保留原归属")
+                                      "选择本次新增主播的文件夹")
         folder_menu = QMenu(self.folder_button)
         options = [("", default_folder(folders)["name"])] + [(folder["id"], folder["name"]) for folder in folders or []
                                   if folder.get("type", "normal") == "normal"]
         for folder_id, name in options:
             _add_folder_option(self, folder_menu, folder_id, name)
         self.folder_button.setMenu(folder_menu)
-        folder_row.addWidget(self.folder_button)
+        folder_row.addWidget(self.folder_button, 1)
+        folder_row.addStretch()
         folder_menu.addSeparator()
         self.new_folder_action = folder_menu.addAction("新建文件夹…")
         self.new_folder_action.setEnabled(folder_creator is not None)
@@ -117,16 +109,15 @@ class FollowImportDialog(QDialog):
         selection_actions.setContentsMargins(0, 0, 0, 0)
         selection_actions.setSpacing(6)
         self.filter_buttons = []
-        for text, handler in (("全选", lambda: self._check_all(True)),
-                              ("不选", lambda: self._check_all(False)),
-                              ("选直播中", self._check_live)):
+        for text, tip, handler in (
+                ("全选" if channels else "全选结果", "勾选当前筛选结果", lambda: self._check_all(True)),
+                ("不选" if channels else "清除勾选", "清除当前筛选结果中的勾选", lambda: self._check_all(False)),
+                ("勾选直播中", "从当前筛选结果补选正在直播的主播，保留原有勾选", self._check_live)):
             if channels and handler == self._check_live:
                 continue
-            button = QPushButton(text)
-            button.setObjectName("IconButton")
-            button.setCursor(Qt.PointingHandCursor)
+            button = ActionButton(text)
             button.setAutoDefault(False)
-            button.setToolTip("只操作当前搜索结果")
+            button.setToolTip(tip)
             button.clicked.connect(handler)
             selection_actions.addWidget(button)
             self.filter_buttons.append(button)
@@ -134,7 +125,7 @@ class FollowImportDialog(QDialog):
         filters.addLayout(selection_actions, 0, 0)
         filters.setColumnStretch(0, 1)
         self.hide_existing = QCheckBox("隐藏已添加")
-        self.hide_existing.setToolTip("仅隐藏已有关注，保留其勾选；不会因为隐藏而移除关注")
+        self.hide_existing.setToolTip("隐藏列表中已添加的条目")
         self.hide_existing.toggled.connect(lambda _: self._filter_rooms(self.search_edit.text()))
         filters.addWidget(self.hide_existing, 0, 1)
         if self.room_menu:
@@ -175,32 +166,29 @@ class FollowImportDialog(QDialog):
         layout.addWidget(self.empty_label)
         self.empty_label.hide()
 
-        layout.addWidget(self.removal_hint)
         self.secondary_actions = QHBoxLayout()
         layout.addLayout(self.secondary_actions)
         self.footer = QGridLayout()
-        self.footer.setColumnStretch(0, 1)
-        self.footer.addWidget(self.header, 0, 0)
-        self.footer.addWidget(self.folder_controls, 1, 0)
+        self.footer.setColumnStretch(1, 1)
+        self.footer.addWidget(self.folder_controls, 0, 0)
+        self.footer.addWidget(self.header, 0, 1)
         self.confirm_controls = QWidget()
         buttons = QHBoxLayout(self.confirm_controls)
         buttons.setContentsMargins(0, 0, 0, 0)
-        cancel = QPushButton("取消")
-        cancel.setObjectName("IconButton")
+        cancel = ActionButton("取消")
         cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
-        confirm = QPushButton("应用选择")
+        confirm = ActionButton("导入频道" if channels else "添加 0 位主播")
         self.import_button = confirm
         confirm.setObjectName("PrimaryButton")
         confirm.setAutoDefault(False)
         confirm.clicked.connect(self.accept)
         buttons.addWidget(cancel)
         buttons.addWidget(confirm)
-        self.footer.addWidget(self.confirm_controls, 1, 2)
+        self.footer.addWidget(self.confirm_controls, 0, 2)
         layout.addLayout(self.footer)
 
         self.sort_control.setEnabled(not self._populating)
-        self.import_button.setEnabled(not self._populating)
         for button in self.filter_buttons:
             button.setEnabled(not self._populating)
         if self.room_menu:
@@ -213,13 +201,12 @@ class FollowImportDialog(QDialog):
     def _append_rooms(self, rooms):
         for room in rooms:
             room_id = str(room["room_id"])
-            item = FollowImportItem(self._room_text(room))
+            item = FollowImportItem()
             item.setData(Qt.UserRole + 2, self.list.count())
             item.setData(Qt.UserRole + 3, (self.list.count(),))
-            item.setData(Qt.UserRole, room)
-            item.setToolTip(self._room_text(room))
-            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if room_id in self.existing or room.get("pending_import") else Qt.Unchecked)
+            self._set_room_item(item, room)
+            if self.channels and room_id in self.existing:
+                item.setCheckState(Qt.Checked)
             item.setData(Qt.UserRole + 1, item.checkState() == Qt.Checked)
             self.list.addItem(item)
             if room_id:
@@ -240,7 +227,6 @@ class FollowImportDialog(QDialog):
         self._populating = self._offset < len(self.rooms)
         if not self._populating:
             self._populate_timer.stop()
-            self.import_button.setEnabled(True)
             self.sort_control.setEnabled(True)
             for button in self.filter_buttons:
                 button.setEnabled(True)
@@ -329,35 +315,29 @@ class FollowImportDialog(QDialog):
         if checked == item.data(Qt.UserRole + 1):
             return
         item.setData(Qt.UserRole + 1, checked)
-        room_id = str(item.data(Qt.UserRole)["room_id"])
-        if checked:
-            self._explicitly_checked.add(room_id)
-        else:
-            self._explicitly_checked.discard(room_id)
         self._summary_timer.start(0)
 
     def _check_all(self, checked: bool) -> None:
         for index in range(self.list.count()):
             item = self.list.item(index)
-            if not item.isHidden():
+            if not item.isHidden() and item.flags() & Qt.ItemIsUserCheckable:
                 item.setCheckState(Qt.Checked if checked else Qt.Unchecked)
-                if checked:
-                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
         self._update_header()
 
     def _check_live(self) -> None:
         for index in range(self.list.count()):
             item = self.list.item(index)
-            if not item.isHidden():
-                item.setCheckState(Qt.Checked if item.data(Qt.UserRole)["live"] else Qt.Unchecked)
-                if item.checkState() == Qt.Checked:
-                    self._explicitly_checked.add(str(item.data(Qt.UserRole)["room_id"]))
+            if not item.isHidden() and item.flags() & Qt.ItemIsUserCheckable:
+                room = item.data(Qt.UserRole)
+                if room["live"] and room.get("live_known") is not False:
+                    item.setCheckState(Qt.Checked)
         self._update_header()
 
     def _update_header(self) -> None:
         if self._populating:
             kind = '频道' if self.channels else '关注'
             self.header.setText(f'共 {len(self.rooms)} 个{kind}，正在显示 {self.list.count()} 个…')
+            self.import_button.setEnabled(False)
             return
         chosen = self.selected()
         shown = sum(not self.list.item(index).isHidden() for index in range(self.list.count()))
@@ -370,12 +350,9 @@ class FollowImportDialog(QDialog):
             self.empty_label.setVisible(not shown)
             return
         pending = sum(not room.get("room_id") for room in self.rooms)
-        added = sum(bool(room.get("room_id")) and str(room["room_id"]) not in self.existing for room in chosen)
-        removed = len(self.deselected_existing())
         pending_chosen = sum(not room.get("room_id") for room in chosen)
-        parts = [f"已选 {len(chosen)}", f"新增 {added}"]
-        if removed:
-            parts.append(f"移除 {removed}")
+        added = len(chosen) - pending_chosen
+        parts = [f"已选 {len(chosen)} 位主播"]
         if pending_chosen:
             parts.append(f"待识别 {pending_chosen}")
         self.header.setText(" · ".join(parts))
@@ -383,11 +360,12 @@ class FollowImportDialog(QDialog):
         self.header.setToolTip(f"共 {len(self.rooms)} 个关注，当前显示 {shown} 个；"
                                f"{len(self.rooms) - pending - references} 个直播间，{pending} 个待识别，"
                                f"{references} 个按账号关注")
-        self.removal_hint.setText(f"应用后将移除 {removed} 个本地关注。")
-        self.removal_hint.setVisible(bool(removed))
-        self.import_button.setText("应用选择")
-        self.import_button.setToolTip("应用勾选并移除取消勾选的已有关注；文件夹仅调整新增或主动勾选的主播。"
-                                     "待识别账号只保存选择，取得房间号后加入关注栏。")
+        if pending_chosen:
+            action = f"添加 {added} 位 · 保存 {pending_chosen} 位待识别" if added else f"保存 {pending_chosen} 位待识别主播"
+        else:
+            action = f"添加 {added} 位主播"
+        self.import_button.setText(action)
+        self.import_button.setEnabled(bool(chosen))
         if self.room_menu:
             self.show_pending.setText(f"待识别 {pending}")
             self.show_pending.setVisible(bool(pending))
@@ -410,8 +388,8 @@ class FollowImportDialog(QDialog):
             self.footer.removeWidget(self.header)
             self.footer.removeWidget(self.confirm_controls)
             self.footer.removeWidget(self.folder_controls)
-            self.footer.addWidget(self.header, 0, 0, 1, 1 if wide else 3)
-            self.footer.addWidget(self.folder_controls, 0 if wide else 1, 1 if wide else 0)
+            self.footer.addWidget(self.header, 0, 1 if wide else 0, 1, 1 if wide else 3)
+            self.footer.addWidget(self.folder_controls, 0 if wide else 1, 0, 1, 1 if wide else 2)
             self.footer.addWidget(self.confirm_controls, 0 if wide else 1, 2)
 
     @staticmethod
@@ -432,36 +410,44 @@ class FollowImportDialog(QDialog):
     def update_account(self, account):
         for index, room in enumerate(self.rooms):
             if room.get("anchor_uid") == account.get("anchor_uid"):
+                if room.get("pending_import"):
+                    account = dict(account, pending_import=True, pending_folder_id=room.get("pending_folder_id", ""))
                 self.rooms[index] = dict(account)
                 item = self._avatar_items.get('account:' + str(account.get('anchor_uid')))
                 if item is None:
                     return
-                item.setData(Qt.UserRole, dict(account))
-                item.setText(self._room_text(account))
-                item.setToolTip(self._room_text(account))
+                self._set_room_item(item, account)
                 if account.get("room_id"):
                     self._avatar_items[str(account["room_id"])] = item
                 self._sort_rooms()
                 self._filter_rooms(self.search_edit.text())
                 return
 
-    # ---- 结果 ----
-    def folder_room_ids(self) -> list[str]:
-        return [str(room["room_id"]) for room in self.selected()
-                if str(room["room_id"]) not in self.existing
-                or str(room["room_id"]) in self._explicitly_checked]
-
-    def deselected_existing(self) -> list[str]:
-        return [str(self.list.item(index).data(Qt.UserRole)["room_id"])
-                for index in range(self.list.count())
-                if str(self.list.item(index).data(Qt.UserRole)["room_id"]) in self.existing
-                and self.list.item(index).checkState() != Qt.Checked]
+    def _set_room_item(self, item, room):
+        checked = item.checkState()
+        badge = ""
+        if not self.channels:
+            if str(room["room_id"]) in self.existing:
+                badge = "已添加"
+            elif not room.get("room_id") and room.get("pending_import"):
+                badge = "已保存"
+        flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        item.setFlags(flags if badge else flags | Qt.ItemIsUserCheckable)
+        item.setData(Qt.UserRole, room)
+        item.setData(Qt.AccessibleDescriptionRole, badge or None)
+        if badge:
+            item.setData(Qt.CheckStateRole, None)
+        else:
+            item.setCheckState(checked)
+        text = self._room_text(room)
+        item.setText(text)
+        item.setToolTip(f"{text}　{badge}" if badge else text)
 
     def selected(self) -> list[dict]:
         result = []
         for index in range(self.list.count()):
             item = self.list.item(index)
-            if item.checkState() == Qt.Checked:
+            if item.flags() & Qt.ItemIsUserCheckable and item.checkState() == Qt.Checked:
                 result.append(item.data(Qt.UserRole))
         return result
 
@@ -472,4 +458,7 @@ class FollowImportDialog(QDialog):
         if item is None and self._populating:
             self._pending_avatars[str(room_id)] = pixmap
         if item is not None:
-            item.setIcon(QIcon(circular_pixmap(pixmap, 32)))
+            scale = self.list.devicePixelRatioF() if not self.channels else 1
+            avatar = circular_pixmap(pixmap, round(self.list.itemDelegate().avatar_size * scale))
+            avatar.setDevicePixelRatio(scale)
+            item.setIcon(QIcon(avatar))

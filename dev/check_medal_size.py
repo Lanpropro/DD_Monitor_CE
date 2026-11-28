@@ -14,12 +14,13 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault('DDM_NO_SAVE', '1')
 
 from ddm import theme
+from ddm.danmaku_format import _medal_chip
 from ddm.danmaku_widgets import DanmakuPanel
 
 
 MEDALS = (
-    ('芒果韬', '4', '#184f48'),
-    ('芒果韬', '24', '#f5c542'),
+    ('不醒9', '15', '#184f48'),
+    ('不醒91', '5', '#f5c542'),
     ('茶水间', '1000', '#122a74'),
     ('非常长的粉丝牌名字', '31', ''),
 )
@@ -83,6 +84,9 @@ def main():
         assert abs(badge.width() - fmt.width() * dpr) <= 1
         assert abs(badge.height() - fmt.height() * dpr) <= 1
         block = block.next()
+    original = panel._images['medal:不醒9|15|#184f48']
+    other = _medal_chip('不醒91', '5', '#184f48', 17, font_family=panel._font_family, dpr=dpr)
+    assert original.toImage() != other.toImage(), 'A name ending in a digit must be distinct from its level'
     medal_count = len(panel._images)
     new_dpr = 2 if dpr != 2 else 1.5
     with patch.object(panel.body.viewport(), 'devicePixelRatioF', return_value=new_dpr):
@@ -93,7 +97,7 @@ def main():
             assert document.resource(QTextDocument.ImageResource, QUrl(url)).devicePixelRatioF() == new_dpr
     assert len(panel._images) == medal_count and document.blockCount() == len(MEDALS)
     panel.close()
-    print(f'PASS: uniform, centered fan medals and DPI-matched text at {dpr:g}×')
+    print(f'PASS: uniform, centered fan medals with readable levels and DPI-matched text at {dpr:g}×')
 
 
 if __name__ == '__main__':

@@ -15,7 +15,7 @@ os.environ['DDM_NO_SAVE'] = '1'
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QMimeData, QPoint, Qt
 from PySide6.QtGui import QDrag
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtTest import QTest
@@ -103,26 +103,6 @@ class OnDemandTests(unittest.TestCase):
         self.wait(lambda: self.endpoint.active is None)
         self.assertTrue(observer.closed)
 
-    def test_playback_client_reports_host_disconnect_without_waiting_for_timeout(self):
-        self.window.players = {}
-        self.window.wall = SimpleNamespace(tiles=[])
-        self.endpoint.close()
-        self.endpoint = DiagnosticEndpoint(self.window, self.root / 'logs', self.root)
-        self.addCleanup(self.endpoint.close)
-        process = subprocess.Popen([sys.executable, str(ROOT / 'dev/capture_playback.py'),
-                                    '--pid', str(os.getpid())], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        try:
-            self.wait(lambda: self.endpoint.active is not None and self.endpoint.active['observer'] is not None)
-            self.endpoint.active['socket'].abort()
-            self.wait(lambda: process.poll() is not None, timeout=5)
-            stdout, stderr = process.communicate()
-            self.assertEqual(process.returncode, 1)
-            self.assertIn(b'disconnected before capture completed', stderr)
-        finally:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-
     def test_folder_snapshot_preserves_wrong_geometry_without_layout_or_screenshot(self):
         item = self.window.sidebar._items[0]
         item.move(item.pos() + QPoint(0, 300))
@@ -136,6 +116,73 @@ class OnDemandTests(unittest.TestCase):
         self.assertEqual(before, [(entry.geometry(), entry.isHidden(), entry.internalWinId())
                                   for entry in self.window.sidebar._items])
         self.assertNotIn('PRIVATE_', json.dumps(state))
+
+    def test_sidebar_performance_observes_card_drag_and_two_scroll_axes(self):
+        from ddm.sidebar_drag import ROOM_MIME
+        sidebar = self.window.sidebar
+        session, card = sidebar.drag_session, sidebar._items[0]
+        socket = self.request('sidebar-performance')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        mime = QMimeData()
+        mime.setData(ROOM_MIME, b'fixture')
+        for drop in (False, True):
+            pixmap = card._drag_pixmap()
+            self.assertTrue(session.start(card, mime, pixmap, QPoint(), QPoint(-20000, -20000)))
+            session._update_target()
+            if drop:
+                session.finish()
+            else:
+                session.cancel()
+        for bar in (sidebar.scroll.horizontalScrollBar(), sidebar.scroll.verticalScrollBar()):
+            bar.setRange(0, 100)
+            bar.setValue(20)
+            bar.setValue(40)
+        sidebar._refresh_visible_covers()
+        observer.finish()
+        report = self.reply(socket)['records'][-2]
+        self.assertEqual(report['stage'], 'sidebar-performance')
+        self.assertEqual(report['phases']['card-pixmap']['calls'], 2)
+        self.assertEqual(report['phases']['drag-start']['calls'], 2)
+        self.assertGreaterEqual(report['phases']['drag-target']['calls'], 2)
+        self.assertEqual(report['phases']['drag-cleanup']['calls'], 2)
+        self.assertEqual(report['phases']['scroll-covers']['calls'], 1)
+        self.assertEqual(report['drag_outcomes'], dict(accepted=0, rejected=1, cancelled=1))
+        for axis in ('horizontal', 'vertical'):
+            self.assertGreaterEqual(report['scroll'][axis]['changes'], 2)
+        self.assertIn('drag+scroll', report['heartbeat'])
+        self.assertNotIn('PRIVATE_', json.dumps(report))
+        self.assertNotIn('start', vars(session))
+
+    def test_sidebar_performance_disconnect_restores_hooks_and_stops_scrolling_capture(self):
+        from ddm.sidebar_item import NavItem
+        original = NavItem._drag_pixmap
+        socket = self.request('sidebar-performance')
+        self.assertEqual(self.reply(socket)['status'], 'armed')
+        observer = self.endpoint.active['observer']
+        self.assertEqual(self.reply(self.request('drag'))['reason'], 'capture-busy')
+        socket.abort()
+        self.wait(lambda: self.endpoint.active is None)
+        self.assertTrue(observer.stopped.is_set())
+        self.assertFalse(observer.sampler.worker.is_alive())
+        self.assertIs(NavItem._drag_pixmap, original)
+        self.assertFalse(observer.scroll.connections)
+
+    def test_delay_stacks_belong_to_the_completed_heartbeat_only(self):
+        from ddm.heartbeat_stacks import HeartbeatStacks
+        sampler = HeartbeatStacks()
+        sampler.worker.start()
+        try:
+            deadline = time.monotonic() + 3
+            while not sampler.samples and time.monotonic() < deadline:
+                time.sleep(.01)
+            elapsed, samples = sampler.pulse(time.perf_counter())
+            self.assertGreaterEqual(elapsed, 45)
+            self.assertTrue(any(frame['function'] == self._testMethodName
+                                for sample in samples for frame in sample['stack']))
+            self.assertEqual(sampler.pulse(time.perf_counter())[1], [])
+        finally:
+            sampler.stop()
 
     def test_dock_hover_uses_bounded_capture_and_stops_on_disconnect(self):
         socket = self.request('dock-hover')
@@ -171,7 +218,8 @@ class OnDemandTests(unittest.TestCase):
 
     def test_invalid_and_oversized_requests_never_start_capture(self):
         for request in (b'{"protocol":1,"mode":"execute"}\n', b'[]\n',
-                        b'{"protocol":1,"mode":"folders","path":"private"}\n'):
+                        b'{"protocol":1,"mode":"folders","path":"private"}\n',
+                        b'{"protocol":1,"mode":"sidebar-performance","seconds":61}\n'):
             self.assertEqual(self.reply(self.connect(request))['status'], 'error')
         socket = self.connect(b'x' * 4097)
         self.wait(lambda: socket.state() == QLocalSocket.UnconnectedState)

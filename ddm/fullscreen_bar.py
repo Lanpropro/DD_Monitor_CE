@@ -10,6 +10,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QTimer, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRegion
 from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
+from .badge_surface import BadgeSurface
 from .corner_geometry import continuous_path
 from .theme import VIDEO_CONTROL_BACKING, VIDEO_CONTROL_RADIUS
 from .window_fullscreen import raise_below_native_windows
@@ -61,6 +62,9 @@ class FullscreenBar(QWidget):
     @property
     def windowed_overlay(self):
         return self.property('overVideo') and not self.property('fullscreen')
+
+    def controls_exposed(self):
+        return self.isVisible() and self.windowOpacity() > 0
 
     def set_fullscreen(self, enabled, *, windowed_overlay=False):
         over_video = enabled or windowed_overlay
@@ -174,8 +178,13 @@ class FullscreenBar(QWidget):
         tile = self.parentWidget()
         owner = tile.window()
         auto_hide = getattr(owner, 'settings', {}).get('windowed_auto_hide_controls', False)
-        visible = tile.isVisible() and not owner.isMinimized() and (tile._overlay_visible or not auto_hide)
         composited = self.qt_composited
+        reveal = tile._overlay_visible or not auto_hide
+        # A mapped alpha-zero layered window lets pointer input pass through.
+        # Keeping the backing store avoids a native show/hide cascade on every
+        # tile crossing. A focused bar still unmaps to release keyboard focus.
+        keep_mapped = composited and QApplication.activeWindow() is not self
+        visible = tile.isVisible() and not owner.isMinimized() and (reveal or keep_mapped)
         settings = getattr(owner, '_settings_process', None) if composited else None
         mask_changed = False
         if visible:
@@ -201,31 +210,58 @@ class FullscreenBar(QWidget):
             mask_changed = visible and region != self.mask()
             if mask_changed:
                 self.setMask(region)
+        opacity_changed = composited and visible and self.windowOpacity() != float(reveal)
+        if opacity_changed:
+            self.setWindowOpacity(float(reveal))
         visibility_changed = self.isHidden() == visible
         if visibility_changed:
             self.setVisible(visible)
-        if mask_changed or visibility_changed:
+        if mask_changed or visibility_changed or opacity_changed:
             tile._update_quick_danmaku_mask()
 
     def refresh_theme(self):
         self.update()
 
-    def _raise_below_floating_chat(self):
+    def _raise_below_owned_windows(self):
         if not self.qt_composited or not self.isVisible():
             return False
+        owners = set()
         owner = self._owner_window.windowHandle()
+        while owner is not None:
+            owners.add(owner)
+            owner = owner.transientParent()
+
         anchors = []
         for widget in QApplication.topLevelWidgets():
-            if (not widget.property('floatingDanmaku') or not widget.isVisible()
-                    or widget.isMinimized() or widget.testAttribute(Qt.WA_DontShowOnScreen)):
+            # Video overlays, input-transparent transitions and unpinned
+            # fullscreen chats keep their own playback stacking rules.
+            if (isinstance(widget, (FullscreenBar, BadgeSurface))
+                    or not widget.isVisible() or widget.isMinimized()
+                    or widget.testAttribute(Qt.WA_DontShowOnScreen)
+                    or widget.windowFlags() & Qt.WindowTransparentForInput
+                    or widget.property('behindFullscreen')):
                 continue
             window = widget.windowHandle()
-            if window is not None and window.transientParent() is owner:
-                anchors.append(int(window.winId()))
-        return raise_below_native_windows(self, anchors)
+            if window is None or window in owners:
+                continue
+            parent = window.transientParent()
+            while parent is not None:
+                if parent in owners:
+                    anchors.append(int(window.winId()))
+                    break
+                parent = parent.transientParent()
+
+        host = self._owner_window
+        while host.parentWidget() is not None:
+            host = host.parentWidget().window()
+        settings = getattr(host, '_settings_process', None)
+        if settings is not None and settings.visible and not settings.closing and settings.window_hwnd:
+            anchors.append(settings.window_hwnd)
+        owner = self._owner_window if self.windowed_overlay else None
+        return raise_below_native_windows(self, anchors, owner=owner)
 
     def raise_(self):
-        if not self._raise_below_floating_chat():
+        if not self._raise_below_owned_windows():
             super().raise_()
 
     def _render_badge(self, painter):
@@ -305,14 +341,15 @@ class FullscreenBar(QWidget):
             event.child().installEventFilter(self)
         elif event.type() in (QEvent.Show, QEvent.WindowActivate) and self.qt_composited:
             # Qt and Windows can raise an owned HWND when mapping or activating it.
-            QTimer.singleShot(0, self, self._raise_below_floating_chat)
+            QTimer.singleShot(0, self, self._raise_below_owned_windows)
         return QWidget.event(self, event)
 
     def eventFilter(self, watched, event):
-        self._trace_input('child-event', watched, event)
-        if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
-            event.child().installEventFilter(self)
-        if self.qt_composited and watched is self._owner_window:
+        if watched is not self._owner_window:
+            self._trace_input('child-event', watched, event)
+            if event.type() == QEvent.ChildAdded and isinstance(event.child(), QWidget):
+                event.child().installEventFilter(self)
+        elif self.qt_composited:
             if event.type() == QEvent.Move:
                 QTimer.singleShot(0, self, self.sync_owner_position)
             elif self.windowed_overlay and event.type() == QEvent.WindowStateChange:

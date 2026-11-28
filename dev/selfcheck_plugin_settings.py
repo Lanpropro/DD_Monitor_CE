@@ -3,8 +3,10 @@ import os
 import sys
 import tempfile
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QApplication, QPushButton
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,6 +14,7 @@ sys.path.insert(0, REPO)
 
 from ddm import plugins as plugin_api  # noqa: E402
 from ddm.dialogs import PluginRemovePrompt, SettingsDialog  # noqa: E402
+from ddm.plugin_store_ui import PluginStoreLogo  # noqa: E402
 
 
 def write_plugin(root, folder, source):
@@ -45,6 +48,15 @@ def main():
         assert catalog["broken"]["status"] == "加载失败"
 
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
+        assert not dialog.update_page.plugin_preview.isChecked()
+        assert not dialog.plugin_page.store_page.include_preview
+        dialog.update_page.plugin_preview.setChecked(True)
+        with_preview = SettingsDialog(dialog.settings(), {}, plugin_manager=manager)
+        assert with_preview.update_page.plugin_preview.isChecked()
+        assert with_preview.plugin_page.store_page.include_preview
+        assert with_preview.plugin_page.store_page.cache_path != dialog.plugin_page.store_page.cache_path
+        with_preview.close()
+        dialog.update_page.plugin_preview.setChecked(False)
         assert dialog.nav.item(SettingsDialog.PAGE_INDEX['plugins']).text() == "插件"
         for index in (6, 0, 6, 1, 2, 3, 4, 5):
             dialog.nav.setCurrentRow(index)
@@ -67,10 +79,15 @@ def main():
 
         archive = os.path.join(root, "new_plugin.zip")
         sentinel = os.path.join(root, "loaded.txt")
+        icon_path = Path(root) / "icon.png"
+        image = QImage(16, 16, QImage.Format_ARGB32)
+        image.fill(QColor("#1e80ff"))
+        assert image.save(str(icon_path))
         with zipfile.ZipFile(archive, "w") as package:
             package.writestr("new_plugin/plugin.json", '{"id":"new_plugin",'
                              '"name":"新插件","description":"来自清单",'
-                             '"version":"2.0"}')
+                             '"version":"2.0","icon":"icon.png"}')
+            package.write(icon_path, "new_plugin/icon.png")
             package.writestr("new_plugin/plugin.py", "from ddm.plugins import Plugin\n"
                              f"open({sentinel!r}, 'w').write('loaded')\n"
                              "plugin = Plugin()\n")
@@ -87,9 +104,11 @@ def main():
         assert dialog.confirm_button.text() == "重启以应用"
         assert not dialog.confirm_button.isHidden()
         assert dialog.plugin_page.checks["new_plugin"].isChecked()
-        assert next(item for item in manager.catalog() if item["id"] == "new_plugin") == {
+        installed = next(item for item in manager.catalog() if item["id"] == "new_plugin")
+        assert installed.pop("icon_png")
+        assert installed == {
             "id": "new_plugin", "name": "新插件", "description": "来自清单",
-            "version": "2.0", "enabled": True, "status": "待重启", "reason": ""}
+            "version": "2.0", "icon_png": "", "enabled": True, "status": "待重启", "reason": ""}
         assert "new_plugin" in manager.enabled
         restarted = plugin_api.PluginManager(plugins_dir=root, enabled=manager.enabled)
         restarted.load()
@@ -128,9 +147,27 @@ def main():
         card = dialog.plugin_page.checks["new_plugin"].parentWidget()
         delete = next(button for button in card.findChildren(QPushButton)
                       if button.text() == "删除")
-        with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Rejected):
+        def cancel_with_icon(prompt):
+            assert prompt.plugin_title.text() == '新插件'
+            icon = prompt.identity.findChild(PluginStoreLogo)
+            assert icon is not None and not icon.isHidden()
+            assert icon.pixmap.toImage().pixelColor(0, 0) == QColor("#1e80ff")
+            return PluginRemovePrompt.Rejected
+
+        with patch.object(PluginRemovePrompt, 'exec', cancel_with_icon):
             delete.click()
         assert os.path.isdir(os.path.join(root, "new_plugin")), "取消删除应保留插件"
+        with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted) as execute, \
+                patch.object(manager, 'remove_plugin', side_effect=OSError('文件被占用')):
+            delete.click()
+            assert execute.call_count == 2
+            prompt = next(prompt for prompt in dialog.plugin_page.findChildren(PluginRemovePrompt)
+                          if prompt.windowTitle() == '删除插件失败')
+            assert prompt.detail.text() == '文件被占用'
+            assert prompt.identity.isHidden()
+            assert prompt.delete_button.isHidden() and prompt.cancel_button.text() == '关闭'
+        assert 'new_plugin' in dialog.plugin_page.checks
+        assert os.path.isdir(os.path.join(root, 'new_plugin'))
         with patch.object(PluginRemovePrompt, 'exec', return_value=PluginRemovePrompt.Accepted):
             delete.click()
         assert not os.path.exists(os.path.join(root, "new_plugin"))

@@ -14,15 +14,14 @@ from urllib.parse import urlsplit
 
 from PySide6.QtCore import (QByteArray, QEvent, QLoggingCategory, QProcess,
                            QPoint, Qt, QtMsgType, QTimer, qInstallMessageHandler)
-from PySide6.QtGui import QCursor, QIcon, QKeySequence, QShortcut
-from PySide6.QtMultimedia import QMediaDevices
+from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QDialog, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMessageBox,
     QPlainTextEdit, QStackedWidget, QTextEdit,
     QVBoxLayout, QWidget,
 )
 
-from . import bili
+from . import app_icon, bili
 from . import config as config_module
 from . import diagnostics, qt_lifecycle
 from . import layouts
@@ -62,6 +61,7 @@ from .room_status import RoomStatus
 from .room_images import RoomImages
 from .capture_control import CaptureControl
 from .auto_recording import AutoRecording
+from .streamer_defaults import migrate_folder_recording_plans
 from .danmaku_lifecycle import DanmakuLifecycle
 from .sidebar_widgets import Sidebar
 from .tile_widgets import Tile
@@ -93,9 +93,11 @@ from .app_notices import AppNotices
 def setup_file_log() -> str:
     """Install Qt capture after the standard-library startup logger is ready."""
     session = diagnostics.start(os.path.join(config_module.data_root(), "logs"))
-    # Font fallback logs while holding Qt's font mutex; font getters hold the GIL.
-    # Filter this informational path in Qt, before it can re-enter Python logging.
-    QLoggingCategory.setFilterRules("qt.text.font.db.info=false")
+    # Filter font messages emitted while holding Qt's font mutex before they reach Python.
+    rules = ["qt.text.font.db.info=false"]
+    if sys.platform == "win32":
+        rules.append("qt.qpa.fonts.warning=false")
+    QLoggingCategory.setFilterRules("\n".join(rules))
     # pythonw 没有原生 stderr；Qt 的致命错误必须在终止进程前写进日志。
     def qt_message(kind, context, message):
         print(f"[Qt {kind.name}] {message}", file=sys.stderr, flush=True)
@@ -112,6 +114,8 @@ EMPTY_HINT = ("还没有直播间\n\n"
 
 
 class MainWindow(QMainWindow):
+    use_native_title_bar = True
+
     @qt_lifecycle.construction
     def __init__(self, rooms: list[dict], wall_rooms: list[dict] | None = None,
                  layout_id: str = "", state: dict | None = None):
@@ -218,6 +222,10 @@ class MainWindow(QMainWindow):
         self.settings = dict(config_module.DEFAULT_SETTINGS)
         saved_settings = self.state.get("settings") or {}
         self.settings.update(saved_settings)
+        if folders := self.state.get("follow_folders"):
+            suspended = (self.state.get("suspended_platform_rooms") or {}).values()
+            self.state["follow_folders"] = migrate_folder_recording_plans(
+                self.settings, rooms, folders, suspended=suspended)
         self.settings.pop('settings_playback_control_color', None)
         from .settings_material import set_segment_motion
         set_segment_motion(self, self.settings['settings_segment_motion'])
@@ -229,6 +237,7 @@ class MainWindow(QMainWindow):
                 if saved_settings["video_danmaku_outline"] else 0)
             self.settings.pop("video_danmaku_outline", None)
         self.settings["appearance_mode"] = theme.normalize_mode(self.settings.get("appearance_mode"))
+        self.settings["app_icon_style"] = app_icon.normalize_style(self.settings.get("app_icon_style"))
         if not isinstance(self.settings.get('skin_background'), str):
             self.settings['skin_background'] = ''
         theme.configure_appearance(self.settings)
@@ -276,7 +285,7 @@ class MainWindow(QMainWindow):
             compact_threshold=int(self.settings.get("sidebar_compact_threshold", 18)),
             compact_background=bool(self.settings.get("sidebar_compact_background", True)),
         )
-        self.sidebar.items_control.set_auto_record_rooms(self.auto_recording.configured_rooms())
+        self.capture_control.sync_follow_monitored_rooms()
         self.sidebar.navigation.monitor_menu.read_rows = self.capture_control.monitor_rows
         self.sidebar.navigation.monitor_menu.settingsRequested.connect(lambda: self.open_settings('streamer_defaults'))
 
@@ -307,6 +316,9 @@ class MainWindow(QMainWindow):
         self.picture_in_picture = PictureInPicture(self)
         self.sidebar.pictureInPictureRequested.connect(self.picture_in_picture.manage_from_sidebar)
         from .wall_quick_settings import WallQuickSettings
+        from .wall_replay import WallReplay
+        self.wall_replay = WallReplay(self)
+        self.sidebar.replayRequested.connect(self.wall_replay.choose)
         self.wall_quick_settings = WallQuickSettings(self)
         self.sidebar.wallSettingsRequested.connect(self.wall_quick_settings.open)
         from .wall_removal import WallRemoval
@@ -381,13 +393,10 @@ class MainWindow(QMainWindow):
         self._audio_audit_timer.setInterval(AUDIO_AUDIT_MS)
         self._audio_audit_timer.timeout.connect(self._audit_audio)
         self._audio_audit_timer.start()
-        self._audio_devices = QMediaDevices(self)
-        self._default_audio_output_id = bytes(self._audio_devices.defaultAudioOutput().id())
-        self._audio_devices.audioOutputsChanged.connect(self._check_audio_output_device)
+        self._audio_devices = None
         self._audio_device_timer = QTimer(self)
         self._audio_device_timer.setInterval(AUDIO_AUDIT_MS)
         self._audio_device_timer.timeout.connect(self._check_audio_output_device)
-        self._audio_device_timer.start()
         #: 各格开始录制的时刻（monotonic），用来刷「● REC 旁边的录制时长」
         self._recording_since: dict = {}
         self._record_clock = QTimer(self)
@@ -794,6 +803,8 @@ class MainWindow(QMainWindow):
                 "layout_preset_overrides": self.layout_presets.override_state(),
                 "room_add_followed_live_only": self.room_placement.catalog.followed_live_only,
                 "picture_in_picture": self.picture_in_picture.state(),
+                "wall_replay_minutes": dict(self.wall_replay.durations),
+                "wall_replay_options": self.wall_replay.options_state(),
                 "tray_hint_shown": self._tray_hint_shown,
                 "room_preset_id": self._active_room_preset_id,
                 "sidebar_collapsed": self.sidebar.collapsed,
@@ -867,6 +878,7 @@ class MainWindow(QMainWindow):
         for thread in list(self._platform_info_running):
             thread.requestInterruption()
         self._stats_refresh_timer.stop()
+        self.wall_replay.shutdown()
         self.recorder.shutdown()
         self._audio_audit_timer.stop()      # 收尾期间别再去碰正在释放的播放器
         self._audio_device_timer.stop()
@@ -950,9 +962,6 @@ class MainWindow(QMainWindow):
             if self._loader_running(thread):
                 thread.wait()
         self._platform_info_running.clear()
-
-    def _clear_expanded_slots(self, layout_id: str) -> None:
-        return self.window_layout.clear_expanded_slots(layout_id)
 
     def _prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
@@ -1285,11 +1294,13 @@ class MainWindow(QMainWindow):
         tile.qualityChanged.connect(self._on_quality_changed)
         tile.codecSettingsRequested.connect(lambda t=tile: self._open_tile_codecs(t))
         tile.streamInfoRequested.connect(lambda t=tile: self._open_tile_stream_info(t))
+        tile.liveCatchupToggled.connect(lambda enabled: self.stream_playback.set_live_catchup(tile, enabled))
         tile.muteToggled.connect(self._on_mute_changed)
         tile.volumeChanged.connect(self._on_volume_changed)
         tile.audioChannelChanged.connect(self._on_audio_changed)
         tile.reloadRequested.connect(self._on_reload)
         tile.pauseToggled.connect(self._on_pause_toggled)
+        tile.replayRequested.connect(lambda t=tile: self.wall_replay.toggle_review(t))
         if not getattr(tile, "_recording_wired", False):
             tile.recordingRequested.connect(lambda t=tile: self._toggle_recording(t))
             tile.roomChanged.connect(lambda t=tile: self.capture_control.sync_tile_recording(t))
@@ -1299,7 +1310,7 @@ class MainWindow(QMainWindow):
         if setter is not None:
             setter(self._recording_enabled())
             self.capture_control.sync_tile_recording(tile)
-        tile.fullscreenRequested.connect(self._on_fullscreen)
+        tile.fullscreenRequested.connect(lambda requested: self._on_fullscreen(requested))
         tile.closeRequested.connect(self._on_close_tile)
         tile.pluginMenuRequested.connect(lambda t=tile: self._fill_plugin_menu(t))
         tile.apply_video_danmaku_settings(self.settings)
@@ -1317,6 +1328,10 @@ class MainWindow(QMainWindow):
         """右键菜单弹出前，收集本体录制和插件操作。"""
         manager = getattr(self, "plugins", None)
         collected = []
+        replay = getattr(self, 'wall_replay', None)
+        if replay is not None and replay.is_selected(tile):
+            collected.append((tile.replay_button.toolTip() if tile._replay_view is not None else '回看这路直播…',
+                              lambda t=tile: replay.toggle_review(t)))
         session = self.recorder.sessions.get(tile)
         if not self._recording_enabled() or self.capture_control.monitors_recording(tile):
             pass
@@ -1364,6 +1379,7 @@ class MainWindow(QMainWindow):
         return self.capture_control.record_state_changed(tile)
 
     def _tick_record_clock(self) -> None:
+        self.auto_recording.tick()
         return self.capture_control.tick_record_clock()
 
     def _record_notice(self, message: str, room=None) -> None:
@@ -1492,17 +1508,18 @@ class MainWindow(QMainWindow):
     def open_import_follows(self) -> None:
         return self.account_control.open_import_follows()
 
-    def _import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0,
+    def _import_selected_follows(self, selected: list, *, folder_id: str = "", pending_count=0,
                                  on_complete=None) -> None:
-        return self.account_control.import_selected_follows(selected, folder_id=folder_id, removed_ids=removed_ids, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count, on_complete=on_complete)
+        return self.account_control.import_selected_follows(
+            selected, folder_id=folder_id, pending_count=pending_count, on_complete=on_complete)
 
-    def _finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
-                              folder_room_ids=None, pending_count):
-        return self.account_control.finish_follow_import(selected, added_rooms, folder_id=folder_id, move_existing=move_existing, folder_room_ids=folder_room_ids, pending_count=pending_count)
+    def _finish_follow_import(self, selected, added_rooms, *, folder_id, pending_count):
+        return self.account_control.finish_follow_import(
+            selected, added_rooms, folder_id=folder_id, pending_count=pending_count)
 
     def _refresh_meta(self) -> None:
         """只负责画面墙的显隐（右侧原来那行文字已经去掉，画面填满）。"""
+        self.wall_replay.sync()
         return self.account_control.refresh_meta()
 
     def _connect_danmaku_panel(self, panel):
@@ -1651,7 +1668,7 @@ def _launch_update(plan_path) -> bool:
     return started
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, startup_diagnostics=None) -> int:
     argv = list(sys.argv if argv is None else argv)
     t0 = time.perf_counter()                # 量化启动耗时：窗口多久才出现
     try:                                    # 控制台可能是 GBK，避免房间名里的特殊字符导致崩溃
@@ -1673,14 +1690,10 @@ def main(argv: list[str] | None = None) -> int:
     install_chinese_translations(app)
     app.setApplicationName(version_module.DISPLAY_NAME)
     app.setStyleSheet(theme.qss())
-    for icon_path in (os.path.join(config_module.REPO, "assets", "favicon.ico"),
-                      os.path.join(config_module.REPO, "favicon.ico")):
-        if os.path.isfile(icon_path):        # 有图标文件就用，没有也不影响启动
-            app.setWindowIcon(QIcon(icon_path))
-            break
-
     state = config_module.load()
-    theme.apply((state.get("settings") or {}).get("appearance_mode", "dark"))
+    saved_settings = state.get("settings") or {}
+    app_icon.apply_icon(saved_settings.get("app_icon_style"))
+    theme.apply(saved_settings.get("appearance_mode", "dark"))
     from .user_notice import confirm_user_notice
     confirm_user_notice(state)
     from .update_install import clean_previous
@@ -1706,12 +1719,13 @@ def main(argv: list[str] | None = None) -> int:
           + ("" if state else "（全新配置）"))
     decode_mode = settings.get("decode_mode") or (
         "auto" if settings.get("hw_decode", True) else "none")
-    print(f"[播放器] libmpv {TilePlayer.backend_version()} 解码方式={decode_mode}",
+    print(f"[播放器] 解码方式={decode_mode}",
           file=sys.stderr, flush=True)
 
     window = MainWindow(sidebar, wall,
                         layout_id=(state.get("ui") or {}).get("layout") or "",
                         state=state)
+    window.startup_diagnostics = startup_diagnostics
     from .on_demand_diagnostics import DiagnosticEndpoint
     window._on_demand_diagnostics = DiagnosticEndpoint(
         window, os.path.join(config_module.data_root(), 'logs'), config_module.REPO)

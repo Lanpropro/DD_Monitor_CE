@@ -125,6 +125,16 @@ class ProjectWorkflowTests(unittest.TestCase):
         self.assertIn('人工验收前不得发布', release)
         self.assertIn('才可创建版本标签和 GitHub Release', contributing)
 
+    def test_diagnostics_release_archives_the_previous_release_before_deleting_it(self):
+        release = (ROOT / 'docs/releases/README.md').read_text(encoding='utf-8')
+        diagnostics = release.split('### 独立诊断工具发布\n', 1)[1]
+        archive = diagnostics.index('results/archive/diagnostics-v<旧版本>/')
+        verify = diagnostics.index('从公开下载地址核对新版附件')
+        delete = diagnostics.index('删除上一版 GitHub Release')
+        self.assertLess(archive, verify)
+        self.assertLess(verify, delete)
+        self.assertIn('保留旧版 Git 标签', diagnostics)
+
     def test_cleanup_rules_require_usage_and_replacement_review(self):
         source = (ROOT / 'docs/standards/documentation.md').read_text(encoding='utf-8')
         for text in ('dev/checks/suites.json', 'dev/checks/README.md',

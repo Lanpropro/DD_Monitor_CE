@@ -40,7 +40,8 @@ def main():
                 window._on_status_updated({rid: dict(live=False, live_known=True, viewers='', title='')})
                 assert player.released and cancelled
                 assert tile.room['live_known'] and not tile.room['live']
-                assert tile._status_text == tile.cover.text() == '未开播'
+                assert tile._status_text == tile.offline_room_status.text() == '未开播'
+                assert not tile.offline_room_actions.isHidden() and not tile.cover.text()
                 assert item.badge.text() == '未开播'
                 assert not tile._buffering and not tile._connecting
                 assert tile not in window.players and tile not in window._resolvers

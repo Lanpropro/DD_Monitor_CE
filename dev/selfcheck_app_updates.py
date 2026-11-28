@@ -56,6 +56,7 @@ class Task(QObject):
 
 class Notice(QObject):
     activated = Signal()
+    dismissed = Signal(object)
     updateRequested = Signal(str)
 
     def __init__(self, parent):
@@ -156,6 +157,19 @@ class AppUpdatesTests(unittest.TestCase):
                 self.assertIsNone(getattr(host, field))
                 QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
                 self.assertFalse(isValid(current))
+
+    def test_opted_in_startup_reads_preview_catalog(self):
+        host = self.host
+        host.settings['auto_update'] = False
+        host.settings['plugin_preview_updates'] = True
+        host.plugins.catalog.return_value = [{'id': 'fixture', 'version': '2.0.3'}]
+        with patch('ddm.app_updates.config_module.data_root', return_value='fixture-root'):
+            host._check_startup_update()
+        task = host._startup_plugin_task
+        with patch('ddm.online.session'), patch('ddm.online.cached_plugin_catalog', return_value=[]) as catalog:
+            self.assertEqual(task.operation(Mock(), Mock()), [])
+        self.assertEqual(catalog.call_args.args[-1], Path('fixture-root/cache/plugin-catalog-preview.json'))
+        self.assertEqual(catalog.call_args.kwargs, {'include_preview': True})
 
     def test_closing_and_disabled_checks_do_not_start_tasks(self):
         host = self.host

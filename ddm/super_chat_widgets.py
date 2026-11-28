@@ -6,7 +6,7 @@ from . import motion, theme
 from .super_chat_model import SC_CONTENT_COLOR, SC_PRICE_COLOR, SC_USER_COLOR, format_price, format_remaining, order_super_chats, remaining_seconds, super_chat_palette
 from .super_chat_avatar import SuperChatAvatar, paint_sc_avatar
 from .super_chat_animation import SuperChatPresentation
-from .super_chat_layout import paint_sc_background, sc_body_padding, sc_card_geometry, sc_card_height, sc_stack_rects
+from .super_chat_layout import paint_sc_background, sc_body_padding, sc_card_geometry, sc_card_height, sc_close_button_style, sc_stack_rects
 
 
 class SuperChatAvatarView(QWidget):
@@ -134,16 +134,17 @@ class SuperChatCard(QFrame):
         self.left.setText(f"剩 {remaining}")
         self.ensurePolished()
         self.setFixedHeight(sc_card_height(event, self.width(), self._scale, self._collapsed))
+        close_style = sc_close_button_style(self._scale)
+        if self.close_button.styleSheet() != close_style:
+            self.close_button.setStyleSheet(close_style)
         self.setStyleSheet(
             "QFrame#SuperChatCard {"
             "background:transparent;border:0;"
             "}"
             f"QFrame#SuperChatCard QLabel {{background:transparent;color:{text_color};}}"
-            f"QFrame#SuperChatCard QPushButton {{background:transparent;color:{text_color};border:0;padding:0;font-size:{round(18 * self._scale)}px;}}"
             "QWidget#SuperChatHeader {background:transparent;}"
             f"QFrame#SuperChatCard QLabel#SuperChatName {{color:{header_text};font-size:{max(12, round(13 * self._scale))}px;}}"
             f"QFrame#SuperChatCard QLabel#SuperChatPrice {{color:{SC_PRICE_COLOR};font-size:{round((13 if self._collapsed else 15) * self._scale)}px;}}"
-            f"QFrame#SuperChatCard QPushButton {{color:{header_text};}}"
             f"QFrame#SuperChatCard QLabel#SuperChatTime {{font-size:{max(11, round(11 * self._scale))}px;color:{header_text};}}"
             f"QFrame#SuperChatCard QTextBrowser#SuperChatMessage {{background:transparent;border:0;padding:0;color:{SC_CONTENT_COLOR};font-size:{max(1, round(14 * self._scale))}px;}}")
 

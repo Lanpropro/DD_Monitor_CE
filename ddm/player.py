@@ -14,7 +14,7 @@ from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 from .audio_output import audio_filters, linear_volume
 from .audio_normalization import LiveVolumeNormalizer, normalize_curve
 from .auto_quality import AutoQuality, OVERSEAS_PLATFORMS
-from .bili import APP_UA, UA, is_hls_profile
+from .bili import APP_UA, BILI_PROFILES, UA, is_hls_profile
 from .config import DEFAULT_VOLUME, DECODE_HWDEC as HWDEC
 from .config import DECODE_MODES as DECODE_MODES  # noqa: PLC0414
 from .live_buffering import BUFFERED_PROFILES, RefillWatch, cache_options
@@ -25,7 +25,14 @@ if sys.platform == "win32" and (_runtime / "libmpv-2.dll").is_file():
     os.environ["PATH"] = str(_runtime) + os.pathsep + os.environ.get("PATH", "")
     _dll_directory = os.add_dll_directory(str(_runtime))
 
-import mpv
+
+def __getattr__(name):
+    # Existing diagnostic clients explicitly import the backend from this module.
+    if name == 'mpv':
+        import mpv
+        return mpv
+    raise AttributeError(name)
+
 
 HW_DECODE_OFF_OPTION = "hwdec=no"
 EMBEDDED_OPTIONS = {"config": False, "load_scripts": False, "osc": False, "ytdl": False,
@@ -60,6 +67,7 @@ class TilePlayer(QObject):
     @classmethod
     def backend_version(cls) -> str:
         if cls._version == "?":
+            import mpv
             core = mpv.MPV(vo="null", ao="null", **EMBEDDED_OPTIONS)
             try:
                 cls._version = str(core.mpv_version)
@@ -73,6 +81,7 @@ class TilePlayer(QObject):
         self.silent = bool(silent)
         self._live_rewind = bool(live_rewind) and not self.silent
         self.muted = self.silent
+        self._replay_muted = False
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
         self.volume_normalization = False
@@ -118,6 +127,12 @@ class TilePlayer(QObject):
         self._startup_buffering = True
         self._picture_limit = self.FROZEN_TICKS
         self._buffer_limit = 6
+        self._live_catchup = False
+        self._live_catchup_enabled = True
+        self._catchup_speed = 1.0
+        self._catchup_watch = QTimer(self)
+        self._catchup_watch.setInterval(300)
+        self._catchup_watch.timeout.connect(self._check_live_catchup)
         self._watch = QTimer(self)
         self._watch.setInterval(1500)
         self._watch.timeout.connect(self._check)
@@ -195,13 +210,14 @@ class TilePlayer(QObject):
         if self.player is not None and hwnd != self._bound_hwnd:
             self._destroy_core()
         if self.player is None:
+            import mpv
             self.player = mpv.MPV(
                 wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
                 # Open GPU output on mpv's playback thread once media is ready.
                 force_window=False,
                 hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
-                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
+                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted or self._replay_muted,
                 **EMBEDDED_OPTIONS,
                 **(PREVIEW_STARTUP_OPTIONS if self.silent else {}),
                 input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
@@ -213,6 +229,11 @@ class TilePlayer(QObject):
                 **({"force_seekable": True, "demuxer_seekable_cache": True} if self._live_rewind else {}),
                 network_timeout=8, log_handler=self._log, loglevel="error",
             )
+            if TilePlayer._version == "?":
+                version = self._prop("mpv-version")
+                if isinstance(version, str):
+                    TilePlayer._version = version
+                    print(f"[播放器] libmpv {version}", file=sys.stderr, flush=True)
         self._bound_hwnd = hwnd
         self._bound = True
 
@@ -300,6 +321,10 @@ class TilePlayer(QObject):
         self._set_state("connecting")
         self._watch.start()
         self._picture_watch.start()
+        self._live_catchup = (not self.silent and profile in BILI_PROFILES
+                              and url.startswith(("http://", "https://")))
+        if self._live_catchup and (self._live_catchup_enabled or self._catchup_speed != 1.0):
+            self._catchup_watch.start()
         refresh_clip = getattr(self.video_widget, "refresh_clip", None)
         if callable(refresh_clip):
             refresh_clip()
@@ -310,6 +335,9 @@ class TilePlayer(QObject):
             self._set("pause", self.paused)
 
     def _stop_media(self):
+        self._catchup_watch.stop()
+        self._set_catchup_speed(1.0)
+        self._live_catchup = False
         self._normalizer.timer.stop()
         if self.player is not None:
             self.player.command("stop")
@@ -354,7 +382,11 @@ class TilePlayer(QObject):
 
     def set_muted(self, muted: bool) -> None:
         self.muted = bool(muted) or self.silent
-        self._set("mute", self.muted)
+        self._set("mute", self.muted or self._replay_muted)
+
+    def set_replay_muted(self, muted: bool) -> None:
+        self._replay_muted = bool(muted)
+        self.set_muted(self.muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = max(0, min(100, int(volume)))
@@ -389,7 +421,8 @@ class TilePlayer(QObject):
             return
         if self.volume != volume or abs(self._prop("volume", linear_volume(volume)) - linear_volume(volume)) > 0.1:
             self.set_volume(volume)
-        if self.muted != muted or self._prop("mute", muted) != muted:
+        output_muted = muted or self._replay_muted
+        if self.muted != muted or self._prop("mute", output_muted) != output_muted:
             self.set_muted(muted)
         if self.audio_channel != channel:
             self.set_audio_channel(channel)
@@ -409,9 +442,53 @@ class TilePlayer(QObject):
         self._stall_ticks = self._frozen_ticks = 0
         if self.paused:
             self._picture_watch.stop()
+            self._set_catchup_speed(1.0)
         elif self._media is not None:
             self._watch.start()
             self._picture_watch.start()
+
+    def set_live_catchup_enabled(self, enabled: bool) -> None:
+        self._live_catchup_enabled = bool(enabled)
+        if not self._live_catchup:
+            return
+        if self._live_catchup_enabled:
+            self._catchup_watch.start()
+        else:
+            self._check_live_catchup()
+
+    def _set_catchup_speed(self, speed: float) -> None:
+        if speed == self._catchup_speed:
+            return
+        try:
+            self._set("speed", speed)
+        except (AttributeError, RuntimeError, ValueError):
+            return
+        self._catchup_speed = speed
+
+    def _check_live_catchup(self) -> None:
+        if self._released or not self._live_catchup:
+            return
+        if not self._live_catchup_enabled:
+            self._set_catchup_speed(1.0)
+            if self._catchup_speed == 1.0:
+                self._catchup_watch.stop()
+            return
+        speed = 1.0
+        if (self._media is not None and not self.paused and self.state == "playing"
+                and self._prop("vo-configured", False)
+                and not any(self._prop(flag, False) for flag in
+                            ("paused-for-cache", "seeking", "eof-reached", "idle-active"))):
+            cache = self._prop("demuxer-cache-state", {})
+            end = cache.get("cache-end") if isinstance(cache, dict) else None
+            position = self._prop("time-pos")
+            if all(isinstance(value, (int, float)) and not isinstance(value, bool)
+                   and math.isfinite(value) for value in (end, position)):
+                buffered = end - position
+                for threshold, rate in ((3.5, 1.3), (2.5, 1.2), (1.5, 1.1)):
+                    if buffered > threshold:
+                        speed = rate
+                        break
+        self._set_catchup_speed(speed)
 
     def playback_timing(self):
         """Return the current media position and, when available, its seekable duration."""

@@ -306,6 +306,10 @@ class ControlsTests(unittest.TestCase):
         self.addCleanup(host.close)
         host.setAttribute(Qt.WA_ShowWithoutActivating)
         host.setWindowFlag(Qt.WindowDoesNotAcceptFocus)
+        if APP.platformName() == 'offscreen':
+            # Exercise the show/layout events without mapping a native backing
+            # store on the offscreen plugin's simulated desktop.
+            host.setAttribute(Qt.WA_DontShowOnScreen)
         host.setGeometry(-10000, -10000, 1485, 780)
         host.wall = WallGrid([{'room_id': '12'}], parent=host, layout_id='1x1')
         host.wall.setGeometry(host.rect())

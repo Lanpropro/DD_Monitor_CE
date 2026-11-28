@@ -26,6 +26,9 @@ class Blend(ctypes.Structure):
 
 
 class BadgeSurface(QWidget):
+    _layered_paint_trace = None
+    _layered_direct_copy = False
+
     @property
     def badge_path(self):
         if not theme.is_light():
@@ -73,9 +76,19 @@ class BadgeSurface(QWidget):
     def _render_layered(self, painter):
         self._render_badge(painter)
 
+    def _copy_layered_pixels(self, image, destination):
+        if self._layered_direct_copy:
+            # The painter has ended and the QImage still owns this pixel buffer.
+            pixels = ctypes.c_char.from_buffer(image.bits())
+            ctypes.memmove(destination, ctypes.addressof(pixels), image.sizeInBytes())
+        else:
+            ctypes.memmove(destination, bytes(image.constBits()), image.sizeInBytes())
+
     def _schedule_layered_paint(self):
         if not getattr(self, '_layered_paint_pending', False):
             self._layered_paint_pending = True
+            if self._layered_paint_trace is not None:
+                self._layered_paint_trace.queue()
             QTimer.singleShot(0, self, self._flush_layered_paint)
 
     def _flush_layered_paint(self):
@@ -87,7 +100,7 @@ class BadgeSurface(QWidget):
         finally:
             self._layered_paint_pending = False
 
-    def _paint_layered(self):
+    def _paint_layered(self, capture=None):
         user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
         hwnd = int(self.winId())
         user32.GetClientRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
@@ -98,12 +111,18 @@ class BadgeSurface(QWidget):
         state = (hwnd, bounds.right, bounds.bottom, self.devicePixelRatioF(), key)
         if key is not None and state == getattr(self, '_last_alpha_state', None):
             return
+        if capture is not None:
+            capture.set_size(*state[1:4])
         image = QImage(bounds.right, bounds.bottom, QImage.Format_ARGB32_Premultiplied)
         image.setDevicePixelRatio(self.devicePixelRatioF())
         image.fill(Qt.transparent)
+        if capture is not None:
+            capture.mark('image_prepare_ms')
         painter = QPainter(image)
         self._render_layered(painter)
         painter.end()
+        if capture is not None:
+            capture.mark('draw_ms')
 
         user32.GetDC.argtypes = (wintypes.HWND,)
         user32.GetDC.restype = wintypes.HDC
@@ -129,18 +148,28 @@ class BadgeSurface(QWidget):
         bitmap = gdi32.CreateDIBSection(screen, ctypes.byref(info), 0, ctypes.byref(data), None, 0)
         try:
             if not memory or not bitmap:
+                if capture is not None:
+                    capture.mark('dib_prepare_ms')
                 return
             previous = gdi32.SelectObject(memory, bitmap)
             try:
-                ctypes.memmove(data, bytes(image.constBits()), image.sizeInBytes())
+                if capture is not None:
+                    capture.mark('dib_prepare_ms')
+                self._copy_layered_pixels(image, data)
+                if capture is not None:
+                    capture.mark('copy_ms')
                 style = user32.GetWindowLongW(hwnd, -20)
                 if not style & 0x00080000:
                     user32.SetWindowLongW(hwnd, -20, style | 0x00080000)
                 size = wintypes.SIZE(image.width(), image.height())
                 origin = wintypes.POINT(0, 0)
                 blend = Blend(0, 0, 255, 1)
+                if capture is not None:
+                    capture.start_phase()
                 self._alpha_uploaded = bool(user32.UpdateLayeredWindow(hwnd, screen, None,
                     ctypes.byref(size), memory, ctypes.byref(origin), 0, ctypes.byref(blend), 2))
+                if capture is not None:
+                    capture.mark('upload_ms')
                 self._layered_hwnd = hwnd
                 if self._alpha_uploaded:
                     self._last_alpha_state = state

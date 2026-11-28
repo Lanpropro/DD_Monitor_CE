@@ -5,6 +5,7 @@ import time
 import uuid
 from concurrent.futures import Future
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 
@@ -16,6 +17,9 @@ class BackgroundRecordingSource:
     stream_headers: dict = field(default_factory=dict)
     stream_codec: str = ''
     recording_mode: str | None = None
+    scheduled_end: datetime | None = None
+    schedule_completed: bool = False
+    scheduled_start: datetime | None = None
 
 
 class _Session:

@@ -6,10 +6,10 @@ rem 双击启动 DD监控室CE（不开控制台窗口）。要看日志请用 r
 setlocal
 set "DDM_SETTINGS_PROCESS=1"
 set "DDM_QTQUICK_DANMAKU=1"
-set "DDM_FOLDER_MOTION_CAPTURE=1"
-set "DDM_THEME_CAPTURE=1"
-set "DDM_FULLSCREEN_CAPTURE=1"
 set "PROJ=%~dp0"
+set "DDM_MATCH_QUICK_DANMAKU=1"
+set "DDM_MATCH_MONITOR=0"
+if exist "%PROJ%work\match-d3d11-prototype\presenter.exe" if exist "%PROJ%work\match-d3d11-prototype\mailbox.dll" set "DDM_MATCH_D3D11_DIR=%PROJ%work\match-d3d11-prototype"
 if /i "%~1"=="--mobile" goto mobile
 if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps;%PYTHONPATH%"
 
@@ -17,16 +17,15 @@ set "PY=%PROJ%.venv\Scripts\pythonw.exe"
 if not exist "%PY%" set "PY=F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\pythonw.exe"
 if not exist "%PY%" goto nopy
 
-set "DIAG_ARG=%~1"
+if /i "%~1"=="--check-host-mcp" goto hostMcpCheck
 if /i "%~1"=="--check-media-sources" goto mediaSourcesCheck
-if /i "%DIAG_ARG%"=="--diagnose-session" set "DIAG_ARG=--diagnose-session=%~2"
-if /i "%DIAG_ARG:~0,19%"=="--diagnose-session=" goto diagnosticSession
 if /i "%~1"=="--check-plugin-replacements" goto pluginReplacementsCheck
 if /i "%~1"=="--accept-live-translate" goto liveTranslateAcceptance
 if /i "%~1"=="--check-danmaku-color" goto danmakuColorCheck
 if /i "%~1"=="--check-danmaku-settings" goto danmakuSettingsCheck
 if /i "%~1"=="--check-settings-search" goto settingsSearchCheck
 if /i "%~1"=="--check-settings-controls" goto settingsControlsCheck
+if /i "%~1"=="--check-recording-schedule" goto recordingScheduleCheck
 if /i "%~1"=="--check-update-settings" goto updateSettingsCheck
 if /i "%~1"=="--check-background-switch" goto backgroundSwitchCheck
 if /i "%~1"=="--check-portrait-ui" goto portraitUiCheck
@@ -52,6 +51,7 @@ if /i "%~1"=="--check-diagnostics" goto diagnosticsCheck
 if /i "%~1"=="--check-qt-log" goto qtLogCheck
 if /i "%~1"=="--check-native-memory" goto nativeMemoryCheck
 if /i "%~1"=="--check-picture-in-picture" goto pictureInPictureCheck
+if /i "%~1"=="--check-wall-replay" goto wallReplayCheck
 if /i "%~1"=="--check-audio-normalization" goto audioNormalizationCheck
 if /i "%~1"=="--check-wall-panes" goto wallPanesCheck
 if /i "%~1"=="--check-sidebar-navigation" goto sidebarNavigationCheck
@@ -85,35 +85,17 @@ if /i "%~1"=="--check-image-cache" goto imageCacheCheck
 if /i "%~1"=="--check-fullscreen-layers" goto fullscreenLayersCheck
 if /i "%~1"=="--check-wall-replacement" goto wallReplacementCheck
 if /i "%~1"=="--check-sc-layers" goto scLayersCheck
+if /i "%~1"=="--check-match-dev" goto matchDevCheck
 if /i "%~1"=="--check-stream-info" goto streamInfoCheck
 if /i "%~1"=="--check-playback-capture" goto playbackCaptureCheck
-if /i "%~1"=="--capture-playback" goto playbackCapture
 if /i "%~1"=="--check-notice-close" goto noticeCloseCheck
-if /i "%~1"=="--diagnose-responsiveness" goto responsiveness
-if /i "%~1"=="--diagnose-fullscreen" goto fullscreen
-if /i "%~1"=="--diagnose-douyu" goto douyu
-if /i "%~1"=="--diagnose-douyu-deep" goto douyuDeep
-if /i "%~1"=="--diagnose-fullscreen-input" set "DDM_FULLSCREEN_INPUT_CAPTURE=1"
-if /i "%~1"=="--diagnose-settings-scroll" set "DDM_SETTINGS_SCROLL_CAPTURE=1"
-if /i "%~1"=="--diagnose-settings-performance" set "DDM_SETTINGS_PERFORMANCE_CAPTURE=1"
-if /i "%~1"=="--diagnose-control-swap" set "DDM_CONTROL_SWAP_CAPTURE=1"
-if /i "%~1"=="--diagnose-wall-replacement" set "DDM_WALL_REPLACEMENT_CAPTURE=1"
-if /i "%~1"=="--diagnose-sc" set "DDM_SC_PAINT_CAPTURE=1"
-if /i "%~1"=="--diagnose-danmaku-motion" set "DDM_DANMAKU_MOTION_CAPTURE=1"
-if /i "%~1"=="--diagnose-notice-close" set "DDM_NOTICE_CLOSE_CAPTURE=1"
-if /i "%~1"=="--diagnose-window-resize" set "DDM_WINDOW_RESIZE_CAPTURE=1"
-if /i "%~1"=="--diagnose-window-dpi-profile" (
-    set "DDM_WINDOW_RESIZE_CAPTURE=1"
-    set "DDM_WINDOW_DPI_PROFILE=1"
-)
-if /i "%~1"=="--diagnose-live-elapsed" set "DDM_LIVE_ELAPSED_CAPTURE=1"
+if /i "%~1"=="--capture-playback" goto migratedDiagnostic
+set "LAUNCH_ARG=%~1"
+if /i "%LAUNCH_ARG:~0,11%"=="--diagnose-" goto migratedDiagnostic
 rem Keep inherited Python test hooks out of the normal launch.
-if /i not "%DIAG_ARG:~0,11%"=="--diagnose-" (
-    set "PYTHONPATH="
-    if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
-)
-rem TEMP BUG-001: remove diagnostic redirect after the drag/OLE recurrence is fixed.
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py"
+set "PYTHONPATH="
+if exist "%PROJ%work\deps\PySide6\QtCore.pyd" set "PYTHONPATH=%PROJ%work\deps"
+start "" "%PY%" "%PROJ%main.py"
 exit /b 0
 
 :liveElapsedCheck
@@ -181,6 +163,8 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_controls
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_workspace_pages
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_match_sync_host_release
 exit /b %errorlevel%
 
 :wallPanesCheck
@@ -202,6 +186,11 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_audit.py"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_audio_routing.py"
+exit /b %errorlevel%
+
+:wallReplayCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_wall_replay
 exit /b %errorlevel%
 
 :pictureInPictureCheck
@@ -389,6 +378,8 @@ set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_stream_playback
 if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_catchup
+if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_codec_control
 if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_bili_codec
@@ -536,6 +527,11 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_widget_lifetime
 exit /b %errorlevel%
 
+:hostMcpCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_host_mcp
+exit /b %errorlevel%
+
 :roomPresetsCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_room_preset_control
@@ -588,6 +584,14 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_wall_card_replacement.py"
 exit /b %errorlevel%
 
+:matchDevCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+set "DDM_NO_SAVE=1"
+set "DDM_CHECK_MODE=offline"
+set "QT_QPA_PLATFORM=windows"
+"%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_match_dev_launch.py"
+exit /b %errorlevel%
+
 :scLayersCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
@@ -615,6 +619,13 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_sc_simulator
 exit /b %errorlevel%
 
+:recordingScheduleCheck
+set "CHECK_PY=%PY:pythonw.exe=python.exe%"
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_recording_schedule
+if errorlevel 1 exit /b %errorlevel%
+"%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_settings_navigation -- SettingsNavigationTests.test_recording_plan_editor_uses_settings_controls_and_marks_only_overnight_rows SettingsNavigationTests.test_calendar_import_reviews_and_saves_selected_rows SettingsNavigationTests.test_calendar_accepts_image_drops_from_file_and_browser SettingsNavigationTests.test_recording_keywords_add_with_enter_and_save_pending_text SettingsNavigationTests.test_merged_card_edits_recording_conditions_for_group_or_selected_room
+exit /b %errorlevel%
+
 :settingsSearchCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_pinyin_search
@@ -631,7 +642,7 @@ exit /b %errorlevel%
 :trayMenuCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "TRAY_CHECK_FAILED="
-for %%T in (SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests TrayMenuChoicesTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
+for %%T in (SystemTrayTests.test_close_question_is_the_window_heading SystemTrayTests.test_window_icon_changes_update_the_tray SystemTrayTests.test_tray_preview_retains_pre_minimize_layout_and_restores_window SystemTrayTests.test_preview_audio_selects_an_exact_pane_even_for_duplicate_rooms SystemTrayTests.test_layout_pip_action_keeps_wall_geometry_and_skips_empty_panes SystemTrayTests.test_tray_settings_save_cancel_and_reset SystemTrayTests.test_tray_picture_in_picture_resumes_only_selected_and_reholds_on_close TrayLayoutPreviewTests TrayMenuChoicesTests SystemTrayTests.test_default_hide_releases_watching_and_restore_reconnects SystemTrayTests.test_disabled_and_minimized_keep_playback SystemTrayTests.test_manual_pause_and_changed_room_are_not_resumed SystemTrayTests.test_recording_and_pending_capture_are_preserved) do (
     "%CHECK_PY%" "%PROJ%dev\run_checks.py" --script selfcheck_system_tray -- %%T
     if errorlevel 1 set "TRAY_CHECK_FAILED=1"
 )
@@ -697,13 +708,6 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_notification_center.py"
 exit /b %errorlevel%
 
-:playbackCapture
-set "CHECK_PY=%PY:pythonw.exe=python.exe%"
-set "PLAYBACK_CAPTURE_LABEL=%~2"
-if not defined PLAYBACK_CAPTURE_LABEL set "PLAYBACK_CAPTURE_LABEL=unknown"
-"%CHECK_PY%" "%PROJ%dev\capture_playback.py" --label "%PLAYBACK_CAPTURE_LABEL%"
-exit /b %errorlevel%
-
 :playbackCaptureCheck
 set "CHECK_PY=%PY:pythonw.exe=python.exe%"
 set "DDM_CHECK_MODE=offline"
@@ -713,25 +717,9 @@ if errorlevel 1 exit /b %errorlevel%
 "%CHECK_PY%" "%PROJ%dev\checks\bootstrap.py" "%PROJ%dev\selfcheck_on_demand_diagnostics.py"
 exit /b %errorlevel%
 
-:diagnosticSession
-start "" "%PY%" "%PROJ%main.py" "%DIAG_ARG%"
-exit /b 0
-
-:responsiveness
-start "" "%PY%" "%PROJ%main.py" --diagnose-responsiveness
-exit /b 0
-
-:douyu
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu
-exit /b 0
-
-:douyuDeep
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-douyu-deep
-exit /b 0
-
-:fullscreen
-start "" "%PY%" "%PROJ%dev\diagnose_drag_windows.py" --diagnose-fullscreen
-exit /b 0
+:migratedDiagnostic
+echo 此专项已迁移到 MCP。运行中使用 capture_diagnostics，启动专项使用 prepare_startup_diagnostics。
+exit /b 2
 
 :scsimulator
 if /i "%~2"=="--smoke" (

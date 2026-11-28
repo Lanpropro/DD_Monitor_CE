@@ -39,7 +39,7 @@ class DataSettingsPage(QWidget):
         buttons.addWidget(self.move_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
-        self._idle_status = config.DATA_MIGRATION_ERROR or '选择空文件夹后，点击上方“迁移并重启”执行迁移。软件会先保存并结束录制，再复制数据；原目录的文件保留，迁移失败时继续使用原目录。账号数据仅能由原 Windows 用户解密。'
+        self._idle_status = config.DATA_MIGRATION_ERROR or '请选择空文件夹。'
         self.status = HintLabel(self._idle_status)
         layout.addWidget(self.status)
         self.image_cache = ImageCachePanel(self)
@@ -63,7 +63,7 @@ class DataSettingsPage(QWidget):
             self.status.setText(str(error))
             self.changed.emit()
             return False
-        self.status.setText(f'重启后迁移至：{self.target}\n原文件保留；录制文件不会移动。')
+        self.status.setText(f'重启后迁移至：{self.target}\n原文件保留，录制文件不会移动。')
         self.changed.emit()
         return True
 

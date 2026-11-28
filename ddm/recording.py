@@ -48,6 +48,7 @@ RecordingSession = _Session
 class RecordingManager(QObject):
     """所有操作在 Qt 主线程发起；FFmpeg 子进程各自独立，轮询不阻塞界面。"""
 
+    retain_cache_at_eof = False
     notice = Signal(str)
     noticeWithRoom = Signal(str, dict)
     backgroundTransition = Signal(str, dict)
@@ -308,6 +309,8 @@ class RecordingManager(QObject):
             discard(session.tile.stream_url)
             if session.stopped_on_offline and session.started_at:
                 self.backgroundTransition.emit('stopped_offline', session.room)
+            elif session.tile.schedule_completed and session.started_at:
+                self.backgroundTransition.emit('stopped_schedule', session.room)
         self.changed.emit(session.tile)
         if session.recording:
             parts = session.finished_parts()
@@ -479,7 +482,7 @@ class RecordingManager(QObject):
                 except OSError as error:
                     self._say(f"{session.name} 续录失败：{error}", session.room)
                     self.stop(tile)
-            elif exit_code or isinstance(tile, BackgroundRecordingSource):
+            elif exit_code or isinstance(tile, BackgroundRecordingSource) or self.retain_cache_at_eof:
                 if exit_code and self._fallback_encoder(session):
                     try:
                         self._launch(session, tile.stream_url, dict(tile.stream_headers or {}))

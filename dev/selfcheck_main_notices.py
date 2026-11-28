@@ -93,6 +93,22 @@ class MainNoticesTests(unittest.TestCase):
             self.assertFalse(tile._normal_hover_active)
             self.assertFalse(tile._control_hover_timer.isActive())
 
+    def test_windowed_tile_can_keep_its_cursor_when_idle(self):
+        window = self.window([{'room_id': '1001'}])
+        tile = window.wall.tiles[0]
+        tile.setProperty('keepWindowedVideoCursor', True)
+        point = tile.video.mapToGlobal(tile.video.rect().center())
+        tile.video.setCursor(Qt.CrossCursor)
+        with patch('ddm.widgets.QCursor.pos', return_value=point), \
+                patch('ddm.widgets.time.monotonic', return_value=100.) as clock, \
+                patch('ddm.tile_widgets.set_native_cursor') as native:
+            tile._poll_control_hover()
+            clock.return_value += tile.CONTROL_IDLE_SECONDS + .1
+            tile._poll_control_hover()
+            self.assertFalse(tile.controls.isVisible())
+            self.assertEqual(tile.video.cursor().shape(), Qt.CrossCursor)
+            native.assert_not_called()
+
     def test_normal_cursor_restores_for_menu_hide_and_fullscreen_without_a_global_override(self):
         window = self.window([{'room_id': '1001'}])
         tile = window.wall.tiles[0]
@@ -892,6 +908,54 @@ class MainNoticesTests(unittest.TestCase):
             center.entries[-1].secondary_callback()
             settings.assert_called_once_with('updates')
 
+    def test_manually_closed_update_versions_stay_quiet_after_restart(self):
+        from ddm import config
+        from ddm.update_version import update_identity
+
+        window = self.window([])
+        app_offer = dict(version='9.0', revision=1)
+        plugin = dict(id='fixture', name='测试插件', version='2.0', available=True)
+        window.settings['auto_update'] = True
+        window._set_app_update(app_offer)
+        window._plugin_update_offers = [plugin]
+        window._show_update_notice()
+        notice = window._update_notice
+        notice.timer.timeout.emit()
+        self.assertFalse(notice.isVisible())
+        self.assertNotIn('dismissed_update_versions', window.settings)
+        window._show_update_notice()
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            config, 'CONFIG_PATH', str(Path(directory) / 'config.json')
+        ):
+            with patch.dict(os.environ):
+                os.environ.pop('DDM_NO_SAVE', None)
+                notice.findChild(QPushButton, 'NoticeClose').click()
+            saved = config.load()
+        self.assertEqual(saved['settings']['dismissed_update_versions'],
+                         {'app': update_identity(app_offer), 'fixture': '2.0'})
+        self.assertTrue(all(not entry.unread for entry in window.sidebar.notification_button.center.entries))
+
+        reopened = MainWindow([], [], layout_id='2x2', state=saved)
+        self.addCleanup(self.close_window, reopened)
+        reopened.show()
+        self.app.processEvents()
+        installed = [dict(id='fixture', version='1.0')]
+        with patch.object(reopened.plugins, 'catalog', return_value=installed):
+            reopened._startup_update_ready((None, app_offer))
+            reopened._startup_plugins_ready((None, [plugin]))
+            self.assertIsNone(reopened._update_notice)
+            self.assertEqual(reopened.sidebar.notification_button.center.entries, [])
+            self.assertEqual(reopened._available_update, app_offer)
+            self.assertEqual(reopened._plugin_update_offers, [plugin])
+            reopened._startup_update_ready((None, dict(app_offer, revision=2)))
+            notice = reopened._update_notice
+            self.assertEqual(list(notice._update_rows), ['app'])
+            notice.findChild(QPushButton, 'NoticeClose').click()
+            reopened._startup_plugins_ready((None, [dict(plugin, version='2.1')]))
+            self.assertTrue(notice.isVisible())
+            self.assertEqual(list(notice._update_rows), ['fixture'])
+
     def test_closed_update_notice_can_resume_from_history_without_duplicate_or_lost_progress(self):
         window = self.window([])
         center = window.sidebar.notification_button.center
@@ -1601,9 +1665,9 @@ class MainNoticesTests(unittest.TestCase):
         self.stack.enter_context(patch('ddm.images.load_room_avatar', return_value=None))
         self.stack.enter_context(patch('ddm.images.load_cached_avatar', return_value=None))
 
-    def window(self, rooms, *, offscreen=False):
+    def window(self, rooms, *, offscreen=False, layout_id='2x2'):
         window = MainWindow([dict(room) for room in rooms], [dict(room) for room in rooms],
-                            layout_id='2x2', state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
+                            layout_id=layout_id, state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
         window.resize(1000, 700)
         if offscreen:
             window.move(-10000, -10000)
@@ -1878,6 +1942,57 @@ class MainNoticesTests(unittest.TestCase):
         self.assertTrue({widget for widget in QApplication.topLevelWidgets() if widget.isVisible()} <= visible_windows)
         saved = window.current_state()
         self.assertEqual([room['room_id'] for room in saved['wall'] if room.get('room_id')], ['1003'])
+
+    def test_full_wall_adds_to_follows_without_creating_an_outside_slot(self):
+        rooms = [dict(room_id=str(index), uname=f'主播 {index}', live=False) for index in range(1, 7)]
+        window = self.window(rooms, layout_id='corner')
+        slots = list(window.wall.tiles)
+        added = dict(room_id='7', uname='新主播', live=True)
+        window.start_tile.reset_mock()
+        window._on_room_added(added, notify=False)
+        self.assertEqual(window.wall.tiles, slots)
+        self.assertEqual([tile.room['room_id'] for tile in slots], [room['room_id'] for room in rooms])
+        self.assertIn('7', window.current_state()['rooms'])
+        self.assertIsNone(window._tile_of('7'))
+        window.start_tile.assert_not_called()
+
+        window._clear_tile_room(slots[3])
+        window._on_room_added(added, notify=False)
+        self.assertEqual(window.wall.tiles, slots)
+        self.assertIs(window._tile_of('7'), slots[3])
+        window.start_tile.assert_called_once_with(slots[3])
+
+        window.sidebar.clear_wall_button.click()
+        menu = window.wall_removal.menu
+        window.wall_removal.select('all')
+        self.assertTrue(window.wall_removal.remove_selected())
+        self.assertFalse(menu.extra_panes)
+        self.assertTrue(all(not tile.room.get('room_id') for tile in slots))
+        self.assertIn('7', window.current_state()['rooms'])
+
+    def test_restart_and_smaller_layout_keep_excess_rooms_only_in_follows(self):
+        rooms = [dict(room_id=str(index), uname=f'主播 {index}', live=index == 2) for index in range(1, 6)]
+        window = self.window(rooms)
+        self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles], ['1', '2', '3', '4'])
+        window._on_layout_changed('1x1')
+        self.assertEqual([tile.room['room_id'] for tile in window.wall.tiles], ['2'])
+        saved = window.current_state()
+        self.assertEqual(saved['rooms'], ['1', '2', '3', '4', '5'])
+        self.assertEqual([slot['room_id'] for slot in saved['wall']], ['2'])
+        window._on_layout_changed('2x2')
+        self.assertEqual([tile.room.get('room_id', '') for tile in window.wall.tiles], ['2', '', '', ''])
+
+        restored = 'fixture:6'
+        window.state['suspended_platform_rooms'] = {'fixture': {
+            'rooms': [{'index': 5, 'room_id': restored}],
+            'wall': [{'index': 5, 'slot': {'room_id': restored}}],
+        }}
+        window.plugins.enabled = {'fixture'}
+        window.plugins._platform_owner['fixture'] = 'fixture'
+        window._sync_platform_rooms()
+        self.assertIn(restored, window.current_state()['rooms'])
+        self.assertIsNone(window._tile_of(restored))
+        self.assertEqual(len(window.wall.tiles), 4)
 
     def test_clear_wall_removes_immediately_without_confirmation_and_empty_wall_is_a_noop(self):
         window = self.window([{'room_id': '1001', 'live': False}])

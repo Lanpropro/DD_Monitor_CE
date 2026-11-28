@@ -133,6 +133,7 @@ class SettingsControl:
             host._app_update_page.transferChanged.connect(host.app_updates.app_transfer_changed)
         page = host._app_update_page
         page.auto.setChecked(bool(settings.get('auto_update', False)))
+        page.plugin_preview.setChecked(bool(settings.get('plugin_preview_updates', False)))
         return page
 
     def create_settings_dialog(self, settings=None, shortcuts=None, *, dialog_class, hosted=False):
@@ -205,7 +206,7 @@ class SettingsControl:
         client = getattr(host, '_settings_process', None)
         if client is not None and client.focus(page):
             return False
-        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page == 'updates'):
+        if os.environ.get('DDM_SETTINGS_PROCESS') == '1' and (prefer_process or page in ('updates', 'streamer_defaults')):
             return self._open_process(page)
         started = time.perf_counter()
         plugins_before = (None if host.plugins.enabled is None else set(host.plugins.enabled),
@@ -262,7 +263,14 @@ class SettingsControl:
         appearance_before = {key: deepcopy(value) for key, value in host.settings.items()
                              if key.startswith('skin_') or key == 'appearance_mode'}
         codecs_before = {tile: host._codec_settings(tile) for tile in host.wall.tiles}
-        updated_settings = dialog.settings()
+        from . import app_icon
+        updated_settings = dict(dialog.settings())
+        access = getattr(host.plugins, 'recording_settings_access', None)
+        if access is not None and access.managed:
+            from .recording_preferences import RECORDING_DEFAULTS
+            updated_settings = {key: value for key, value in updated_settings.items() if key not in RECORDING_DEFAULTS}
+        if 'app_icon_style' in updated_settings:
+            updated_settings['app_icon_style'] = app_icon.normalize_style(updated_settings['app_icon_style'])
         changed_keys = {key for key, value in updated_settings.items() if host.settings.get(key) != value}
         from .settings_material import DEFAULTS as MATERIAL_DEFAULTS, set_segment_motion
         from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
@@ -270,7 +278,7 @@ class SettingsControl:
         presentation_only = bool(changed_keys) and changed_keys <= (
             MATERIAL_DEFAULTS.keys() | APPEARANCE_DEFAULTS.keys() | config_module.FLOAT_GLASS_KEYS
             | windowed_bar_settings | {'notice_banner_enabled', 'tray_context_menu',
-                                       'settings_wheel_speed', 'wall_seamless'})
+                                       'settings_wheel_speed', 'wall_seamless', 'app_icon_style'})
         host.settings.update(updated_settings)
         if changed_keys & config_module.FLOAT_GLASS_KEYS:
             for window in host.wall.pane_danmaku.floating_windows():
@@ -343,6 +351,12 @@ class SettingsControl:
             config_module.save(host.current_state(), raise_errors=True)
         else:
             config_module.save(host.current_state())
+        if 'app_icon_style' in updated_settings:
+            style = host.settings['app_icon_style']
+            app_icon.apply_icon(style, host)
+            process = getattr(host, '_settings_process', None)
+            if process is not None:
+                process.push_settings({'app_icon_style': style})
         # 两个总开关改完要立刻生效：录制开关还可能停掉正在录的会话
         host._sync_recording_switch()
         host._sync_replay_scope()

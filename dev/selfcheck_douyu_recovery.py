@@ -35,10 +35,11 @@ class RecoveryTests(unittest.TestCase):
         tile = Mock(room={'room_id': 'douyu:123'})
         player = SimpleNamespace(stream_url='https://fixture.invalid/live', source_failure='LIVE_EOF')
         host = SimpleNamespace(players={tile: player}, plugins=Mock(), _clear_freeze_recovery=Mock(),
-                               refresh_status=Mock(), _schedule_retry=Mock())
+                               playback_recovery=Mock(), refresh_status=Mock(), _schedule_retry=Mock())
         from ddm.stream_playback import StreamPlayback
         host.stream_playback = StreamPlayback(host)
         MainWindow._on_player_state(host, tile, 'error')
+        host.playback_recovery.record_failure.assert_called_once_with(tile)
         host.plugins.emit.assert_called_once_with(plugin_api.EVENT_STREAM_FAILED, tile=tile,
             room=dict(tile.room), source_url=player.stream_url, reason='LIVE_EOF')
         host._schedule_retry.assert_called_once_with(tile)

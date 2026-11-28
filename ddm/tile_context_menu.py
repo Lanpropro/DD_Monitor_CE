@@ -52,6 +52,13 @@ class TileContextMenu:
                 action.setChecked(value == host.quality)
                 action.triggered.connect(lambda _checked=False, v=value: host.set_quality(v))
 
+        if str(host.room.get('room_id') or '').isdigit():
+            catchup = menu.addAction('自动追帧')
+            catchup.setData('live_catchup')
+            catchup.setCheckable(True)
+            catchup.setChecked(bool(host.room.get('live_catchup_enabled', True)))
+            catchup.triggered.connect(lambda checked: host.liveCatchupToggled.emit(checked))
+
         menu.addAction("当前窗口编解码设置…", host.codecSettingsRequested.emit).setData('codec')
         info = menu.addAction("直播流信息…", lambda: QTimer.singleShot(0, host, host.streamInfoRequested.emit))
         info.setEnabled(bool(host.room.get('room_id')))

@@ -4,21 +4,12 @@ import json
 from pathlib import Path
 import sys
 
-MODES = ('folders', 'responsiveness', 'notices', 'danmaku', 'drag',
-         'douyu', 'douyu-deep', 'theme', 'fullscreen', 'tiles', 'dock-hover')
+from .diagnostic_startup_request import SESSION_MODES as MODES
+
 PROTOCOL = 1
 
 
-def requested_mode(arguments):
-    values = [arg.split('=', 1)[1] for arg in arguments if arg.startswith('--diagnose-session=')]
-    if not values:
-        return None
-    if len(values) != 1 or values[0] not in MODES:
-        raise ValueError('Unknown or repeated diagnostic session mode')
-    return values[0]
-
-
-def install(mode, directory):
+def install(mode, directory, *, request_id=None):
     if mode not in MODES:
         raise ValueError('Unknown diagnostic session mode')
     from .app import MainWindow
@@ -29,7 +20,7 @@ def install(mode, directory):
     build_path = Path(sys.executable).parent / 'ddm-build.json'
     if getattr(sys, 'frozen', False) and build_path.is_file():
         build = json.loads(build_path.read_text(encoding='utf-8-sig'))
-    metadata.emit('session-start', mode=mode, protocol=PROTOCOL,
+    metadata.emit('session-start', mode=mode, protocol=PROTOCOL, request_id=request_id,
                   version=build.get('version'), source_commit=build.get('source_commit'))
     atexit.register(metadata.close)
     if mode == 'folders':

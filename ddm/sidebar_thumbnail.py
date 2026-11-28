@@ -19,6 +19,7 @@ class NavThumb(QFrame):
     WIDTH, HEIGHT = 176, 116        # 展开后约 206x116，完整保持 16:9 预览比例
     LIST_HEIGHT = 48                # 简洁列表中，预览仍在这一行里播放
     COMPACT_SIZE = 32               # 收起成窄条时缩成正方
+    COMPACT_RING_MARGIN = 6          # 左右各留出波纹，适配 44px 宽的关注条目
     RADIUS = 6
     AVATAR_SIZE = 28                # 展开卡片上的圆形主播头像
     PORTRAIT_AVATAR_SIZE = 48
@@ -193,6 +194,7 @@ class NavThumb(QFrame):
         另外：拿不到头像时不再直接 return，而是用主播名首字顶着 —— 否则连尺寸和
         位置都不更新，收起后条目的留白也全是错的。
         """
+        self.face.ring_margin = self.COMPACT_RING_MARGIN if self._compact_thumb() else FollowAvatar.RING_MARGIN
         size = self._avatar_size()
         pixmap = self._face_source
         if pixmap is not None and not pixmap.isNull():

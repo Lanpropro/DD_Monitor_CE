@@ -11,14 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PySide6.QtCore import QAbstractAnimation, QEvent, QObject, QPoint, QPointF, Qt
-from PySide6.QtGui import (QAction, QEnterEvent, QFocusEvent, QIcon, QInputDevice, QMouseEvent, QPainter,
+from PySide6.QtGui import (QAction, QColor, QEnterEvent, QFocusEvent, QIcon, QInputDevice, QMouseEvent, QPainter,
                           QPixmap, QPointingDevice, QTransform, QWheelEvent)
 from PySide6.QtTest import QSignalSpy, QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QStyle, QToolButton, QVBoxLayout, QWidget
 from ddm import continuous_corners as corners, motion, theme
 from ddm.auto_recording import AutoRecording
 from ddm.capture_control import CaptureControl, MonitorEntry
-from ddm.dock_feedback import REST, active, icon_color
+from ddm.dock_feedback import DockFeedback, REST, active, icon_color
 from ddm.plugins import PluginContext, PluginManager
 from ddm.sidebar_navigation import RAIL_WIDTH
 from ddm.widgets import Sidebar
@@ -525,11 +525,11 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.rooms()[1]['uid'] = 1024
         host.auto_recording.room_details['off-wall'] = {'anchor_uid': '117', 'platform': 'douyin'}
         capture = CaptureControl(host)
-        active = SimpleNamespace(room_id='1', name='示例主播1', recording=True, stopping=False,
+        active = SimpleNamespace(tile=SimpleNamespace(), room_id='1', name='示例主播1', recording=True, stopping=False,
                                  started_at=11, recording_started_at=1, retry_at=0, refreshing=False, room={})
-        reconnecting = SimpleNamespace(room_id='manual', name='手动录制主播', recording=True,
+        reconnecting = SimpleNamespace(tile=SimpleNamespace(), room_id='manual', name='手动录制主播', recording=True,
                                        stopping=False, started_at=1, retry_at=1, refreshing=False, room={})
-        duplicate = SimpleNamespace(room_id='1', name='同一主播旧会话', recording=True,
+        duplicate = SimpleNamespace(tile=SimpleNamespace(), room_id='1', name='同一主播旧会话', recording=True,
                                     stopping=True, started_at=1, retry_at=0, refreshing=False, room={})
         cache = SimpleNamespace(room_id='3', recording=False)
         host.recorder.sessions = dict(active=active, reconnecting=reconnecting, duplicate=duplicate, cache=cache)
@@ -562,7 +562,8 @@ class WorkspaceControlTests(unittest.TestCase):
         button, menu = navigation.monitor_button, navigation.monitor_menu
         panel = menu.panel
         rows = [MonitorEntry('fixture:1', '一位主播', 'monitoring', 'bilibili', '1024', live=True),
-                MonitorEntry('fixture:2', '另一位主播', 'recording', 'douyin', display_room_id='77')]
+                MonitorEntry('fixture:2', '另一位主播', 'recording', 'douyin', display_room_id='77'),
+                MonitorEntry('fixture:3', '未开播主播', 'monitoring', live=False)]
         menu.read_rows = lambda: tuple(rows)
         available = button.screen().availableGeometry()
         self.assertNotIn(button, navigation.movable_tools())
@@ -586,10 +587,16 @@ class WorkspaceControlTests(unittest.TestCase):
         first_row = panel.rows.itemAt(0).widget()
         self.assertEqual(first_row.name.accessibleName(), '一位主播')
         self.assertEqual(first_row.identifier.text(), 'ID 1024')
-        self.assertEqual(first_row.status.text(), '监控中 · 直播中')
+        self.assertEqual(first_row.status.text(), '直播中')
+        self.assertEqual(first_row.status.accessibleDescription(), '监控中 · 直播中')
         badge = first_row.status.grab().toImage()
-        blue = badge.pixelColor(6, badge.height() // 2)
-        self.assertGreater(blue.blue() - blue.red(), 45)
+        self.assertEqual(badge.pixelColor(badge.width() - 5, badge.height() // 2), QColor('#48549a'))
+        offline = panel.rows.itemAt(2).widget().status
+        self.assertEqual(offline.text(), '监控中')
+        self.assertEqual(offline.accessibleDescription(), '监控中 · 未开播')
+        badge = offline.grab().toImage()
+        blue = badge.pixelColor(badge.width() - 6, badge.height() // 2)
+        self.assertGreater(blue.blue(), max(blue.red(), blue.green()))
         self.assertTrue(first_row.elapsed.isHidden())
         self.assertFalse(first_row.avatar.pixmap().isNull())
         self.assertEqual(first_row.platform_badge.parentWidget(), first_row.avatar.parentWidget())
@@ -608,7 +615,9 @@ class WorkspaceControlTests(unittest.TestCase):
             panel._timer.timeout.emit()
             settle()
         first_row = panel.rows.itemAt(0).widget()
-        self.assertEqual(first_row.status.text(), '正在录制')
+        self.assertEqual(first_row.status.text(), '录制中')
+        badge = first_row.status.grab().toImage()
+        self.assertEqual(badge.pixelColor(badge.width() - 5, badge.height() // 2), QColor(theme.PINK))
         self.assertTrue(first_row.elapsed.isVisible())
         self.assertEqual(first_row.elapsed.text(), '01:01:01')
         self.assertEqual(first_row.avatar.recording_state, 'recording')
@@ -822,6 +831,13 @@ class WorkspaceControlTests(unittest.TestCase):
             feedback.transition(1.1)
             self.assertEqual(feedback.scale, 1)
         self.assertEqual(button.geometry(), geometry)
+
+    def test_late_focus_out_during_dock_button_destruction(self):
+        from shiboken6 import delete
+        button = QToolButton()
+        feedback = DockFeedback(button)
+        delete(button)
+        self.assertFalse(feedback.eventFilter(button, QFocusEvent(QEvent.FocusOut)))
 
     def test_rail_speed_lines_move_right_behind_stationary_icon(self):
         button, action = self.add('slide', 'F1 Play', dock_motion='slide-in-left')

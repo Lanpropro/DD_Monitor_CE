@@ -53,8 +53,8 @@ def main():
     app = QApplication([])
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(theme.qss())
-    check_import_folder_scope(app)
-    check_import_folder_scope(app, existing_count=33)
+    check_import_folder_scope()
+    check_import_folder_scope(existing_count=33)
     check_bulk_import(app)
     folders = [{"id": "games", "name": "赛事", "type": "normal"},
                {"id": "smart", "name": "直播中", "type": "smart"},
@@ -62,10 +62,8 @@ def main():
     dialog = FollowImportDialog(ROOMS, {"1001"}, folders=folders)
     dialog.show()
     app.processEvents()
-    assert all("已在列表" not in dialog.list.item(i).text() for i in range(3))
-    assert [dialog.list.item(i).checkState() for i in range(3)] == [Qt.Checked, Qt.Unchecked, Qt.Unchecked]
-    assert dialog.selected() == [ROOMS[0]] and "已选 1" in dialog.header.text()
-    assert dialog.deselected_existing() == [] and not dialog.folder_changed
+    assert dialog.list.item(0).data(Qt.AccessibleDescriptionRole) == "已添加"
+    assert not dialog.selected() and not dialog.import_button.isEnabled()
     assert [a.text() for a in dialog.folder_button.menu().actions() if a.isCheckable()] == ["未分类", "赛事"]
     assert dialog.folder_id == ""
     select_folder(dialog, "games")
@@ -79,23 +77,20 @@ def main():
     position = QPoint(120, rect.center().y())
     with patch.object(QCursor, 'pos', return_value=dialog.list.viewport().mapToGlobal(position)):
         QTest.mouseClick(dialog.list.viewport(), Qt.LeftButton, pos=position)
-        assert not dialog.selected(), "默认勾选的已有主播仍能通过整行点击取消勾选"
-        assert dialog.deselected_existing() == ['1001']
-        QTest.mouseClick(dialog.list.viewport(), Qt.LeftButton, pos=position)
-    assert dialog.selected() == [ROOMS[0]]
+    assert not dialog.selected(), "已添加的主播不参与勾选"
     dialog.search_edit.setText("  apex  ")
     assert [dialog.list.item(i).isHidden() for i in range(3)] == [True, False, False]
-    click_button(dialog, "全选")
-    assert dialog.selected() == ROOMS
-    click_button(dialog, "不选")
-    assert dialog.selected() == [ROOMS[0]], "隐藏的勾选不应被搜索结果的批量操作清除"
-    click_button(dialog, "选直播中")
-    assert dialog.selected() == [ROOMS[0], ROOMS[2]]
-    assert "当前显示 2 个" in dialog.header.toolTip() and "已选 2" in dialog.header.text()
+    click_button(dialog, "全选结果")
+    assert dialog.selected() == ROOMS[1:]
+    click_button(dialog, "清除勾选")
+    assert not dialog.selected()
+    click_button(dialog, "勾选直播中")
+    assert dialog.selected() == [ROOMS[2]]
+    assert "当前显示 2 个" in dialog.header.toolTip() and "已选 1" in dialog.header.text()
     dialog.search_edit.setText("不存在")
-    click_button(dialog, "全选")
+    click_button(dialog, "全选结果")
     assert all(dialog.list.item(i).isHidden() for i in range(3))
-    assert dialog.selected() == [ROOMS[0], ROOMS[2]] and "当前显示 0 个" in dialog.header.toolTip()
+    assert dialog.selected() == [ROOMS[2]] and "当前显示 0 个" in dialog.header.toolTip()
     avatar = QPixmap(32, 32)
     avatar.fill(Qt.red)
     dialog.set_avatar("douyu:1003", avatar)
@@ -105,7 +100,7 @@ def main():
     assert dialog.isVisible() and dialog.result() == QDialog.Rejected, "搜索回车不能直接导入"
     dialog.search_edit.clear()
     assert all(not dialog.list.item(i).isHidden() for i in range(3))
-    click_button(dialog, "不选")
+    click_button(dialog, "清除勾选")
     assert not dialog.selected()
     select_folder(dialog, "")
     assert dialog.folder_button.text() == "未分类"
@@ -128,8 +123,7 @@ def main():
     def confirm(account):
         account._show_rooms(ROOMS)
         page = account.page
-        assert {room["room_id"] for room in page.selected()} == {
-            room["room_id"] for room in window.sidebar.rooms()}
+        assert not page.selected()
         assert [a.text() for a in page.folder_button.menu().actions() if a.isCheckable()] == ["默认关注", "已有分类", "导入分类"]
         select_folder(page, target)
         page.search_edit.setText("测试主播")
@@ -137,8 +131,7 @@ def main():
         page.search_edit.setText("apex")
         page._check_all(True)
         page.accept()
-        assert account.rooms == ROOMS and account.folder_id == target
-        assert account.folder_changed and account.removed_ids == []
+        assert account.rooms == ROOMS[1:] and account.folder_id == target
         return account.result()
     with patch.object(bili, "SESSION_DATA", ""), \
             patch.object(LoginWindow, "start_login"), \
@@ -148,15 +141,14 @@ def main():
         assert window.sidebar.folder_for('1001') == first, 'no folder change must preserve existing ownership'
         with patch.object(AccountPlatformDialog, "exec", confirm):
             window.open_import_follows()
-            window.open_import_follows()
         assert len(window.sidebar.rooms()) == 3
-        assert window.sidebar.folder_for("1001") == target, "明确选择目标时也应移动已导入主播"
+        assert window.sidebar.folder_for("1001") == first, "目标文件夹只用于本次新增"
         assert window.sidebar.folder_for("huya:1002") == target
         assert window.sidebar.folder_for("douyu:1003") == target
         assert window.sidebar.get_folder(target)["collapsed"]
         assert window._save_timer.isActive()
         saved = next(f for f in window.current_state()["follow_folders"] if f["id"] == target)
-        assert set(saved["rooms"]) == {"1001", "huya:1002", "douyu:1003"}
+        assert set(saved["rooms"]) == {"huya:1002", "douyu:1003"}
         new = dict(ROOMS[0], room_id="1004")
         window._import_selected_follows([new])
         assert window.sidebar.folder_for("1004") == UNCLASSIFIED
@@ -165,40 +157,27 @@ def main():
         window._import_selected_follows([dict(new, room_id="1005")], folder_id=gone)
         assert window.sidebar.folder_for("1005") == UNCLASSIFIED
         tile = window.wall.add_room(ROOMS[0])
-        def remove_existing(account):
+        def existing_only(account):
             account._show_rooms(ROOMS)
             page = account.page
-            page.search_edit.setText('测试主播')
-            page.list.item(0).setCheckState(Qt.Unchecked)
+            page._check_all(True)
+            select_folder(page, '')
+            assert not page.selected() and not page.import_button.isEnabled()
             page.accept()
-            assert account.removed_ids == ['1001'] and not account.folder_changed
+            assert account.rooms == []
             return account.result()
-        with patch.object(AccountPlatformDialog, 'exec', remove_existing), \
-                patch.object(window.recorder, 'stop', wraps=window.recorder.stop) as stop:
+        with patch.object(AccountPlatformDialog, 'exec', existing_only), \
+                patch.object(window, '_import_selected_follows') as imported:
             window.open_import_follows()
-            stop.assert_called_once_with(tile)
-        assert '1001' not in {str(room['room_id']) for room in window.sidebar.rooms()}
-        assert all(str(slot.room.get('room_id')) != '1001' for slot in window.wall.tiles)
-        assert window.sidebar.folder_for('huya:1002') == target, 'hidden checked entries must remain unchanged'
+            imported.assert_not_called()
+        assert str(tile.room['room_id']) == '1001'
+        assert window.sidebar.folder_for('1001') == first
+        assert window.sidebar.folder_for('huya:1002') == target
         assert {'1004', '1005'} <= {str(room['room_id']) for room in window.sidebar.rooms()}, \
             'rooms outside the loaded list must remain untouched'
-        assert '1001' not in window.current_state()['rooms']
-        assert all('1001' not in folder['rooms'] for folder in window.current_state()['follow_folders'])
-        def move_to_unclassified(account):
-            account._show_rooms([ROOMS[1]])
-            account.page._check_all(True)
-            select_folder(account.page, '')
-            account.page.accept()
-            assert account.folder_changed and account.removed_ids == []
-            return account.result()
-        with patch.object(AccountPlatformDialog, 'exec', move_to_unclassified):
-            window.open_import_follows()
-        assert window.sidebar.folder_for('huya:1002') == UNCLASSIFIED
-        assert window.sidebar.folder_for('douyu:1003') == target
         def confirm_empty(account):
             account._show_rooms([])
             account.page.accept()
-            assert account.removed_ids == []
             return account.result()
         before = window.sidebar.folder_state()
         with patch.object(AccountPlatformDialog, 'exec', confirm_empty):
@@ -216,8 +195,9 @@ def main():
             imported.assert_not_called()
         assert window.sidebar.folder_state() == before
         created = []
+        fresh = dict(ROOMS[0], room_id="1006")
         def create_folder_and_import(account):
-            account._show_rooms(ROOMS)
+            account._show_rooms([*ROOMS, fresh])
             page = account.page
             page._check_all(True)
             page.search_edit.setText('测试主播')
@@ -241,18 +221,19 @@ def main():
             assert [page.list.item(i).checkState() for i in range(page.list.count())] == checked
             assert [page.list.item(i).isHidden() for i in range(page.list.count())] == hidden
             page.accept()
-            assert account.folder_id == created[0] and account.folder_changed
+            assert account.folder_id == created[0] and account.rooms == [fresh]
             return account.result()
         with patch.object(AccountPlatformDialog, 'exec', create_folder_and_import):
             window.open_import_follows()
-        assert all(window.sidebar.folder_for(room['room_id']) == created[0] for room in ROOMS)
+        assert window.sidebar.folder_for('1001') == first
+        assert all(window.sidebar.folder_for(room['room_id']) == target for room in ROOMS[1:])
         saved = next(f for f in window.current_state()['follow_folders'] if f['id'] == created[0])
-        assert set(saved['rooms']) == {room['room_id'] for room in ROOMS}
+        assert saved['rooms'] == [fresh['room_id']]
     window.close()
     print("PASS: shared account page passes target, cross-platform import, dedup, collapse, persistence, fallback and cancel")
 
 
-def check_import_folder_scope(app, existing_count=32):
+def check_import_folder_scope(existing_count=32):
     rooms = [dict(room_id=str(30000 + index), uname=f'Existing {index}', live=False)
              for index in range(existing_count)]
     new = dict(room_id='40000', uname='New anchor', live=True)
@@ -264,35 +245,15 @@ def check_import_folder_scope(app, existing_count=32):
     def confirm(account):
         account._show_rooms(rooms + [new])
         page = account.page
-        assert len(page.selected()) == existing_count
+        assert not page.selected()
         avatar = QPixmap(16, 16)
         avatar.fill(Qt.red)
         page.set_avatar(rooms[0]['room_id'], avatar)
         page.list.item(0).setText('Refreshed name')
-        assert not page.folder_room_ids(), 'Avatar and label updates must not count as selection'
+        assert not page.selected(), 'Avatar and label updates must not count as selection'
         page.search_edit.setText('New anchor')
         page._check_all(True)
         select_folder(page, target)
-        page.accept()
-        return account.result()
-
-    def edit_existing(account):
-        account._show_rooms(rooms + [new])
-        page = account.page
-        # Rechecking explicitly requests classification; leaving unchecked removes a follow.
-        page.list.item(0).setCheckState(Qt.Unchecked)
-        page.list.item(0).setCheckState(Qt.Checked)
-        page.list.item(1).setCheckState(Qt.Unchecked)
-        select_folder(page, target)
-        page.accept()
-        return account.result()
-
-    def move_back(account):
-        account._show_rooms(rooms + [new])
-        page = account.page
-        page.search_edit.setText('New anchor')
-        page._check_all(True)  # Explicit bulk selection includes already checked visible items.
-        select_folder(page, '')
         page.accept()
         return account.result()
 
@@ -300,40 +261,28 @@ def check_import_folder_scope(app, existing_count=32):
         with patch.object(bili, 'SESSION_DATA', ''), patch.object(LoginWindow, 'start_login'), \
                 patch.object(window, '_start_avatar_loader'), patch.object(window, 'load_avatars_for'), \
                 patch.object(window, '_refresh_meta'), patch('ddm.online_ui.show_result') as result:
-            for confirm_action in (confirm, edit_existing, move_back):
-                with patch.object(AccountPlatformDialog, 'exec', confirm_action):
-                    window.open_import_follows()
-                for _ in range(100):
-                    app.processEvents()
-                    if window._follow_import_timer is None:
-                        break
-                assert window._follow_import_timer is None
-                if confirm_action is confirm:
-                    assert len(window.sidebar.rooms()) == existing_count + 1
-                    assert all(window.sidebar.folder_for(room['room_id']) == UNCLASSIFIED
-                               for room in rooms), 'Importing one anchor must preserve existing folders'
-                    assert window.sidebar.folder_for(new['room_id']) == target
-                    result.assert_called_once_with(window,
-                        '导入完成：新增 1 个', rooms=[new])
-                else:
-                    assert len(window.sidebar.rooms()) == existing_count
-                    assert rooms[1]['room_id'] not in window.current_state()['rooms']
-                    assert window.sidebar.folder_for(rooms[0]['room_id']) == target
-                    assert all(window.sidebar.folder_for(room['room_id']) == UNCLASSIFIED
-                               for room in rooms[2:])
-                    expected = UNCLASSIFIED if confirm_action is move_back else target
-                    assert window.sidebar.folder_for(new['room_id']) == expected
-                    result.assert_called_once_with(window,
-                        '导入完成：新增 0 个', rooms=[])
-                result.reset_mock()
+            with patch.object(AccountPlatformDialog, 'exec', confirm):
+                window.open_import_follows()
+            assert window._follow_import_timer is None
+            assert len(window.sidebar.rooms()) == existing_count + 1
+            assert all(window.sidebar.folder_for(room['room_id']) == UNCLASSIFIED
+                       for room in rooms), 'Importing one anchor must preserve existing folders'
+            assert window.sidebar.folder_for(new['room_id']) == target
+            result.assert_called_once_with(window, '导入完成：新增 1 个', rooms=[new])
+            result.reset_mock()
+            # A room may be added by another entry while the import window is open.
+            window._import_selected_follows([rooms[0]], folder_id=target)
+            assert window.sidebar.folder_for(rooms[0]['room_id']) == UNCLASSIFIED
+            result.assert_called_once_with(window, '导入完成：新增 0 个', rooms=[])
+            result.reset_mock()
             saved = next(f for f in window.current_state()['follow_folders'] if f['id'] == target)
-            assert saved['rooms'] == [rooms[0]['room_id']]
+            assert saved['rooms'] == [new['room_id']]
             window._import_selected_follows([], pending_count=2)
             result.assert_called_once_with(window,
                 '导入完成：新增 0 个，另保存 2 个待识别账号', rooms=[])
     finally:
         window.close()
-    print(f'PASS: {existing_count} existing + 1 new follow, result counts/avatars, retained folders, classification and removal')
+    print(f'PASS: {existing_count} existing + 1 new follow, result counts, folder preservation and duplicate race')
 
 
 def check_bulk_import(app):
@@ -366,7 +315,7 @@ def check_bulk_import(app):
         if not dialog._populating:
             break
         QTest.qWait(10)
-    assert dialog.list.count() == len(rooms) and dialog.import_button.isEnabled()
+    assert dialog.list.count() == len(rooms) and not dialog.import_button.isEnabled()
     heartbeat.stop()
     assert len(ticks) > 2, 'Population must yield to the event loop'
     gap = max(b - a for a, b in zip(ticks, ticks[1:])) * 1000
@@ -377,6 +326,7 @@ def check_bulk_import(app):
     dialog._check_live()
     selected = dialog.selected()
     assert len(selected) == sum(room['live'] for room in rooms)
+    assert dialog.import_button.isEnabled()
     with patch('ddm.app.QTimer.singleShot'):
         window = MainWindow([], [], state={'plugins_enabled': []})
     try:

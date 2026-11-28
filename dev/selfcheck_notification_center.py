@@ -151,25 +151,15 @@ class NotificationTests(unittest.TestCase):
         self.app.processEvents()
         for card in (notice, row):
             self.assertTrue(card.property('roomBackdrop'))
-
-        paint_count = 0
-        paint_background = room_artwork.paint_room_background
-
-        def count_paint(*args, **kwargs):
-            # A recording mock retains the active QPainter beyond paintEvent.
-            nonlocal paint_count
-            paint_count += 1
-            paint_background(*args, **kwargs)
-
         window.settings['notice_banner_enabled'] = False
         for card in (notice, row):
             room_artwork.style_room_notice(card, card.artwork)
-        with patch.object(room_artwork, 'paint_room_background', count_paint):
+        with patch.object(room_artwork, 'paint_room_background') as paint:
             self.app.processEvents()
             for card in (notice, row):
                 self.assertFalse(card.property('roomBackdrop'))
                 card.grab()
-            self.assertEqual(paint_count, 0)
+            paint.assert_not_called()
         notice.set_room_artwork('1001', picture, 'banners')
         row.set_room_artwork('1001', picture, 'banners')
         self.assertFalse(notice.property('roomBackdrop'))
@@ -180,10 +170,19 @@ class NotificationTests(unittest.TestCase):
             room_artwork.style_room_notice(card, card.artwork)
         for card in (notice, row):
             self.assertTrue(card.property('roomBackdrop'))
-        with patch.object(room_artwork, 'paint_room_background', count_paint):
+        paint_background = room_artwork.paint_room_background
+        painted = []
+
+        def record_paint(painter, *args, **kwargs):
+            # Retaining a paint-event QPainter in mock.call_args outlives its paint device.
+            painted.append(painter.device())
+            return paint_background(painter, *args, **kwargs)
+
+        with patch.object(room_artwork, 'paint_room_background', record_paint):
             notice.grab()
             row.grab()
-            self.assertGreaterEqual(paint_count, 2)
+        self.assertIn(notice, painted)
+        self.assertIn(row, painted)
 
     def test_banner_blur_settings_roundtrip_and_reset(self):
         dialog = SettingsDialog({'notice_banner_blur': 30}, {}, preview=True)
@@ -261,6 +260,25 @@ class NotificationTests(unittest.TestCase):
         dialog.nav.setCurrentRow(4)
         dialog.show()
         page = dialog.notification_page
+        header = page.layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['通知'])
+        background = page.sections.section('background')
+        background_labels = {label.text(): label for label in background.findChildren(QLabel)}
+        for title, control, text in (
+            ('显示通知背景图', page.banner_enabled, '关闭后使用纯色通知背景。'),
+            ('背景模糊强度', page.banner_blur, '设为 0 时保留清晰背景图。'),
+        ):
+            self.assertEqual(control.toolTip(), text)
+            self.assertEqual(background_labels[title].toolTip(), text)
+        self.assertIsNone(background.findChild(QLabel, 'SettingsHint'))
+        reception = page.sections.section('live')
+        self.assertEqual(reception.grid.itemAtPosition(2, 0).widget().text(), '全屏时隐藏弹窗')
+        self.assertEqual(reception.grid.itemAtPosition(4, 0).widget().text(),
+                         '在「主播监控」按主播设置开播和录制通知。')
+        retention = page.sections.section('persistence')
+        self.assertEqual(retention.grid.itemAtPosition(4, 0).widget().text(), '操作结果')
+        self.assertEqual(retention.grid.itemAtPosition(5, 0).widget().text(),
+                         '两种方式都可在通知菜单查看记录。')
         for mode in ('light', 'dark'):
             theme.apply(mode)
             for size in ((720, 500), (900, 650)):
@@ -858,9 +876,11 @@ class NotificationTests(unittest.TestCase):
                 for first, second in zip(rows, rows[1:]):
                     self.assertLess(first.geometry().bottom(), second.y())
                 panel = self.center.grab().toImage()
+                self.assertTrue(self.center.mask().isEmpty(), 'Preserve partial alpha on the painted curve')
+                self.assertTrue(any(0 < panel.pixelColor(x, y).alpha() < 255
+                                    for x in range(1, 16) for y in range(1, 16)))
                 for point in (QPoint(0, 0), QPoint(self.center.width() - 1, 0),
                               QPoint(0, self.center.height() - 1), self.center.rect().bottomRight()):
-                    self.assertFalse(self.center.mask().contains(point))
                     scale = panel.devicePixelRatio()
                     self.assertEqual(panel.pixelColor(round(point.x() * scale),
                                                        round(point.y() * scale)).alpha(), 0)

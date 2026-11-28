@@ -9,6 +9,46 @@ from .images import AvatarLoader
 class VideoDanmakuRaster:
     def __init__(self, host):
         self.host = host
+        self.motion_flush_timer = None
+        self.pending_motion_damage = None
+        self.joined_motion_updates = 0
+        self.standalone_motion_updates = 0
+
+    def enable_motion_coalescing(self):
+        if self.motion_flush_timer is None:
+            self.motion_flush_timer = QTimer(self.host)
+            self.motion_flush_timer.setSingleShot(True)
+            self.motion_flush_timer.setTimerType(Qt.PreciseTimer)
+            self.motion_flush_timer.setInterval(4)
+            self.motion_flush_timer.timeout.connect(self.flush_motion_update)
+        return self.flush_motion_with_video
+
+    def uses_video_motion_updates(self):
+        return self.motion_flush_timer is not None and not self.host.native_video
+
+    def queue_motion_update(self, damage):
+        if not self.uses_video_motion_updates():
+            self.host.update(damage)
+            return
+        if self.pending_motion_damage is None:
+            self.pending_motion_damage = damage
+            self.motion_flush_timer.start()
+        else:
+            self.pending_motion_damage = self.pending_motion_damage.united(damage)
+
+    def flush_motion_with_video(self):
+        self.flush_motion_update(joined=True)
+
+    def flush_motion_update(self, *, joined=False):
+        damage, self.pending_motion_damage = self.pending_motion_damage, None
+        if damage is None:
+            return
+        if joined:
+            self.motion_flush_timer.stop()
+            self.joined_motion_updates += 1
+        else:
+            self.standalone_motion_updates += 1
+        self.host.update(damage)
 
     def ensure_emoticon(self, url: str) -> None:
         host = self.host
@@ -129,7 +169,9 @@ class VideoDanmakuRaster:
                 break
             host._pending_comments.pop(identifier)
             host._admit_comment(image, key, text, color, runs, self_sent, event)
-        if host._quick_layer is None:
+        # A newly admitted comment starts outside the right edge. The motion
+        # timer will paint it when it enters; changed existing pixels need an update now.
+        if host._quick_layer is None and (reflowed or not self.uses_video_motion_updates()):
             host.update()
 
     def resize_comments(self, *, redraw=True) -> None:

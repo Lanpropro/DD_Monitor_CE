@@ -20,7 +20,7 @@ GROUPS = ((0, PAGE_INDEX['danmaku'], '基础偏好'),
 ICONS = {
     'general': PATHS['settings'],
     'appearance': '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
-    'danmaku': '<path d="M4 4h16v14h-8l-5 3v-3H4ZM8 9h8M8 13h5"/>',
+    'danmaku': PATHS['danmaku'],
     'recording': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>',
     'streamer_defaults': '<circle cx="12" cy="8" r="3"/><path d="M5 20v-2a7 7 0 0 1 14 0v2"/>',
     'notifications': '<path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3ZM10 21h4M12 2v1"/>',

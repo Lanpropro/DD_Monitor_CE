@@ -120,32 +120,55 @@ class NoticeCloseTrace(QObject):
         if isValid(self.timer):
             self.timer.stop()
 
-    def install(self):
+    def install(self, *, window=None, cleanup=None):
         from ddm.online_ui import UpdateNotice, ResultNotice
         from ddm.notification_center import NoticeRow
+        from .live_diagnostics import replace_hook
+
         trace = self
+        def attach(notice):
+            button = notice.findChild(QPushButton, 'NoticeClose')
+            if button is None:
+                return
+            if window is not None:
+                owner = notice
+                while owner is not None and owner is not window:
+                    owner = owner.parentWidget()
+                if owner is None:
+                    return
+            elif not trace.shutdown_connected:
+                QApplication.instance().aboutToQuit.connect(trace.stop)
+                trace.shutdown_connected = True
+            button.installEventFilter(trace)
+            reference = weakref.ref(notice)
+            def clicked():
+                item = reference()
+                if item is not None:
+                    trace.watch(item)
+                    trace.record('button:clicked', item)
+            connection = button.clicked.connect(clicked)
+            if cleanup is not None:
+                button_ref = weakref.ref(button)
+                def detach():
+                    item = button_ref()
+                    if item is not None and isValid(item):
+                        item.removeEventFilter(trace)
+                        QObject.disconnect(connection)
+                cleanup.callback(detach)
+
         def initialize(original_init):
             @functools.wraps(original_init)
             def call(notice, *args, **kwargs):
                 original_init(notice, *args, **kwargs)
-                if trace.closed:
-                    return
-                # Installation can precede QApplication creation. The first notice
-                # exists after it, and capture must stop before Qt child teardown.
-                if not trace.shutdown_connected:
-                    QApplication.instance().aboutToQuit.connect(trace.stop)
-                    trace.shutdown_connected = True
-                button = notice.findChild(QPushButton, 'NoticeClose')
-                button.installEventFilter(trace)
-                reference = weakref.ref(notice)
-                def clicked():
-                    item = reference()
-                    if item is not None:
-                        trace.record('button:clicked', item)
-                button.clicked.connect(clicked)
+                if not trace.closed:
+                    attach(notice)
             return call
         for owner in (UpdateNotice, NoticeRow):
-            owner.__init__ = initialize(owner.__init__)
+            replace_hook(cleanup, owner, '__init__', initialize(owner.__init__))
+        if window is not None:
+            for owner in (UpdateNotice, NoticeRow):
+                for notice in window.findChildren(owner):
+                    attach(notice)
         hooks = ((UpdateNotice, ('dismiss', '_motion_frame', '_motion_finished', 'showEvent', 'hideEvent')),
                  (ResultNotice, ('show_message', 'set_room_artwork', 'set_room_avatar',
                                  '_motion_frame', 'reposition', 'paintEvent')),
@@ -169,4 +192,4 @@ class NoticeCloseTrace(QObject):
             return call
         for owner, names in hooks:
             for name in names:
-                setattr(owner, name, wrap(getattr(owner, name), owner.__name__ + '.' + name))
+                replace_hook(cleanup, owner, name, wrap(getattr(owner, name), owner.__name__ + '.' + name))

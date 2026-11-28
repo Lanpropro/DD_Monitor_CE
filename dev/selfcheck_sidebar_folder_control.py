@@ -136,6 +136,38 @@ class SidebarFolderControlTests(unittest.TestCase):
             self.sidebar.refresh_filter()
         self.assertEqual(calls, ['marks', ('layout', {'animate': False}), 'strip', 'count'])
 
+    def test_live_only_folder_counts_follow_status_even_when_folded_or_searching(self):
+        sidebar = self.sidebar
+        normal = sidebar.create_folder('Music')
+        sidebar.move_to_folder(['1001', 'huya:fixture'], normal)
+        copies = sidebar.create_folder('All copies', rule={
+            'status': 'any', 'display': 'copy', 'sources': [normal]})
+        offline = sidebar.create_folder('Offline copies', rule={
+            'status': 'offline', 'display': 'copy', 'sources': [normal]})
+        sidebar.get_folder(normal)['collapsed'] = True
+        sidebar.refresh_filter()
+
+        def counts():
+            return [int(sidebar._folder_buttons[key].toolTip().splitlines()[0].rsplit(' · ', 1)[1])
+                    for key in (normal, copies, offline)]
+
+        self.assertEqual(counts(), [2, 2, 1])
+        sidebar.navigation.live_button.click()
+        self.assertEqual(counts(), [1, 1, 0])
+        self.assertTrue(sidebar._folder_buttons[normal].text().endswith(' · 1'))
+        sidebar.apply_filter('小明')
+        self.items['huya:fixture'].set_live(True)
+        sidebar.resort()
+        self.assertEqual(counts(), [2, 2, 0])
+        self.items['1001'].set_live(False)
+        self.items['huya:fixture'].set_live(False)
+        sidebar.resort()
+        sidebar.apply_filter('')
+        self.assertEqual(counts(), [0, 0, 0])
+        self.assertFalse(sidebar._folder_buttons[normal].isHidden())
+        sidebar.navigation.all_button.click()
+        self.assertEqual(counts(), [2, 2, 2])
+
     def test_old_create_and_smart_dialog_factories_still_route_through_sidebar(self):
         def create(parent, callback, names):
             self.assertIs(parent, self.sidebar)

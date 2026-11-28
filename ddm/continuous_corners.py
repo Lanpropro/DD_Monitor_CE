@@ -137,11 +137,22 @@ def _indexed(source):
     return by_id, by_type
 
 
-def _simple(widget, selector, states, subcontrol):
+@lru_cache(maxsize=1024)
+def _selector_terms(selector):
     controls = re.findall(r'::([\w-]+)', selector)
-    if (controls[0] if controls else '') != subcontrol:
+    bare = re.sub(r'\[[^]]*\]|::[\w-]+|(?<!:):(?!:)[!\w-]+', '', selector)
+    identity = re.search(r'#([\w-]+)', bare)
+    return (controls[0] if controls else '', bare.split('#', 1)[0], identity[1] if identity else '',
+            _ATTR.findall(selector), _STATE.findall(selector))
+
+
+def _simple(widget, selector, states, subcontrol):
+    control, kind, identity, attributes, conditions = _selector_terms(selector)
+    if control != subcontrol or (identity and widget.objectName() != identity):
         return False
-    for name, value in _ATTR.findall(selector):
+    if kind and kind != '*' and not widget.inherits(kind):
+        return False
+    for name, value in attributes:
         actual = widget.property(name)
         if value:
             actual = str(actual).lower() if isinstance(actual, bool) else str(actual)
@@ -149,15 +160,12 @@ def _simple(widget, selector, states, subcontrol):
                 return False
         elif actual is None:
             return False
-    for state in _STATE.findall(selector):
+    if conditions and states is None:
+        states = _states(widget)
+    for state in conditions:
         if bool(states.get(state.lstrip('!'), False)) == state.startswith('!'):
             return False
-    bare = re.sub(r'\[[^]]*\]|::[\w-]+|(?<!:):(?!:)[!\w-]+', '', selector)
-    identity = re.search(r'#([\w-]+)', bare)
-    if identity and widget.objectName() != identity[1]:
-        return False
-    kind = bare.split('#', 1)[0]
-    return not kind or kind == '*' or widget.inherits(kind)
+    return True
 
 
 def _matches(widget, selector, states, subcontrol=''):
@@ -170,7 +178,7 @@ def _matches(widget, selector, states, subcontrol=''):
         direct = parts[index] == '>'
         if direct:
             index -= 1
-        while parent is not None and not _simple(parent, parts[index], _states(parent), ''):
+        while parent is not None and not _simple(parent, parts[index], None, ''):
             if direct:
                 return False
             parent = parent.parentWidget()

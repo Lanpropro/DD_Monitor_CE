@@ -11,7 +11,9 @@ from . import bili, theme
 from .bili import FollowLoader
 from .room_dialogs import FollowImportDialog
 from .account_widgets import AccountRow
+from .settings_backdrop import apply_frame
 from .corner_geometry import continuous_path
+from .ui.basics import ActionButton
 
 
 from .account_workers import (FollowAccountResolver)
@@ -24,6 +26,7 @@ class AccountPlatformDialog(QDialog):
         self.owner = owner
         self.providers = {p.kind: p for p in providers.values()}
         self.import_follows = import_follows
+        self._native_corners = False
         self._opaque_login = sys.platform == "win32" and not import_follows
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         if not self._opaque_login:
@@ -35,9 +38,6 @@ class AccountPlatformDialog(QDialog):
         self.rooms = []
         self._account_resolver = None
         self.folder_id = ""
-        self.folder_changed = False
-        self.folder_room_ids = []
-        self.removed_ids = []
         self.pending_count = 0
         self.kind = ""
         self.page = None
@@ -171,17 +171,21 @@ class AccountPlatformDialog(QDialog):
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
-        paint_import_surface(self)
+        paint_import_surface(self, native_corners=self._native_corners)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._opaque_login:
+        if self._opaque_login and not self._native_corners:
             # A layered Windows dialog can let native WebEngine clicks hit the window behind it.
             outline = continuous_path(QRectF(self.rect()), 22)
             self.setMask(QRegion(outline.toFillPolygon().toPolygon()))
 
     def showEvent(self, event):
         super().showEvent(event)
+        if self._opaque_login:
+            self._native_corners = apply_frame(self, theme.is_light())
+            if self._native_corners and not self.mask().isEmpty():
+                self.clearMask()
         self._center_on_owner()
 
     def _select_platform_control(self, kind):
@@ -329,17 +333,23 @@ class AccountPlatformDialog(QDialog):
         page = page if page is not None else self.page
         if isinstance(page, FollowImportDialog):
             selected = page.selected()
-            self.rooms = [room for room in selected if room.get("room_id")]
+            self.rooms = [dict(room) for room in selected if room.get("room_id")]
+            if page.folder_changed:
+                for room in self.rooms:
+                    room.pop("pending_folder_id", None)
             if self.kind == "douyin" and callable(getattr(self.owner, "_cache_douyin_follows", None)):
-                pending = [dict(room, pending_folder_id=(page.folder_id if page.folder_changed else
-                                room.get("pending_folder_id", page.folder_id)))
-                           for room in selected if not room.get("room_id")]
-                self.pending_count = len(pending)
-                self.owner._cache_douyin_follows(page.rooms, pending=pending)
+                cache = getattr(self.owner, "_douyin_follow_cache", None) or {}
+                uid = str(self.owner._accounts.get("douyin", {}).get("uid") or "")
+                pending = {room.get("anchor_uid"): room for room in cache.get("pending", [])} if cache.get("uid") == uid else {}
+                for room in selected:
+                    anchor = room.get("anchor_uid")
+                    if room.get("room_id"):
+                        pending.pop(anchor, None)
+                    else:
+                        pending[anchor] = dict(room, pending_folder_id=page.folder_id)
+                        self.pending_count += 1
+                self.owner._cache_douyin_follows(page.rooms, pending=list(pending.values()))
             self.folder_id = page.folder_id
-            self.folder_changed = page.folder_changed
-            self.folder_room_ids = page.folder_room_ids()
-            self.removed_ids = page.deselected_existing()
             self.accept()
             return
         if self.kind != "bilibili" and page.account:
@@ -474,9 +484,7 @@ class AccountPlatformDialog(QDialog):
             page.resolve_status.setWordWrap(True)
             page.layout().insertWidget(2, page.resolve_status)
             page.resolve_status.setVisible(not callable(getattr(self.providers["douyin"], "follow_account_reference", None)))
-            page.resolve_button = QPushButton("补充识别", page)
-            page.resolve_button.setObjectName("IconButton")
-            page.resolve_button.setCursor(Qt.PointingHandCursor)
+            page.resolve_button = ActionButton("补充识别", page)
             page.resolve_button.setAutoDefault(False)
             page.resolve_button.clicked.connect(lambda: self._resolve_accounts(page))
             page.secondary_actions.addWidget(page.resolve_button)

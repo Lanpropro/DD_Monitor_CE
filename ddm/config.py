@@ -38,6 +38,7 @@ DEFAULT_VOLUME = 40
 # 全局设置默认值（设置菜单里可改，存在配置文件的 settings 段）
 from .settings_material import DEFAULTS as MATERIAL_DEFAULTS
 from .appearance_preferences import DEFAULTS as APPEARANCE_DEFAULTS
+from .app_icon import DEFAULT_STYLE as DEFAULT_APP_ICON_STYLE
 from .shortcut_actions import DEFAULT_HOVER_WHEEL_VOLUME_STEP, DEFAULT_WHEEL_VOLUME_STEP
 from .super_chat_model import DEFAULT_COLLAPSE_DELAY
 
@@ -47,10 +48,12 @@ DEFAULT_SETTINGS = {
     "settings_wheel_speed": 1,
     "tile_context_menu": None,
     "tray_context_menu": None,
+    "tray_preview_audio": False,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
     "appearance_mode": "dark",
+    "app_icon_style": DEFAULT_APP_ICON_STYLE,
     "skin_background": "",
     "skin_sidebar": True,
     "skin_video_enabled": True,
@@ -62,6 +65,7 @@ DEFAULT_SETTINGS = {
     "skin_mask_override": False,
     "skin_sidebar_override": False,
     "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
+    "plugin_preview_updates": False,
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）

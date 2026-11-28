@@ -152,8 +152,10 @@ class DataPathTests(unittest.TestCase):
             page = dialog.update_page.data_page
             self.assertNotIn('storage', SettingsDialog.PAGE_INDEX)
             self.assertEqual(page.path.text(), str(self.program))
+            self.assertEqual(page.status.text(), '请选择空文件夹。')
             self.assertTrue(page.set_target(self.target))
             self.assertEqual(dialog.confirm_button.text(), '迁移并重启')
+            self.assertEqual(page.status.text(), f'重启后迁移至：{self.target}\n原文件保留，录制文件不会移动。')
             self.assertFalse(data_paths.location_file(self.program, self.home).exists())
             dialog.reject()
             self.assertFalse(data_paths.location_file(self.program, self.home).exists())
@@ -179,6 +181,7 @@ class DataPathTests(unittest.TestCase):
             self.assertTrue(first.update_page.data_page.set_target(self.target))
             first.reject()
             self.assertIsNone(cached.data_page.target)
+            self.assertEqual(cached.data_page.status.text(), '请选择空文件夹。')
             second = SettingsDialog({}, {}, update_page_factory=factory)
             second.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['updates'])
             self.assertEqual(second.confirm_button.text(), '重启以应用')

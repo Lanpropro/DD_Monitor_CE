@@ -86,6 +86,7 @@ class SettingsProcess(QObject):
         self.ready = self.visible = self.closing = False
         self.pending = None
         self._focus_serial = 0
+        self.current_page = None
         self.worker_pid = None
         self.window_hwnd = 0
         self.occlusion = QRect()
@@ -162,6 +163,11 @@ class SettingsProcess(QObject):
     def _send(self, message):
         self.process.write((json.dumps(message) + '\n').encode('utf-8'))
 
+    def dismiss(self):
+        self.pending = None
+        if self.visible and not self.closing:
+            self._send({'kind': 'host-cancel'})
+
     def push_settings(self, values):
         """Push host-owned values into an already open isolated settings window."""
         if not values:
@@ -223,6 +229,8 @@ class SettingsProcess(QObject):
             elif kind == 'window' and self.visible and not self.closing:
                 self.window_hwnd = int(message['hwnd'])
                 self._set_occlusion(self.occlusion, force=True)
+            elif kind == 'selected-page' and self.visible and not self.closing:
+                self.current_page = message['page']
             elif kind == 'occlusion' and not self.closing:
                 self._set_occlusion(QRect(*message['rect']) if message['rect'] else QRect())
             elif kind == 'auto-save' and not self.closing:
@@ -234,6 +242,7 @@ class SettingsProcess(QObject):
             elif kind == 'result':
                 started = _save_trace('host.result.received')
                 self.visible = False
+                self.current_page = None
                 self.window_hwnd = 0
                 self._set_occlusion(QRect(), force=not self.closing)
                 if not self.closing:
@@ -241,6 +250,8 @@ class SettingsProcess(QObject):
                         self.hostRequest.emit(message)
                     elif message.get('accepted'):
                         self.saved.emit(message['changes'])
+                    else:
+                        self.hostRequest.emit(message)
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
             elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden',
@@ -265,6 +276,7 @@ class SettingsProcess(QObject):
         was_visible = self.visible
         was_open = self.visible or self.pending is not None
         self.ready = self.visible = False
+        self.current_page = None
         self.pending = None
         self.buffer = b''
         self.worker_pid = None

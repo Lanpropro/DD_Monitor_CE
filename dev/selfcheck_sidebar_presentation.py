@@ -69,8 +69,8 @@ class SidebarPresentationTests(unittest.TestCase):
         self.app.processEvents()
         avatar = room.thumb.face
         self.assertEqual(avatar.recording_state, '')
-        control.set_auto_record_rooms({'fixture:1', 'fixture:2'})
-        self.assertEqual(avatar.recording_state, 'ready')
+        control.set_monitored_rooms({'fixture:1', 'fixture:2'})
+        self.assertEqual(avatar.recording_state, 'monitoring')
         self.assertTrue(avatar.isVisible())
         self.assertFalse(room.property('onWall'))
         self.assertFalse(room.room['live'])
@@ -90,7 +90,7 @@ class SidebarPresentationTests(unittest.TestCase):
         session = SimpleNamespace(room_id='fixture:1', recording=True, stopping=False, started_at=0)
         capture = CaptureControl(SimpleNamespace(sidebar=sidebar, recorder=SimpleNamespace(sessions={room: session})))
         capture.sync_follow_recording_states()
-        self.assertEqual(avatar.recording_state, 'ready')
+        self.assertEqual(avatar.recording_state, 'monitoring')
         session.started_at = 1
         with patch.object(motion, 'enabled', return_value=True):
             capture.sync_follow_recording_states()
@@ -126,25 +126,68 @@ class SidebarPresentationTests(unittest.TestCase):
         self.assertEqual(strip_avatar.recording_state, 'recording')
         session.stopping = True
         capture.sync_follow_recording_states()
-        self.assertEqual(strip_avatar.recording_state, 'ready')
-        self.assertEqual(avatar.recording_state, 'ready')
+        self.assertEqual(strip_avatar.recording_state, 'monitoring')
+        self.assertEqual(avatar.recording_state, 'monitoring')
         new = sidebar._append_item({'room_id': 'fixture:2', 'uname': 'Second', 'live': False})
-        self.assertEqual(new.thumb.face.recording_state, 'ready')
-        control.set_auto_record_rooms(set())
+        self.assertEqual(new.thumb.face.recording_state, 'monitoring')
+        control.set_monitored_rooms(set())
         self.assertEqual(avatar.recording_state, '')
         self.assertEqual(new.thumb.face.recording_state, '')
 
-    def test_wall_settings_stays_next_to_picture_in_picture_in_both_orientations(self):
+    def test_monitor_only_avatar_animates_in_both_collapsed_follow_views(self):
+        sidebar = self.sidebar
+        settings = {'streamer_defaults': {'fixture:1': {'monitor_live': True}}}
+        capture = CaptureControl(SimpleNamespace(sidebar=sidebar, settings=settings))
+        sidebar.resize(sidebar.width(), 720)
+        sidebar.setStyleSheet(theme.qss())
+        sidebar.show()
+        sidebar.set_collapsed(True, animate=False)
+        self.app.processEvents()
+        avatar = sidebar._items[0].thumb.face
+        with patch.object(motion, 'enabled', return_value=True):
+            capture.sync_follow_monitored_rooms()
+            self.assertEqual(avatar.accessibleDescription(), '监控中')
+            self.assertTrue(avatar._ripple_timer.isActive())
+            self.assertTrue(sidebar._items[0].rect().contains(avatar.geometry()),
+                            (sidebar._items[0].rect(), avatar.geometry(), avatar.visibleRegion().boundingRect()))
+            sidebar.set_side('top')
+            self.app.processEvents()
+            strip_avatar = sidebar._head_strip._avatars['fixture:1']
+            self.assertEqual(strip_avatar.recording_state, 'monitoring')
+            self.assertTrue(strip_avatar._ripple_timer.isActive())
+            self.assertTrue(sidebar._head_strip.rect().contains(strip_avatar.geometry()))
+            with patch.object(strip_avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 100)):
+                early = strip_avatar.grab().toImage()
+                scale = early.devicePixelRatio()
+                ring = early.pixelColor(round((strip_avatar.width() - strip_avatar.ring_margin
+                                               + strip_avatar.RING_GAP) * scale),
+                                        round(strip_avatar.height() / 2 * scale))
+            self.assertGreater(ring.blue(), ring.red())
+            with patch.object(strip_avatar, '_ripple_clock', SimpleNamespace(elapsed=lambda: 800)):
+                self.assertNotEqual(early, strip_avatar.grab().toImage())
+            settings['streamer_defaults']['fixture:1']['monitor_live'] = False
+            capture.sync_follow_monitored_rooms()
+            self.assertEqual(strip_avatar.recording_state, '')
+            self.assertFalse(strip_avatar._ripple_timer.isActive())
+            self.assertEqual(avatar.recording_state, '')
+
+    def test_replay_stays_between_wall_settings_and_picture_in_picture(self):
         sidebar, nav = self.sidebar, self.sidebar.navigation
-        settings, pip = sidebar.wall_settings_button, sidebar.picture_in_picture_button
+        settings, pip, replay = (sidebar.wall_settings_button, sidebar.picture_in_picture_button,
+                                 sidebar.replay_button)
         for order in (['layout', 'clear', 'pip'], ['pip', 'layout', 'clear']):
             nav.restore_order(order)
-            self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(pip))
+            self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(replay))
+            self.assertEqual(nav.bottom.indexOf(replay) + 1, nav.bottom.indexOf(pip))
             self.assertEqual(nav.order_state(), order)
         sidebar.set_side('top')
-        self.assertEqual(sidebar._bar_row_box.indexOf(settings) + 1, sidebar._bar_row_box.indexOf(pip))
+        sidebar.resize(650, sidebar.height())
+        sidebar._sync_bar_density()
+        self.assertEqual(sidebar._bar_row_box.indexOf(settings) + 1, sidebar._bar_row_box.indexOf(replay))
+        self.assertEqual(sidebar._bar_row_box.indexOf(replay) + 1, sidebar._bar_row_box.indexOf(pip))
         sidebar.set_side('left')
-        self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(pip))
+        self.assertEqual(nav.bottom.indexOf(settings) + 1, nav.bottom.indexOf(replay))
+        self.assertEqual(nav.bottom.indexOf(replay) + 1, nav.bottom.indexOf(pip))
 
     def test_plugin_content_stays_below_host_search_and_filters_after_orientation_switch(self):
         from PySide6.QtGui import QIcon

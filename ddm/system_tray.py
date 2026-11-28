@@ -7,19 +7,21 @@ from PySide6.QtWidgets import (
 )
 
 from . import config, theme, version
+from .window_chrome import install_window_chrome
 
 
 class CloseWindowDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("关闭窗口")
-        self.setMinimumWidth(420)
+        self.setWindowTitle("关闭窗口后，你希望程序如何运行？")
+        title_bar = install_window_chrome(self)
+        title_bar.breadcrumb.setObjectName('SettingsTitle')
+        title_bar.row.setContentsMargins(24, 4, 8, 4)
+        self.setMinimumWidth(max(420, title_bar.breadcrumb.sizeHint().width() + 78))
         self.choice = ""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 20)
+        layout.setContentsMargins(24, 6, 24, 20)
         layout.setSpacing(18)
-        label = QLabel("关闭窗口后，你希望程序如何运行？")
-        layout.addWidget(label)
         detail = QLabel("隐藏后的播放行为可在设置 → 托盘行为中调整，录制会继续运行。双击托盘图标可恢复窗口。")
         detail.setWordWrap(True)
         detail.setObjectName("NavSub")
@@ -61,20 +63,25 @@ class SystemTray(QObject):
         self._saved_playback = {}
         self._pip_resumed = set()
         self._layout_snapshot = None
+        self._preview_audio_key = None
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
-        icon = window.windowIcon()
-        if icon.isNull():
-            icon = window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-        self.icon = QSystemTrayIcon(icon, window)
+        self.icon = QSystemTrayIcon(self._window_tray_icon(), window)
         self.icon.setToolTip(f"{version.DISPLAY_NAME}：双击显示或隐藏窗口")
         self.menu = QMenu(window)
-        from .tray_preview import TrayLayoutPreview
+        from .tray_preview import TrayLayoutPreview, TrayPreviewAudio
         self.layout_preview = TrayLayoutPreview(self.menu)
         self.layout_preview.clicked.connect(self._restore_from_preview)
+        self.layout_preview.paneSelected.connect(self._select_preview_audio)
         self.preview_action = QWidgetAction(self.menu)
         self.preview_action.setDefaultWidget(self.layout_preview)
         self.menu.addAction(self.preview_action)
+        self.preview_audio = TrayPreviewAudio(self.menu)
+        self.preview_audio.volumeChanged.connect(self._set_preview_volume)
+        self.preview_audio.muteChanged.connect(self._set_preview_mute)
+        self.audio_action = QWidgetAction(self.menu)
+        self.audio_action.setDefaultWidget(self.preview_audio)
+        self.audio_action.setVisible(False)
         from .tray_monitor_overview import TrayMonitorOverview
         self.monitor_panel = TrayMonitorOverview(self.menu)
         self.monitor_panel.read_rows = window.capture_control.monitor_rows
@@ -84,10 +91,11 @@ class SystemTray(QObject):
         self.monitor_action.setVisible(False)
         self.menu.addAction(self.monitor_action)
         self.toggle_action = self.menu.addAction("显示/隐藏窗口", self.toggle)
+        self.layout_pip_action = self.menu.addAction("当前布局画中画", self.open_layout_picture_in_picture)
         self.pip_action = self.menu.addAction("画中画…", self.open_picture_in_picture)
         self.exit_action = self.menu.addAction("退出", self.request_exit)
         self.menu_actions = dict(layout_preview=self.preview_action, streamer_monitor=self.monitor_action,
-                                 toggle=self.toggle_action,
+                                 toggle=self.toggle_action, layout_pip=self.layout_pip_action,
                                  pip=self.pip_action, exit=self.exit_action)
         self.menu_separators = [QAction(self.menu) for _ in range(len(self.menu_actions) - 1)]
         for separator in self.menu_separators:
@@ -112,8 +120,21 @@ class SystemTray(QObject):
         if self._layout_snapshot is None or (self.window.isVisible()
                 and not self.window.isMinimized() and not pip.active):
             self.remember_layout()
+        rooms = {pane['room_id'] for pane in (self._layout_snapshot or {}).get('panes', ()) if 'room_id' in pane}
+        self.layout_preview.avatars = {
+            room_id: item.thumb.face_pixmap() for item in self.window.sidebar.items()
+            if (room_id := str(item.room.get('room_id') or '')) in rooms
+        } if rooms else {}
+        tiles = self._preview_tiles()
+        from .images import load_cached_avatar
+        for _, tile in tiles.values():
+            room_id, face = str(tile.room['room_id']), tile.room.get('face')
+            if face and self.layout_preview.avatars.get(room_id) is None:
+                self.layout_preview.avatars[room_id] = load_cached_avatar(face)
         self.layout_preview.set_snapshot(self._layout_snapshot)
         self._arrange_menu()
+        self.layout_pip_action.setEnabled(bool(tiles) and not pip.active and not self.window._closing)
+        self._sync_preview_audio(tiles)
         if self.monitor_action.isVisible():
             # QMenu disables the widget when adding a disabled action. Keep its scrollbar usable.
             self.monitor_panel.setEnabled(True)
@@ -123,7 +144,7 @@ class SystemTray(QObject):
         from .tray_menu import tray_menu_choices
         for action in self.menu.actions():
             self.menu.removeAction(action)
-        groups = dict(layout_preview=0, streamer_monitor=0, toggle=1, pip=1, exit=2)
+        groups = dict(layout_preview=0, streamer_monitor=0, toggle=1, layout_pip=1, pip=1, exit=2)
         previous, separator_index = None, 0
         for entry in tray_menu_choices(self.window.settings.get('tray_context_menu')):
             key = entry['id']
@@ -135,15 +156,83 @@ class SystemTray(QObject):
                     separator_index += 1
                 previous = groups[key]
             self.menu.addAction(action)
+            if key == 'layout_preview':
+                self.menu.addAction(self.audio_action)
+
+    def _preview_tiles(self):
+        panes = (self._layout_snapshot or {}).get('panes', ())
+        if not any('tile_key' in pane for pane in panes):
+            return {}
+        wall = self.window.wall
+        bound = wall.pane_danmaku.bindings()
+        chat_tiles = {tile for cell, tile in wall.pane_danmaku.cell_tiles().items() if cell in bound}
+        tiles = {id(tile): (index, tile) for index, tile in enumerate(wall.tiles)
+                 if tile.room.get('room_id') and tile not in chat_tiles
+                 and not tile.property('pictureInPictureTemporary')}
+        result = {}
+        for index, pane in enumerate(panes):
+            match = tiles.get(pane.get('tile_key'))
+            if match is not None and str(match[1].room['room_id']) == pane['room_id']:
+                result[index] = match
+        return result
+
+    def _sync_preview_audio(self, tiles):
+        enabled = self.preview_action.isVisible() and self.window.settings.get('tray_preview_audio', False)
+        available = tiles if enabled else {}
+        selected = next((index for index, (_, tile) in available.items()
+                         if id(tile) == self._preview_audio_key), next(iter(available), None))
+        self.audio_action.setVisible(selected is not None)
+        self.layout_preview.set_audio_selection(available, selected)
+        if selected is not None:
+            _, tile = available[selected]
+            self._preview_audio_key = id(tile)
+            self.preview_audio.setEnabled(True)
+            self.preview_audio.sync(tile)
+
+    def _select_preview_audio(self, index):
+        tiles = self._preview_tiles()
+        if index in tiles:
+            self._preview_audio_key = id(tiles[index][1])
+        self._sync_preview_audio(tiles)
+
+    def _preview_audio_tile(self):
+        if self.audio_action.isVisible() and not self.window._closing:
+            match = self._preview_tiles().get(self.layout_preview.selected)
+            if match is not None and id(match[1]) == self._preview_audio_key:
+                return match[1]
+        return None
+
+    def _set_preview_volume(self, value):
+        if (tile := self._preview_audio_tile()) is not None:
+            tile.set_volume(value)
+            self.preview_audio.sync(tile)
+        else:
+            self.preview_audio.setEnabled(False)
+
+    def _set_preview_mute(self, muted):
+        if (tile := self._preview_audio_tile()) is not None:
+            tile.set_muted(muted)
+            self.preview_audio.sync(tile)
+        else:
+            self.preview_audio.setEnabled(False)
 
     def remember_layout(self):
         if not self.window.picture_in_picture.active:
             from .tray_preview import capture_layout
             self._layout_snapshot = capture_layout(self.window.wall)
 
+    def _window_tray_icon(self):
+        icon = self.window.windowIcon()
+        if icon.isNull():
+            return self.window.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        return icon
+
     def eventFilter(self, watched, event):
-        if watched is self.window and event.type() == QEvent.WindowStateChange and self.window.isMinimized():
-            self.remember_layout()
+        if watched is self.window:
+            if event.type() == QEvent.WindowStateChange and self.window.isMinimized():
+                self.remember_layout()
+            elif event.type() == QEvent.WindowIconChange and self.icon is not None:
+                self.icon.setIcon(self._window_tray_icon())
         return False
 
     def _restore_from_preview(self):
@@ -156,6 +245,25 @@ class SystemTray(QObject):
     def open_picture_in_picture(self):
         if not self.window._closing:
             self.window.picture_in_picture.manage()
+
+    def open_layout_picture_in_picture(self):
+        pip = self.window.picture_in_picture
+        if pip.active or self.window._closing:
+            return
+        tiles = self._preview_tiles()
+        if not tiles:
+            return
+        from .pip_composition import FREE_LAYOUT
+        panes = self._layout_snapshot['panes']
+        width, height = self._layout_snapshot['size']
+        selection, placement = [], []
+        for pane, (index, _) in tiles.items():
+            x, y, w, h = panes[pane]['rect']
+            left, top = round(x * width), round(y * height)
+            selection.append(index)
+            placement.append((left, top, round((x + w) * width) - left, round((y + h) * height) - top))
+        self.menu.hide()
+        pip.start(selection, FREE_LAYOUT, self.window.wall.main_index(), placement=placement)
 
     def sync_picture_in_picture(self):
         """Resume selected panes only while the remaining hidden wall stays held."""

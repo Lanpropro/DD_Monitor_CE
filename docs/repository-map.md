@@ -45,6 +45,20 @@
 - `docs/features/picture-in-picture.md`
 - `docs/development/ui-components.md`
 
+### 应用图标图稿
+
+- `design/character-concepts/粉发助手-DD星夜贴纸-B站小电视-v1.png`
+- `design/character-concepts/蓝灰发助手-DD休闲装Q版小人-v2.png`
+- `design/character-concepts/蓝灰发助手-DD休闲装比耶场景-v2.png`
+- `design/character-concepts/蓝灰发助手-DD全身Q版小人-v1.png`
+- `design/character-concepts/蓝灰发助手-DD星夜图标-B站小电视-v1.png`
+- `design/character-concepts/蓝灰发助手-DD比耶场景替换-v1.png`
+- `design/character-concepts/蓝灰发助手-DD简洁手绘图标-v2.png`
+- `design/icon-concepts/倒三角-Monitoring拼接图标-v1.png`
+
+- `design/icon-concepts/app-icon-badge.png`
+- `design/icon-concepts/app-icon-character.png`
+
 ### 独立诊断工具
 
 - `dev/watch_development_hang.py`
@@ -55,12 +69,17 @@
 - `tools/diagnostics/OnDemand.cs`
 - `tools/diagnostics/Program.cs`
 - `tools/diagnostics/README.md`
+- `tools/host_mcp/README.md`
+- `tools/host_mcp/server.py`
+- `tools/host_mcp/requirements.txt`
+- `tools/host_mcp/check_client.py`
 - `dev/build_diagnostics.ps1`
 - `dev/diagnostics_tests.cs`
 - `dev/selfcheck_diagnostics.py`
 - `dev/selfcheck_diagnostic_session.py`
 - `dev/selfcheck_sidebar_diagnostics.py`
 - `dev/selfcheck_on_demand_diagnostics.py`
+- `dev/selfcheck_host_mcp.py`
 - `dev/selfcheck_responsiveness.py`
 - `dev/selfcheck_fullscreen_capture.py`
 
@@ -75,6 +94,10 @@
 - `.github/workflows/issue-reproducibility.yml`
 
 ### 专项检查脚本
+
+- `dev/selfcheck_match_dev_launch.py`
+- `dev/selfcheck_quick_child_occlusion.py`
+- `dev/selfcheck_wall_replay.py`
 
 - `dev/selfcheck_image_cache.py`
 - `dev/selfcheck_picture_in_picture.py`
@@ -125,6 +148,7 @@
 - `dev/selfcheck_auto_quality_switch_live.py`
 - `dev/selfcheck_bili_2k_live.py`
 - `dev/selfcheck_bili_codec.py`
+- `dev/selfcheck_bili_catchup.py`
 - `dev/selfcheck_bili_cookies.py`
 - `dev/selfcheck_bili_plugin_boundary.py`
 - `dev/selfcheck_bili_quality.py`
@@ -183,10 +207,8 @@
 - `dev/selfcheck_sidebar_hit_test.py`
 - `dev/selfcheck_drag_diagnostics.py`
 - `dev/diagnose_control_swap.py`
-- `dev/diagnose_drag_windows.py`
+- `dev/startup_diagnostics.py`
 - `dev/diagnose_super_chat.py`
-- `dev/diagnose_danmaku_motion.py`
-- `dev/diagnose_notice_close.py`
 - `dev/selfcheck_notice_close.py`
 - `dev/selfcheck_danmaku_motion_diagnostics.py`
 - `dev/diagnose_wall_replacement.py`
@@ -281,7 +303,6 @@
 - `dev/selfcheck_nav_layout.py`
 - `dev/selfcheck_oauth.py`
 - `dev/selfcheck_playback_capture.py`
-- `dev/capture_playback.py`
 - `dev/selfcheck_browser_accounts.py`
 - `dev/selfcheck_oauth_accounts.py`
 - `dev/selfcheck_oauth_guide.py`
@@ -341,6 +362,7 @@
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
 - `dev/selfcheck_recording_service.py`
+- `dev/selfcheck_recording_schedule.py`
 - `dev/selfcheck_recording_plugin_settings.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`
@@ -480,6 +502,9 @@
 
 ### 构建、维护与复现工具
 
+- `dev/match_gui_dispatch.py`
+- `dev/match_quick_trial.py`
+
 - `dev/benchmark_match_sync_ocr.ps1`
 - `dev/build_release.ps1`
 - `dev/build_windows_version.py`
@@ -514,6 +539,8 @@
 - `dev/selfcheck_documents.py`
 
 ### 版本说明
+
+- `docs/releases/RELEASE-v1.0.md`
 
 - `docs/releases/README.md`
 - `docs/releases/RELEASE-v0.1.md`

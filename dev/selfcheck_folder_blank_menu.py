@@ -45,7 +45,9 @@ def main():
 
     # 没有卡片时，提示文字上和侧栏边缘的空白处都可创建。
     blank_menu(sidebar.list_box.empty_hint, sidebar.list_box.empty_hint.rect().center())
-    menu = blank_menu(sidebar, QPoint(1, 1))
+    edge = sidebar._column.mapTo(sidebar, QPoint(1, 1))
+    assert sidebar.childAt(edge) is sidebar._column
+    menu = blank_menu(sidebar, edge)
     def create(editor):
         assert editor.windowTitle() == '新建文件夹'
         editor.name_edit.setText('赛事')

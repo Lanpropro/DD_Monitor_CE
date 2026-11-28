@@ -6,10 +6,12 @@ from PySide6.QtWidgets import QMessageBox
 
 
 class RoomAddBatch(QObject):
-    def __init__(self, host, room_ids, folder_id='', *, target_tile=None, resolver_type, on_complete=None):
+    def __init__(self, host, room_ids, folder_id='', *, target_tile=None, resolver_type, on_complete=None,
+                 attempt=None):
         super().__init__(host)
         self.host = host
         self.on_complete = on_complete
+        self.attempt = attempt
         self.pending = deque(dict.fromkeys(room_ids))
         self.folder_id = folder_id
         self.target_tile = target_tile
@@ -31,7 +33,7 @@ class RoomAddBatch(QObject):
 
     def _next(self):
         host = self.host
-        if host._closing:
+        if host._closing or (self.attempt is not None and not self.attempt.active):
             self.deleteLater()
             return
         if not self.pending:
@@ -61,6 +63,12 @@ class RoomAddBatch(QObject):
         if callable(getattr(platform, 'room_list', None)):
             from .room_list_import import RoomListImport
             def list_added(added, skipped, error):
+                if self.attempt is not None:
+                    if not self.attempt.active:
+                        self.deleteLater()
+                        return
+                    if not self.attempt.timer.isActive():
+                        self.attempt.resume()
                 self.added += added
                 self.skipped += skipped
                 if error:
@@ -69,7 +77,7 @@ class RoomAddBatch(QObject):
                     self.target_tile = None
                 QTimer.singleShot(0, self._next)
             RoomListImport(host, platform.room_list, room_id, folder_id=self.folder_id,
-                           target_tile=self.target_tile, on_complete=list_added).start()
+                           target_tile=self.target_tile, on_complete=list_added, attempt=self.attempt).start()
             return
         if ':' in room_id and '://' not in room_id and platform is None:
             self.failures.append((room_id, '请启用对应的平台插件并重启'))
@@ -86,7 +94,7 @@ class RoomAddBatch(QObject):
         resolver.start()
 
     def _resolved(self, room):
-        if self.host._closing:
+        if self.host._closing or (self.attempt is not None and not self.attempt.active):
             return
         if any(str(old.get('room_id')) == str(room.get('room_id')) for old in self.host.sidebar.rooms()):
             self.skipped += 1

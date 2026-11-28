@@ -74,7 +74,7 @@ class PortraitSidebar:
             nav.filters.layout().removeWidget(nav.folder_toggle_button)
             for widget in (host._header_row, host.search, host._head_scroll, host.batch_bar,
                            host.notification_button, host.appearance_button, host.layout_button,
-                           host.wall_settings_button, host.picture_in_picture_button, host.clear_wall_button,
+                           host.wall_settings_button, host.picture_in_picture_button, host.replay_button, host.clear_wall_button,
                            host.settings_button, host.account_row, host.toggle_button,
                            nav.follow_button, nav.filters, nav.folder_toggle_button, nav.add_button, nav.manage_button,
                            host.batch_button, host.refresh_button):
@@ -87,8 +87,8 @@ class PortraitSidebar:
             host._bar_row_box.addWidget(self.follow_group)
             self.place_launcher()
             host._bar_row_box.addStretch(1)
-            for widget in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button,
-                           host.clear_wall_button):
+            for widget in (host.layout_button, host.wall_settings_button, host.replay_button,
+                           host.picture_in_picture_button, host.clear_wall_button):
                 host._bar_row_box.addWidget(widget)
             host._bar_row_box.addWidget(self.divider)
             for widget in (host.notification_button, host.appearance_button, host.settings_button, host.account_row):
@@ -115,19 +115,30 @@ class PortraitSidebar:
         if host.side != 'top' or not host._bar_in_use:
             return
         nav = host.navigation
+        narrow = host.width() < 420
         for button in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button, host.settings_button,
-                       host.clear_wall_button):
-            button.set_navigation_mode(True)
+                       host.replay_button, host.clear_wall_button):
             button.setProperty('dockRail', False)
+            button.set_navigation_mode(True, width=30 if narrow else 34)
+        replay = host.replay_button
+        if narrow:
+            if self.controls_box.indexOf(replay) < 0:
+                host._bar_row_box.removeWidget(replay)
+                self.controls_box.insertWidget(self.controls_box.indexOf(host.toggle_button), replay)
+        elif host._bar_row_box.indexOf(replay) < 0:
+            self.controls_box.removeWidget(replay)
+            host._bar_row_box.insertWidget(host._bar_row_box.indexOf(host.picture_in_picture_button), replay)
         nav.follow_button.setProperty('dockRail', True)
-        host._bar_row_box.setSpacing(0 if host.width() < 420 else 6)
-        self.controls_box.setSpacing(4 if host.width() < 420 else 6)
+        header_spacing = max(0, min(6, (host.width() - 420) // 12))
+        host._bar_row_box.setSpacing(header_spacing)
+        self.controls_box.setSpacing(4 if narrow else 6)
+        host.search.setMinimumWidth(0 if narrow else 96)
         for button in (host.notification_button, host.appearance_button):
             button.setObjectName('NavigationButton')
             button.setProperty('sidebarCompact', False)
-            button.setFixedSize(34, 34)
+            button.setFixedSize(30 if host.width() < 440 else 34, 34)
         for button in (nav.follow_button, host.layout_button, host.wall_settings_button,
-                       host.picture_in_picture_button, host.clear_wall_button,
+                       host.picture_in_picture_button, host.replay_button, host.clear_wall_button,
                        host.notification_button, host.appearance_button, host.settings_button,
                        host.workspace_controls.launcher, host.toggle_button):
             button.show()
@@ -184,9 +195,9 @@ class PortraitSidebar:
         nav.top.insertWidget(0, nav.follow_button)
         host._detach_from_rows(host.appearance_button)
         host.appearance_button.setParent(host.status_row)
-        for button in (host.layout_button, host.wall_settings_button, host.picture_in_picture_button,
+        for button in (host.layout_button, host.wall_settings_button, host.replay_button, host.picture_in_picture_button,
                        host.settings_button):
-            host._detach_from_rows(button)
+            self._detach(button)
             button.setParent(host.tool_row)
             host.tool_row.layout().addWidget(button)
             button.setSizePolicy(host._tool_button_policies[button])

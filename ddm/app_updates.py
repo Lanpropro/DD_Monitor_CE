@@ -60,13 +60,12 @@ class AppUpdates:
                 if offer:
                     downloads.start(offer)
 
-    def download_notice_updates(self):
-        host = self.host
-        if host._closing:
+    def download_notice_updates(self, history_key):
+        if self.host._closing:
             return
-        host._show_update_notice()
-        if host._update_notice is not None:
-            host._update_notice._open()
+        notice = self.show_update_notice(reopen=history_key)
+        if notice is not None:
+            notice._open()
 
     def restart_updates(self, page):
         """Reuse the settings save handshake before closing an open settings session."""
@@ -132,8 +131,9 @@ class AppUpdates:
     def set_plugin_updates(self, offers):
         host = self.host
         from .online_ui import plugin_update_offers
-        host._plugin_catalog_offers = list(offers)
-        host._plugin_update_offers = plugin_update_offers(host.plugins, offers)
+        include_preview = host.settings.get('plugin_preview_updates', False)
+        host._plugin_catalog_offers = [offer for offer in offers if include_preview or not offer.get('prerelease')]
+        host._plugin_update_offers = plugin_update_offers(host.plugins, host._plugin_catalog_offers)
         host._mark_updates()
 
     def mark_updates(self):
@@ -164,6 +164,14 @@ class AppUpdates:
         host._mark_updates()
         config_module.save(host.current_state())
 
+    def remember_dismissed_updates(self, versions):
+        host = self.host
+        previous = host.settings.get('dismissed_update_versions') or {}
+        dismissed = {**previous, **versions}
+        if not host._closing and dismissed != previous:
+            host.settings['dismissed_update_versions'] = dismissed
+            config_module.save(host.current_state())
+
     def check_startup_plugins(self):
         host = self.host
         if host._closing or host._startup_plugin_checked:
@@ -171,12 +179,15 @@ class AppUpdates:
         host._startup_plugin_checked = True
         if not host.plugins.catalog():
             return
-        from pathlib import Path
         from . import online
         from .online_ui import OnlineTask
-        path = Path(config_module.data_root()) / 'cache' / 'plugin-catalog.json'
+        from .plugin_catalog_api import plugin_catalog_path
+        include_preview = bool(host.settings.get('plugin_preview_updates', False))
+        path = plugin_catalog_path(config_module.data_root(), include_preview)
         def check(cancelled, progress):
             with online.session() as client:
+                if include_preview:
+                    return online.cached_plugin_catalog(client, version_module.VERSION, path, include_preview=True)
                 return online.cached_plugin_catalog(client, version_module.VERSION, path)
         task = OnlineTask(check, None, host)
         host._startup_plugin_task = task
@@ -200,7 +211,7 @@ class AppUpdates:
             host._startup_plugin_task = None
         task.deleteLater()
 
-    def show_update_notice(self):
+    def show_update_notice(self, *, reopen=None):
         host = self.host
         from .online_ui import UpdateNotice
         page = getattr(host, '_app_update_page', None)
@@ -209,13 +220,22 @@ class AppUpdates:
         plugin_offers = {offer['id']: offer for offer in host._unread_plugin_updates()}
         if downloads is not None:
             plugin_offers.update(downloads.offers)
-        plugin_offers = list(plugin_offers.values())
+        dismissed = dict(host.settings.get('dismissed_update_versions') or {})
+        if reopen is not None:
+            _, app_version, plugins = reopen
+            for key, version in (('app', app_version), *plugins):
+                if dismissed.get(key) == version:
+                    dismissed.pop(key)
+        if app_offer and dismissed.get('app') == update_identity(app_offer):
+            app_offer = None
+        plugin_offers = [offer for key, offer in plugin_offers.items() if dismissed.get(key) != offer['version']]
         if not app_offer and not plugin_offers:
             return
         if host._update_notice is None:
             host._update_notice = UpdateNotice(host)
             host._update_notice.activated.connect(lambda: host.open_settings(
                 "updates" if "app" in host._update_notice._update_rows else "plugins"))
+            host._update_notice.dismissed.connect(self.remember_dismissed_updates)
             host._update_notice.updateRequested.connect(self.start_notice_update)
         host._update_notice.show_offer(app_offer or {'version': ''},
             persistent=host.settings.get('notice_persist_updates', True))
@@ -225,10 +245,11 @@ class AppUpdates:
         if plugin_offers:
             parts.append(f'{len(plugin_offers)} 个插件可更新')
         entries = ([dict(key='app', title='软件 v' + release_label(app_offer),
+                         version=update_identity(app_offer),
                          enabled=bool(getattr(sys, 'frozen', False)),
                          hint='' if getattr(sys, 'frozen', False) else '源码版请通过仓库更新')]
                    if app_offer else [])
-        entries.extend(dict(key=offer['id'], title=offer['name'] + ' v' + offer['version'])
+        entries.extend(dict(key=offer['id'], title=offer['name'] + ' v' + offer['version'], version=offer['version'])
                        for offer in plugin_offers)
         host._update_notice.set_updates(entries)
         if page is not None and page.download_state:
@@ -237,13 +258,15 @@ class AppUpdates:
             for key, state in downloads.states.items():
                 host._update_notice.set_transfer(key, state)
         center = host.sidebar.notification_button.center
+        history_key = ('update', update_identity(app_offer) if app_offer else '',
+                       tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers)))
         entry = center.add(' · '.join(parts), kind='update',
-            callback=self.download_notice_updates,
+            callback=lambda: self.download_notice_updates(history_key),
             action='下载更新',
             secondary_callback=lambda page='updates' if app_offer else 'plugins': host.open_settings(page),
-            secondary_action='查看设置详情', key=('update', update_identity(app_offer) if app_offer else '',
-                tuple(sorted((offer['id'], offer['version']) for offer in plugin_offers))))
+            secondary_action='查看设置详情', key=history_key)
         host._update_notice.track_history((center, entry))
+        return host._update_notice
 
     def startup_update_failed(self, payload) -> None:
         host = self.host

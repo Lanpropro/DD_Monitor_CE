@@ -24,6 +24,9 @@ class CaptionStyle:
     y: int = 100
     locked: bool = False
 
+    def background_color(self):
+        return QColor(0, 0, 0, round(255 * self.opacity / 100))
+
     @classmethod
     def from_value(cls, value=None):
         if isinstance(value, cls):
@@ -105,12 +108,14 @@ class VideoCaption(BadgeSurface):
     def set_caption(self, original, translated="", *, style=None, visible=True):
         self._original = str(original or "")
         self._translated = str(translated or "")
-        previous_lock = self._style.locked
+        previous_style = self._style
         self._style = CaptionStyle.from_value(style)
+        if previous_style.opacity != self._style.opacity:
+            self._interaction.toolbar.update()
         if self._style.locked:
             self._interaction.toolbar.hide()
         self.setAttribute(Qt.WA_TransparentForMouseEvents, self._style.locked)
-        if self.qt_composited and previous_lock != self._style.locked:
+        if self.qt_composited and previous_style.locked != self._style.locked:
             self.setWindowFlag(Qt.WindowTransparentForInput, self._style.locked)
         self._visible_requested = bool(visible)
         self._follow_owner()
@@ -233,7 +238,7 @@ class VideoCaption(BadgeSurface):
         pad_y = max(2, round(font.pixelSize() * 0.10))
         radius = max(4, min(10, round(font.pixelSize() * 0.35)))
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, round(255 * self._style.opacity / 100)))
+        painter.setBrush(self._style.background_color())
         for _key, line, x, y, text_width in rows:
             if text_width <= 0:
                 continue

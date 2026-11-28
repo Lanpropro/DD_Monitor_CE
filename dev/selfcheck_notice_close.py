@@ -119,6 +119,29 @@ class NoticeCloseTests(unittest.TestCase):
             finally:
                 gdi32.DeleteObject(region)
 
+        review = QWidget(self.owner, flags)
+        review.setAttribute(Qt.WA_ShowWithoutActivating)
+        review.setAttribute(Qt.WA_DontShowOnScreen)
+        review.setGeometry(QRect(presentation.mapToGlobal(QPoint(400, 220)), presentation.size() / 3))
+        self.addCleanup(review.close)
+        review.show()
+        QTest.qWait(20)
+        native_visible = ctypes.windll.user32.IsWindowVisible
+        native_visible.argtypes = (wintypes.HWND,)
+        self.assertTrue(review.isVisible())
+        self.assertFalse(native_visible(int(review.internalWinId() or 0)))
+        center = review.frameGeometry().center()
+        self.assertTrue(in_mask(center), 'A background dialog must not cut a hole in the native danmaku window')
+        review.hide()
+        review.setAttribute(Qt.WA_DontShowOnScreen, False)
+        review.show()
+        QTest.qWait(20)
+        self.assertTrue(native_visible(int(review.winId())))
+        self.assertFalse(in_mask(review.frameGeometry().center()), 'An opened review dialog must occlude danmaku')
+        review.close()
+        QTest.qWait(20)
+        self.assertTrue(in_mask(center))
+
         for closing in ('manual', 'timeout', 'immediate'):
             with self.subTest(closing=closing):
                 first, second = ResultNotice(self.owner), ResultNotice(self.owner)
@@ -278,7 +301,7 @@ class NoticeCloseTests(unittest.TestCase):
             self.assertEqual(trace.count, count, 'Shutdown callbacks must not resume capture or touch deleted timers')
 
     def test_capture_is_read_only_bounded_and_does_not_record_notice_text(self):
-        from dev.diagnose_notice_close import NoticeCloseTrace
+        from ddm.notice_diagnostics import NoticeCloseTrace
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             trace = NoticeCloseTrace(Path(directory) / 'close.jsonl')
             stack.callback(trace.stop)

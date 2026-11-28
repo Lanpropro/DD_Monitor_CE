@@ -23,6 +23,7 @@ class _ColorSwatch(QAbstractButton):
         self.setAccessibleName(label)
         self.setToolTip(label)
         self.setCursor(Qt.PointingHandCursor)
+        self.setAttribute(Qt.WA_Hover)
 
     def mouseReleaseEvent(self, event):
         self.pointer = event.button() == Qt.LeftButton
@@ -53,7 +54,11 @@ class _ColorSwatch(QAbstractButton):
         painter.setOpacity(1 if self.isEnabled() else .5)
         painter.setPen(QPen(QColor(64, 64, 64, 90), 1))
         painter.setBrush(color)
-        radius = 10 if self.isDown() else 11
+        radius = 11
+        if self.isDown():
+            radius = 8
+        elif self.underMouse() and self.isEnabled():
+            radius = 9.5
         painter.drawEllipse(center, radius, radius)
         if self.hasFocus() and self._keyboard_focus and not self.isChecked():
             painter.setBrush(Qt.NoBrush)

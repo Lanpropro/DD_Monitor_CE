@@ -84,6 +84,18 @@ class CaptureTests(unittest.TestCase):
         self.assertFalse(player.player.callbacks)
         self.assertFalse(self.capture.players)
 
+    def test_requested_wall_group_uses_wall_order_and_reads_packet_bytes(self):
+        self.capture.first_slot = 5
+        self.window.players = dict(reversed(self.window.players.items()))
+        self.capture.start()
+        callback = self.window.players[self.tiles[4]].player.callbacks['demuxer-cache-state']
+        callback('demuxer-cache-state', {'fw-bytes': 50, 'total-bytes': 90, 'private': 'PRIVATE_URL'})
+        self.capture.sample()
+        rows = self.records[-1]['players']
+        self.assertEqual([row['slot'] for row in rows], [4, 5])
+        self.assertEqual(rows[0]['properties'], {'cache-forward-bytes': 50, 'cache-total-bytes': 90})
+        self.assertNotIn('PRIVATE_', json.dumps(self.records))
+
     def test_douyin_source_and_format_are_observed_without_retaining_signed_url(self):
         player = self.window.players[self.tiles[0]]
         player.stream_profile = 'douyin'

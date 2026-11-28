@@ -43,13 +43,41 @@ app = brand.QGuiApplication.instance() or brand.QGuiApplication(sys.argv[:1])
 renderer = brand.QSvgRenderer(str(brand.SVG_PATH))
 assert renderer.isValid(), "logo.svg 必须能被 Qt 正常渲染"
 expected_png = brand.render_png(renderer, 1024)
-expected_ico = brand.pack_ico([
+classic_ico = brand.pack_ico([
     (size, brand.render_png(renderer, size)) for size in brand.ICON_SIZES
 ])
 
-assert brand.PNG_PATH.read_bytes() == expected_png, "logo.png 必须由 logo.svg 生成"
-assert brand.ASSET_ICO_PATH.read_bytes() == expected_ico, "assets/favicon.ico 已过期"
-assert brand.ROOT_ICO_PATH.read_bytes() == expected_ico, "根目录 favicon.ico 已过期"
-assert ico_sizes(expected_ico) == list(brand.ICON_SIZES)
+from ddm import app_icon
 
-print("品牌资源自检通过：SVG / PNG / ICO 一致，ICO 含", len(brand.ICON_SIZES), "种尺寸")
+default_ico = brand.render_icon(brand.CHARACTER_SOURCE, small_trim=brand.CHARACTER_SMALL_TRIM)
+badge_ico = brand.render_icon(brand.BADGE_SOURCE, small_trim=brand.BADGE_SMALL_TRIM)
+assert brand.PNG_PATH.read_bytes() == expected_png, "logo.png 必须由 logo.svg 生成"
+for path, expected in ((brand.ASSET_ICO_PATH, default_ico), (brand.ROOT_ICO_PATH, default_ico),
+                       (brand.BADGE_ICO_PATH, badge_ico), (brand.CLASSIC_ICO_PATH, classic_ico)):
+    assert path.read_bytes() == expected, f"{path.name} 已过期"
+    assert ico_sizes(expected) == list(brand.ICON_SIZES)
+
+def pixels(style):
+    icon = app_icon.load_icon(style)
+    assert not icon.isNull()
+    image = icon.pixmap(32, 32).toImage()
+    return bytes(image.bits())
+
+assert len({pixels(style) for style in ('d', 'b', 'f')}) == 3
+for invalid in (None, 'invalid', ['b']):
+    assert pixels(invalid) == pixels('d')
+
+
+def visible_pixels(icon, size):
+    image = icon.pixmap(size, size).toImage()
+    return sum(image.pixelColor(x, y).alpha() > 128 for y in range(size) for x in range(size))
+
+
+# Visible pixel counts of the previous A tray icon and B application icon.
+previous_coverage = {'d': (116, 187, 263, 472, 1056), 'b': (128, 200, 283, 508, 1133)}
+for style, counts in previous_coverage.items():
+    icon = app_icon.load_icon(style)
+    for size, previous in zip((16, 20, 24, 32, 48), counts):
+        assert visible_pixels(icon, size) >= previous * 1.05, (style, size)
+
+print("品牌资源自检通过：三款应用图标可复现，每款包含", len(brand.ICON_SIZES), "种尺寸")

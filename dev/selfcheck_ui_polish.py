@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QStyle, QStyleOptionButton, QStyleOptionSlider, QWidget
+from PySide6.QtWidgets import QApplication, QScrollArea, QStyle, QStyleOptionButton, QStyleOptionSlider, QWidget
 from ddm import config, theme
 from ddm.dialogs import DanmakuSettingsPage, TraySettingsPage
 from ddm.playback_badges import StreamBadge, TitleBadge
@@ -27,6 +27,195 @@ APP = QApplication.instance() or QApplication([])
 
 
 class UiPolishTests(unittest.TestCase):
+    def test_modal_chrome_and_file_chooser(self):
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QDialog, QFileDialog, QInputDialog, QMessageBox
+        from ddm.window_chrome import WindowTitleBar
+
+        theme.apply(theme.mode())
+        observations = []
+
+        def cancel():
+            dialog = APP.activeModalWidget()
+            bar = dialog.findChild(WindowTitleBar, 'WindowTitleBar', Qt.FindDirectChildrenOnly)
+            observations.append((bool(dialog.windowFlags() & Qt.FramelessWindowHint),
+                                 bar.breadcrumb.text() if bar and bar.isVisible() else '',
+                                 dialog.contentsRect().top() >= bar.height() if bar else False))
+            if bar:
+                QTest.mouseClick(bar.close_button, Qt.LeftButton)
+            else:
+                dialog.reject()
+
+        QTimer.singleShot(0, cancel)
+        _, accepted = QInputDialog.getText(None, '重命名文件夹', '文件夹名称')
+        self.assertFalse(accepted)
+        QTimer.singleShot(0, cancel)
+        result = QMessageBox.question(None, '删除布局', '删除示例？', QMessageBox.Yes | QMessageBox.No)
+        self.assertEqual(result, QMessageBox.No)
+        self.assertEqual(observations, [(True, '重命名文件夹', True), (True, '删除布局', True)])
+        for dialog in (QFileDialog(), QDialog(None, Qt.Dialog | Qt.FramelessWindowHint)):
+            self.addCleanup(dialog.deleteLater)
+            flags = dialog.windowFlags()
+            dialog.ensurePolished()
+            self.assertEqual(dialog.windowFlags(), flags)
+            self.assertIsNone(dialog.findChild(WindowTitleBar))
+            if isinstance(dialog, QFileDialog):
+                self.assertFalse(dialog.testOption(QFileDialog.DontUseNativeDialog))
+
+    def test_workspace_detach_embed_and_reopen_title_bar(self):
+        from ddm.window_chrome import WindowTitleBar
+        theme.apply(theme.mode())
+        host = QWidget()
+        page = QWidget(host)
+        page.setWindowTitle('独立工作区')
+        host.show()
+        self.addCleanup(host.close)
+        self.addCleanup(page.close)
+        page.show()
+        for _ in range(2):
+            page.setParent(None, Qt.Window)
+            page.show()
+            APP.processEvents()
+            bars = page.findChildren(WindowTitleBar, options=Qt.FindDirectChildrenOnly)
+            self.assertEqual(len(bars), 1)
+            bar = bars[0]
+            self.assertTrue(page.windowFlags() & Qt.FramelessWindowHint)
+            self.assertTrue(bar.isVisible())
+            self.assertEqual(bar.width(), page.width())
+            self.assertEqual(page.contentsMargins().top(), bar.height())
+            handle = page.windowHandle()
+            with patch.object(handle, 'startSystemMove', return_value=True) as move:
+                QTest.mouseClick(bar, Qt.LeftButton, pos=QPoint(24, bar.height() // 2))
+                move.assert_called_once_with()
+            with patch.object(handle, 'startSystemResize', return_value=True) as resize:
+                QTest.mouseClick(page, Qt.LeftButton, pos=page.rect().bottomRight())
+                resize.assert_called_once_with(Qt.BottomEdge | Qt.RightEdge)
+            page.setWindowTitle('工作区')
+            self.assertEqual(bar.breadcrumb.text(), page.windowTitle())
+            page.setParent(host, Qt.Widget)
+            page.show()
+            APP.processEvents()
+            self.assertFalse(bar.isVisible())
+            self.assertEqual(page.contentsMargins().top(), 0)
+
+    def assert_pointer_feedback(self, button):
+        window = button.window()
+        window.show()
+        window.raise_()
+        APP.processEvents()
+        parent = button.parentWidget()
+        while parent:
+            if isinstance(parent, QScrollArea):
+                parent.ensureWidgetVisible(button)
+            parent = parent.parentWidget()
+        APP.processEvents()
+        area = QRect(button.mapTo(window, QPoint()), button.size())
+        handle = window.windowHandle()
+        away = QPoint(10, 10) if not area.contains(QPoint(10, 10)) else window.rect().bottomRight()
+
+        def pixels():
+            APP.processEvents()
+            return window.grab(area).toImage().convertToFormat(QImage.Format_RGBA8888)
+
+        QTest.mouseMove(handle, area.center())
+        QTest.mouseMove(handle, away)
+        normal = pixels()
+        self.assertFalse(button.underMouse())
+        QTest.mouseMove(handle, area.center())
+        hover = pixels()
+        self.assertTrue(button.underMouse(), (button, area, window.childAt(area.center()), button.visibleRegion()))
+        QTest.mousePress(handle, Qt.LeftButton, pos=area.center())
+        pressed = pixels()
+        cancel = QPoint(area.center().x(), area.top() - 2)
+        QTest.mouseMove(handle, cancel)
+        QTest.mouseRelease(handle, Qt.LeftButton, pos=cancel)
+        for phase, before, after in (('hover', normal, hover), ('press', hover, pressed)):
+            self.assertEqual(before.size(), after.size())
+            changed = sum(abs(a - b) >= 8 for a, b in zip(before.constBits(), after.constBits()))
+            self.assertGreater(changed, 40, (phase, button.accessibleName() or button.text()))
+            if button.objectName() in ('IconReset', 'IconClose', 'IconDropArea'):
+                for x in (0, after.width() - 1):
+                    for y in (0, after.height() - 1):
+                        self.assertEqual(before.pixel(x, y), after.pixel(x, y),
+                                         (button.objectName(), phase, x, y))
+
+    def test_reported_controls_show_hover_and_press_in_both_selection_states(self):
+        from ddm.folder_icons import FolderIconDialog
+        from ddm.layout_picker import LayoutPicker
+        from ddm.room_choice import RoomChoice
+        from ddm.settings_streamer_defaults import StreamerDefaultsPage
+        from ddm.settings_window import SettingsWindow
+        from ddm.super_chat_model import normalize as normalize_sc
+        from ddm.super_chat_widgets import SuperChatCard
+        from ddm.ui.color_dialog import ColorDialog
+        from PySide6.QtWidgets import QLineEdit, QPushButton, QVBoxLayout
+
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            settings = SettingsWindow()
+            search = QLineEdit(objectName='Search')
+            settings.window_header.set_search(search)
+            settings.window_header.close_button.setFocus()
+            self.assert_pointer_feedback(search)
+            self.assertTrue(search.hasFocus())
+            settings.hide()
+            folder = FolderIconDialog(dict(name='示例', type='normal'))
+            colors = ColorDialog(QColor('#ffd16a'))
+            picker = LayoutPicker('2x2')
+            page = StreamerDefaultsPage(dict(streamer_defaults={'100': {}}), {'100': '示例'})
+            page.resize(760, 600)
+            avatar = next(iter(page.cards.values())).avatars['100']
+            card = SuperChatCard()
+            card.resize(250, 118)
+            event = normalize_sc(dict(id='1', uname='示例', price=1000, message='示例留言'))
+            card.set_event(event)
+            video = VideoDanmaku()
+            video.resize(800, 450)
+            video.set_enabled(True)
+            video.set_active(True)
+            video.show()
+            video.set_super_chats([event])
+            self.assert_pointer_feedback(video.super_chat_overlay.close_button)
+            video.close()
+            owner = QWidget()
+            room = RoomChoice(dict(room_id='100'), '示例', 0, None, owner, compact=True)
+            QVBoxLayout(owner).addWidget(room)
+            layout_card = next(b for buttons in picker._cards.values() for b in buttons if b.isChecked())
+
+            for button in (*folder.choices, folder.drop_area, folder.findChild(QPushButton, 'IconReset'),
+                           folder.findChild(QPushButton, 'IconClose'), card.close_button, room, avatar,
+                           colors.swatch_palette.buttons['#ffffff'], colors.swatch_palette.buttons['custom'], layout_card):
+                for selected in ((False, True) if button.isCheckable() else (False,)):
+                    with self.subTest(mode=mode, button=button.accessibleName() or button.text(), selected=selected):
+                        button.setChecked(selected)
+                        self.assert_pointer_feedback(button)
+                button.window().hide()
+            for window in (settings, folder, colors, picker, page, card, owner, video):
+                window.deleteLater()
+            APP.processEvents()
+
+    def test_selected_and_unselected_press_feedback_on_segments_and_follow_markers(self):
+        from ddm.sidebar_item import NavItem
+        from ddm.ui import SegmentedControl
+
+        group = SegmentedControl((('dark', '深色'), ('light', '浅色')))
+        item = NavItem(dict(room_id='100', uname='示例'), 0)
+        item.set_select_mode(True)
+        for window in (group, item):
+            self.addCleanup(window.deleteLater)
+            self.addCleanup(window.close)
+        for selected in (False, True):
+            item.check.setChecked(selected)
+            self.assert_pointer_feedback(item.check)
+            group.setValue('light' if selected else 'dark')
+            for sliding in (False, True):
+                with self.subTest(selected=selected, sliding=sliding), \
+                        patch('ddm.settings_material.segment_motion_enabled', return_value=sliding), \
+                        patch('ddm.motion.enabled', return_value=True):
+                    self.assert_pointer_feedback(group.buttons['light'])
+                    self.assertEqual(group.buttons['light'].isChecked(), selected)
+
     def test_badges_keep_alpha_edges_without_integer_masks(self):
         owner = QWidget()
         self.addCleanup(owner.deleteLater)
@@ -186,7 +375,7 @@ class UiPolishTests(unittest.TestCase):
         QTest.mousePress(graph, Qt.LeftButton, pos=start)
         QTest.mouseMove(graph, start-QPoint(0, 15))
         self.assertEqual(graph._readout_index(), 2)
-        self.assertIn('720 px 100%', control.example.text())
+        self.assertEqual(viewport_scale(720, points=control.curve()), 1)
         QTest.mouseRelease(graph, Qt.LeftButton, pos=start-QPoint(0, 15))
         self.assertEqual(len(control.curve()), 5)
         added = control.curve()[2]

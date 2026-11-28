@@ -30,10 +30,13 @@ def _medal_chip(name: str, level: str, color: str, font_size: int, *,
     metrics = QFontMetricsF(font)
     padding = max(4, round(font_size * 0.42))
     height = max(12, round(font_size * 1.2))
-    content_width = ceil(metrics.horizontalAdvance("粉丝徽章99"))
-    level = metrics.elidedText(level, Qt.ElideLeft, content_width)
-    name_width = max(0, content_width - metrics.horizontalAdvance(level))
-    text = metrics.elidedText(name, Qt.ElideRight, name_width) + level
+    level_gap = "\u2002"  # 半个字宽，便于区分牌名末尾的数字和等级。
+    content_width = ceil(metrics.horizontalAdvance(f"粉丝徽章{level_gap}99"))
+    separator = level_gap if level else ""
+    level = metrics.elidedText(level, Qt.ElideLeft, content_width - metrics.horizontalAdvance(separator))
+    suffix = separator + level
+    name_width = max(0, content_width - metrics.horizontalAdvance(suffix))
+    text = metrics.elidedText(name, Qt.ElideRight, name_width) + suffix
     width = content_width + padding * 2
     pixmap = QPixmap(round(width * dpr), round(height * dpr))
     pixmap.setDevicePixelRatio(dpr)
