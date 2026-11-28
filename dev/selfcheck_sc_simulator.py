@@ -21,6 +21,56 @@ APP = QApplication.instance() or QApplication([])
 
 @unittest.skipUnless(sys.platform == 'win32' and APP.platformName() == 'windows', 'Native Windows SC surface')
 class NativeSurfaceTests(unittest.TestCase):
+    def test_moving_native_sc_uses_the_window_clip_without_replacing_the_tile_texture(self):
+        from ddm.video_danmaku_quick import QuickDanmakuLayer
+        from ddm.widgets import Tile
+
+        host = QWidget()
+        host.setAttribute(Qt.WA_ShowWithoutActivating)
+        host.setGeometry(-10000, -10000, 900, 540)
+        self.addCleanup(host.deleteLater)
+        self.addCleanup(host.close)
+        tile = Tile({'room_id': '1', 'live': True}, host)
+        tile.setGeometry(host.rect())
+        host.show()
+        tile.set_video_active(True)
+        tile.danmaku_button.setChecked(True)
+        owner = tile.video_danmaku
+        layer = QuickDanmakuLayer(host)
+        self.addCleanup(layer.window.close)
+        owner.attach_quick_layer(layer)
+        now = int(time.time())
+        owner.set_super_chats([dict(kind='super_chat', id='drag', price=2000, uname='Local',
+                                    message='Drag', start_time=now, end_time=now + 60)])
+        sc = owner.super_chat_overlay
+        QTest.qWait(220)
+        self.assertTrue(sc.isVisible() and sc in layer._occluding_widgets())
+        self.assertIsNotNone(owner._quick_group)
+        owner.settings['super_chat_position'] = [0, 0]
+        sc._refresh()
+        old = host.mapFromGlobal(sc.mapToGlobal(sc.rect().center()))
+        layer._update_occlusion()
+        self.assertFalse(layer.window.mask().contains(old))
+        with patch.object(layer, 'set_group_mask', wraps=layer.set_group_mask) as upload:
+            start = QPoint(60, 16)
+            QTest.mousePress(sc, Qt.LeftButton, pos=start)
+            QTest.mouseMove(sc, start + QPoint(400, 160))
+            before = sc.pos()
+            with patch.object(sc, 'sync', wraps=sc.sync) as layout:
+                QTest.mouseMove(sc, start + QPoint(25, 12), delay=0)
+                self.assertNotEqual(sc.pos(), before)
+                layout.assert_not_called()
+            QTest.mouseRelease(sc, Qt.LeftButton, pos=start)
+            upload.assert_not_called()
+        new = host.mapFromGlobal(sc.mapToGlobal(sc.rect().center()))
+        layer._update_occlusion()
+        self.assertTrue(layer.window.mask().contains(old))
+        self.assertFalse(layer.window.mask().contains(new))
+        # A surface that cannot clip this window must still mask the card in the tile.
+        with patch.object(layer, 'clips_sc_window', return_value=False):
+            tile._update_quick_danmaku_mask()
+            self.assertTrue(owner._quick_mask_signature[-2].contains(owner.mapFromGlobal(host.mapToGlobal(new))))
+
     def test_left_card_pixels_and_owner_lifecycle(self):
         from ddm.widgets import Tile
         from dev.selfcheck_fullscreen_controls import native_bar_image

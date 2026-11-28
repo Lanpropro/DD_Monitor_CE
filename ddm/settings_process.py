@@ -250,6 +250,8 @@ class SettingsProcess(QObject):
                         self.hostRequest.emit(message)
                     elif message.get('accepted'):
                         self.saved.emit(message['changes'])
+                    else:
+                        self.hostRequest.emit(message)
                 self.closed.emit()
                 _save_trace('host.result.applied', started)
             elif kind in ('host-general', 'host-page', 'host-save', 'host-reset', 'host-attached', 'host-hidden',

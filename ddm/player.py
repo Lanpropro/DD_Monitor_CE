@@ -25,7 +25,14 @@ if sys.platform == "win32" and (_runtime / "libmpv-2.dll").is_file():
     os.environ["PATH"] = str(_runtime) + os.pathsep + os.environ.get("PATH", "")
     _dll_directory = os.add_dll_directory(str(_runtime))
 
-import mpv
+
+def __getattr__(name):
+    # Existing diagnostic clients explicitly import the backend from this module.
+    if name == 'mpv':
+        import mpv
+        return mpv
+    raise AttributeError(name)
+
 
 HW_DECODE_OFF_OPTION = "hwdec=no"
 EMBEDDED_OPTIONS = {"config": False, "load_scripts": False, "osc": False, "ytdl": False,
@@ -60,6 +67,7 @@ class TilePlayer(QObject):
     @classmethod
     def backend_version(cls) -> str:
         if cls._version == "?":
+            import mpv
             core = mpv.MPV(vo="null", ao="null", **EMBEDDED_OPTIONS)
             try:
                 cls._version = str(core.mpv_version)
@@ -73,6 +81,7 @@ class TilePlayer(QObject):
         self.silent = bool(silent)
         self._live_rewind = bool(live_rewind) and not self.silent
         self.muted = self.silent
+        self._replay_muted = False
         self.volume = 0 if self.silent else DEFAULT_VOLUME
         self.audio_channel = 0
         self.volume_normalization = False
@@ -201,13 +210,14 @@ class TilePlayer(QObject):
         if self.player is not None and hwnd != self._bound_hwnd:
             self._destroy_core()
         if self.player is None:
+            import mpv
             self.player = mpv.MPV(
                 wid=str(hwnd), vo="gpu", gpu_api="d3d11", gpu_context="d3d11",
                 # Open GPU output on mpv's playback thread once media is ready.
                 force_window=False,
                 hwdec=HWDEC[self.decode_mode], vd_lavc_threads=2,
                 ao="null" if self.silent else "wasapi", audio="no" if self.silent else "auto",
-                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted,
+                audio_channels="stereo", volume=linear_volume(self.volume), mute=self.muted or self._replay_muted,
                 **EMBEDDED_OPTIONS,
                 **(PREVIEW_STARTUP_OPTIONS if self.silent else {}),
                 input_default_bindings=False, input_vo_keyboard=False, input_cursor=False,
@@ -219,6 +229,11 @@ class TilePlayer(QObject):
                 **({"force_seekable": True, "demuxer_seekable_cache": True} if self._live_rewind else {}),
                 network_timeout=8, log_handler=self._log, loglevel="error",
             )
+            if TilePlayer._version == "?":
+                version = self._prop("mpv-version")
+                if isinstance(version, str):
+                    TilePlayer._version = version
+                    print(f"[播放器] libmpv {version}", file=sys.stderr, flush=True)
         self._bound_hwnd = hwnd
         self._bound = True
 
@@ -367,7 +382,11 @@ class TilePlayer(QObject):
 
     def set_muted(self, muted: bool) -> None:
         self.muted = bool(muted) or self.silent
-        self._set("mute", self.muted)
+        self._set("mute", self.muted or self._replay_muted)
+
+    def set_replay_muted(self, muted: bool) -> None:
+        self._replay_muted = bool(muted)
+        self.set_muted(self.muted)
 
     def set_volume(self, volume: int) -> None:
         self.volume = max(0, min(100, int(volume)))
@@ -402,7 +421,8 @@ class TilePlayer(QObject):
             return
         if self.volume != volume or abs(self._prop("volume", linear_volume(volume)) - linear_volume(volume)) > 0.1:
             self.set_volume(volume)
-        if self.muted != muted or self._prop("mute", muted) != muted:
+        output_muted = muted or self._replay_muted
+        if self.muted != muted or self._prop("mute", output_muted) != output_muted:
             self.set_muted(muted)
         if self.audio_channel != channel:
             self.set_audio_channel(channel)

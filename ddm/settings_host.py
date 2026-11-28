@@ -29,6 +29,7 @@ class SettingsHost(QObject):
         self.embedded = False
         self.embedded_parent = None
         self.pending_apply = None
+        self.recording_settings_entry = None
         # Existing plugins contribute controls on SettingsDialog's Show event.
         # Dispatch that event without showing or activating a second window.
         QApplication.sendEvent(self.dialog, QEvent(QEvent.Show))
@@ -38,6 +39,7 @@ class SettingsHost(QObject):
         escape.setContext(Qt.WidgetWithChildrenShortcut)
         escape.activated.connect(lambda: client._send({'kind': 'host-cancel'}))
         self.dialog.pageCreated.connect(self._page_created)
+        self.dialog.recordingSettingsOpenRequested.connect(self._close_for_recording_settings)
         self.dialog.auto_save.statusChanged.connect(self._auto_status)
         self.dialog.auto_save.start()
         self.last_state = None
@@ -60,6 +62,11 @@ class SettingsHost(QObject):
         if index == PAGE_INDEX['updates']:
             page.saveRequested.disconnect(self.dialog._save)
             page.saveRequested.connect(lambda: self.client._send({'kind': 'host-request-save'}))
+
+    def _close_for_recording_settings(self, open_settings):
+        if self.recording_settings_entry is None:
+            self.recording_settings_entry = open_settings
+            self.client._send({'kind': 'host-cancel'})
 
     def handle(self, message):
         kind = message['kind']
@@ -116,12 +123,16 @@ class SettingsHost(QObject):
             self.dialog.auto_save.flush()
         elif kind == 'host-save':
             self.save(message['changes'])
-        elif kind == 'result' and self.pending_apply is not None:
-            adapter, before = self.pending_apply, self.before
-            self.pending_apply = None
-            window = self.window
-            window._close_settings_host()
-            window._apply_settings_dialog(adapter, before)
+        elif kind == 'result':
+            if self.pending_apply is not None and message.get('host_saved'):
+                adapter, before = self.pending_apply, self.before
+                self.pending_apply = None
+                window = self.window
+                window._close_settings_host()
+                window._apply_settings_dialog(adapter, before)
+            open_settings, self.recording_settings_entry = self.recording_settings_entry, None
+            if open_settings is not None:
+                QTimer.singleShot(0, open_settings)
 
     def _flushed(self):
         self.client._send({'kind': 'host-flushed'})

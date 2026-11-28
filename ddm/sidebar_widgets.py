@@ -99,6 +99,7 @@ class Sidebar(QFrame):
     layoutChosen = Signal(str)
     wallSettingsRequested = Signal()
     pictureInPictureRequested = Signal()
+    replayRequested = Signal()
     clearWallRequested = Signal()
     settingsRequested = Signal()
     pluginSettingsRequested = Signal()
@@ -346,6 +347,9 @@ class Sidebar(QFrame):
         self.picture_in_picture_button.setObjectName('IconButton')
         self.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
         self.picture_in_picture_button.clicked.connect(self.pictureInPictureRequested.emit)
+        self.replay_button = NavigationButton('直播回放', 'replay')
+        self.replay_button.setToolTip('选择要回看的直播和缓存时长')
+        self.replay_button.clicked.connect(self.replayRequested.emit)
         self.settings_button = NavigationButton('设置', 'settings')
         self.settings_button.setFocusPolicy(Qt.TabFocus)
         self.settings_button.setObjectName("IconButton")
@@ -354,6 +358,7 @@ class Sidebar(QFrame):
         self.settings_button.clicked.connect(self.settingsRequested.emit)
         tool_box.addWidget(self.layout_button, 1)
         tool_box.addWidget(self.wall_settings_button)
+        tool_box.addWidget(self.replay_button)
         tool_box.addWidget(self.picture_in_picture_button)
         tool_box.addWidget(self.settings_button, 0)
         layout.addWidget(self.tool_row)
@@ -390,6 +395,7 @@ class Sidebar(QFrame):
             self.layout_button: self.layout_button.sizePolicy(),
             self.wall_settings_button: self.wall_settings_button.sizePolicy(),
             self.picture_in_picture_button: self.picture_in_picture_button.sizePolicy(),
+            self.replay_button: self.replay_button.sizePolicy(),
             self.settings_button: self.settings_button.sizePolicy(),
         }
         self._account_policy = self.account_row.sizePolicy()

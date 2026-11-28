@@ -3,11 +3,12 @@ import sys
 from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication, QPushButton
+from shiboken6 import isValid
 from . import motion
 from .badge_surface import BadgeSurface
 from .super_chat_avatar import SuperChatAvatar
 from .super_chat_animation import SuperChatPresentation
-from .super_chat_layout import sc_body_padding, sc_compact_viewport, sc_stack_layout
+from .super_chat_layout import sc_body_padding, sc_close_button_style, sc_compact_viewport, sc_stack_layout
 from .super_chat_model import SC_USER_COLOR, SC_CONTENT_COLOR, remaining_seconds, order_super_chats
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
@@ -96,7 +97,8 @@ class SuperChatOverlay(BadgeSurface):
         window = parent.window()
         widgets = {parent, window}
         for widget in self._followed_widgets - widgets:
-            widget.removeEventFilter(self)
+            if isValid(widget):
+                widget.removeEventFilter(self)
         for widget in widgets - self._followed_widgets:
             widget.installEventFilter(self)
         self._followed_widgets = widgets
@@ -131,6 +133,9 @@ class SuperChatOverlay(BadgeSurface):
         rects = self.card_rects()
         if not rects:
             return
+        self._position_surface(owner, rects)
+
+    def _position_surface(self, owner, rects):
         viewport = self._stack_viewport.toAlignedRect()
         bounds = viewport.adjusted(-1, -1, 1, 1).intersected(owner.rect())
         self._content_origin = bounds.topLeft()
@@ -199,7 +204,7 @@ class SuperChatOverlay(BadgeSurface):
                               if key in self.presentation.ids}
         self._refresh()
 
-    def _refresh(self):
+    def _refresh(self, *, drag_origin=None):
         owner = self._video_danmaku
         if owner is None:
             return
@@ -209,19 +214,27 @@ class SuperChatOverlay(BadgeSurface):
             parent = owner.parentWidget() or owner
             visible = (visible and parent.isVisible() and not parent.window().isMinimized()
                        and QApplication.activeModalWidget() is None)
+        translate = (drag_origin is not None and self.qt_composited
+                     and len(self.chats) == 1 and not self._stack_maximum)
         if self.chats:
-            self.sync(owner)
-            for chat, button in zip(self.chats, self.close_buttons):
-                colour = SC_USER_COLOR
-                style = ('QPushButton {background:transparent;border:0;'
-                         f'color:{colour};font-size:{round(18 * self._paint_scale)}px;padding:0;}}')
+            if translate:
+                # A single card that fits exactly occupies the stack viewport.
+                self._stack_viewport.moveTopLeft(drag_origin)
+                self._position_surface(owner, [self._stack_viewport])
+            else:
+                self.sync(owner)
+            style = sc_close_button_style(self._paint_scale)
+            for button in self.close_buttons[:len(self.chats)]:
                 if style != button.styleSheet():
                     button.setStyleSheet(style)
         self.setVisible(visible and not self._surface_occluded)
         if visible and not was_visible:
             self.raise_()
         self._refresh_quick_mask()
-        self.update()
+        # Qt moves the translucent tool window with its existing pixels. Content
+        # changes (including entrance, expiry and resize) still request a repaint.
+        if not translate:
+            self.update()
 
     def set_presentation_changing(self, active):
         self._presentation_changing = bool(active)
@@ -266,10 +279,12 @@ class SuperChatOverlay(BadgeSurface):
         delta = event.globalPosition() - self._press_global
         if not self._moved and abs(delta.x()) + abs(delta.y()) < QApplication.startDragDistance():
             return
+        first_move = not self._moved
         self._moved = True
         self.presentation.entrance.stop()
         self.presentation.progress = 1.0
         owner = self._video_danmaku
+        drag_origin = None
         if self._gesture == 'resize':
             dx = delta.x() * self._corner_sign[0] / max(1, self._start_extent.width())
             dy = delta.y() * self._corner_sign[1] / max(1, self._start_extent.height())
@@ -278,14 +293,20 @@ class SuperChatOverlay(BadgeSurface):
             owner.settings['super_chat_video_scale'] = value
             owner.settings['super_chat_scale'] = value
         else:
-            self._place_at(self._start_origin + delta)
+            previous = owner.settings.get('super_chat_position')
+            origin = self._place_at(self._start_origin + delta)
+            if not first_move and previous == owner.settings['super_chat_position']:
+                event.accept()
+                return
             self.setCursor(Qt.ClosedHandCursor)
-        self._refresh()
+            if not first_move:
+                drag_origin = origin
+        self._refresh(drag_origin=drag_origin)
         event.accept()
 
     def _place_at(self, point):
         owner = self._video_danmaku
-        self.card_rects()
+        # Press and every layout refresh already measured the current viewport.
         width, height = self._stack_viewport.width(), self._stack_viewport.height()
         spans = (max(0, owner.width() - 20 - width), max(0, owner.height() - 20 - height))
         values = []
@@ -297,6 +318,7 @@ class SuperChatOverlay(BadgeSurface):
                 value = span
             values.append(round(value / span, 6) if span else 0.0)
         owner.settings['super_chat_position'] = values
+        return QPointF(10 + spans[0] * values[0], 10 + spans[1] * values[1])
 
     def mouseReleaseEvent(self, event):
         if event.button() != Qt.LeftButton or self._gesture is None:
@@ -463,7 +485,7 @@ class SuperChatOverlay(BadgeSurface):
                 tuple(avatar.pixmap.cacheKey() if avatar.pixmap is not None else None for avatar in self._avatars),
                 tuple(tuple(str(chat.get(key, '')) for key in fields)
                       + (remaining_seconds(chat.get('end_time')),)
-                      for chat in self.chats), tuple(button.isDown() for button in self.close_buttons))
+                      for chat in self.chats), tuple((button.underMouse(), button.isDown()) for button in self.close_buttons))
 
     def render_image(self):
         scale = self.devicePixelRatioF()

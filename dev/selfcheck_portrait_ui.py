@@ -139,6 +139,23 @@ class PortraitUiTests(unittest.TestCase):
                     self.assertEqual(button.isVisible(), not collapsed)
                     self.assertIs(button.parentWidget(), portrait.controls)
 
+    def test_replay_icon_remains_available_in_narrow_portrait(self):
+        for width in (720, 360, 450, 360):
+            self.portrait(width)
+            for collapsed in (False, True):
+                self.sidebar.set_collapsed(collapsed, animate=False)
+                settle()
+                sidebar = self.sidebar
+                portrait = sidebar.presentation_control.orientation.portrait
+                button = sidebar.replay_button
+                self.assertTrue(button.isVisible())
+                self.assertTrue(sidebar.rect().contains(button.mapTo(sidebar, button.rect().bottomRight())))
+                self.assertIs(button.parentWidget(), portrait.controls if width < 420 else sidebar._bar_row)
+                if width >= 420:
+                    row = sidebar._bar_row_box
+                    self.assertEqual(row.indexOf(sidebar.wall_settings_button) + 1, row.indexOf(button))
+                    self.assertEqual(row.indexOf(button) + 1, row.indexOf(sidebar.picture_in_picture_button))
+
     def test_follow_actions_share_folder_button_style_in_both_orientations(self):
         sidebar = self.sidebar
         folder = sidebar.navigation.folder_toggle_button

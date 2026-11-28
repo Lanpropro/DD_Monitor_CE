@@ -70,3 +70,9 @@
 - 插件发布说明在插件仓库维护；分离前的本体二路源码 README 由 Git 历史追溯，不在本体发布目录重复存放。
 - 版本、标签、源码 commit 和构建产物必须对应；具体命令与验证见[贡献指南](../../CONTRIBUTING.md)
   和[Windows 安装包](../development/windows-installer.md)。
+
+### 独立诊断工具发布
+
+1. 发布新的独立诊断工具版本时，将上一版 GitHub Release 的标题、正文、标签及源码提交、全部上传附件和 SHA-256 归档到 `results/archive/diagnostics-v<旧版本>/`，并核对归档文件的 SHA-256。
+2. 发布新版独立 Release，从公开下载地址核对新版附件及其 SHA-256。
+3. 归档完整且新版可下载后，删除上一版 GitHub Release 页面及其线上附件，保留旧版 Git 标签。

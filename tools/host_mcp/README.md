@@ -18,9 +18,12 @@ codex mcp add dd-monitor-host -- $python (Resolve-Path tools/host_mcp/server.py)
 | `close_settings` | 通过设置窗口原有的关闭流程收起窗口。 |
 | `get_state` | 读取布局、横竖屏、画中画和从 1 开始的墙内格位。playing 统计墙内播放器状态为 playing 且未暂停的路数。 |
 | `capture_diagnostics` | 在指定 PID 的运行中本体采集斗鱼取流、全屏、通知关闭、播放、文件夹、拖放或功能栏高亮。 |
+| `capture_wall_buffers` | 从指定格号（1 起算）起，异步观察最多 4 格。播放样本的 slot 为 0 起算，properties 中的 cache-forward-bytes、cache-total-bytes 分别为 libmpv 的前向及总封包缓存字节数。属性缺失表示未取得数据。 |
+| `remove_wall_slots`、`undo_wall_removal` | 将所选格位作为一次操作移除，画面墙仍匹配时可撤回至原位。目标中包含录制格或空格时整批拒绝。 |
 | `list_startup_diagnostics` | 列出当前源码目录可用的启动专项。 |
 | `prepare_startup_diagnostics` | 为当前源码目录登记一次启动采集。 |
 | `measure_sidebar_interactions` | 指定 PID，在 1–60 秒内观察关注栏卡片拖动、放下或取消，以及横向或纵向滚动。默认采集 30 秒。 |
+| `set_pip_picker_visible` | 通过侧栏按钮打开组合画中画面板，或收起面板。返回实际可见状态和同步处理耗时。 |
 | `list_layouts` | 列出内置和已保存的布局 ID。 |
 | `set_layout` | 使用布局菜单的处理函数应用指定 ID。选择另一方向的布局会切换横竖屏。 |
 | `open_picture_in_picture` | 将指定格位列表的已有画面放入浮窗。 |
@@ -60,4 +63,8 @@ codex mcp add dd-monitor-host -- $python (Resolve-Path tools/host_mcp/server.py)
 
 采样开始后可按平时的速度滚动关注栏，再拖动一张卡片。按 Esc 可取消拖动。返回值包含卡片拖影生成、启动、落点更新、放下和清理的调用次数与最大耗时，以及滚动期间可见封面的刷新耗时。横纵轴分别记录滚动次数、首末位置变化之间的时长和最大变化间隔。滚动间隔受输入节奏影响。判断界面停顿可看 `heartbeat` 中 16 毫秒主线程定时器的实际间隔及达到 50、250 毫秒的次数。拖动、滚动（含末次输入后 250 毫秒）、两者同时发生与空闲分别计数。原始报告写入本机 `logs/on-demand.jsonl`，可按返回的 session 查找。
 
+`slow_intervals` 按活动保存最慢的三个 ≥50 毫秒心跳。每段最多八次主线程 Python 调用位置采样，只代表采样瞬间。通过侧栏打开组合画中画时，`phases` 记录构造、候选卡、布局、显示等阶段（嵌套耗时不可相加），`picker_first_paint_ms` 从进入打开函数计至面板第一次 paintEvent 返回。
+
 根目录 `run.cmd --check-host-mcp` 验证隔离窗口及本地管道。将环境变量 `DDM_MCP_PYTHON` 指向安装了本目录依赖的 Python 后执行同一命令，还会启动独立 stdio 服务和 SDK 客户端验证全部工具。
+
+在 `measure_sidebar_interactions` 采样期间从画中画返回主墙，`pip-return` 记录整墙返回回调耗时，子项分别记录挂回主窗口布局、恢复格位布局、显示画面墙、同步浮层和激活主窗。并行播放的独立小墙使用另一条返回路径。

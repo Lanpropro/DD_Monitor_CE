@@ -91,6 +91,18 @@ class ContinuousCornersTests(unittest.TestCase):
         self.assertEqual(button.size(),before)
         self.assertEqual(button.grab().toImage().pixelColor(button.width()//2,4),QColor('#227744'))
 
+    def test_ancestor_state_is_read_only_for_state_selectors(self):
+        parent = QFrame(self.host)
+        parent.setObjectName('Fixture')
+        child = QPushButton(parent)
+        with patch.object(corners, '_states', wraps=corners._states) as states:
+            self.assertTrue(corners._matches(child, 'QFrame#Fixture > QPushButton', {}))
+            states.assert_not_called()
+            self.assertFalse(corners._matches(child, 'QFrame#Fixture:disabled > QPushButton', {}))
+            parent.setEnabled(False)
+            self.assertTrue(corners._matches(child, 'QFrame#Fixture:disabled > QPushButton', {}))
+            self.assertFalse(corners._matches(child, 'QFrame#Fixture:!disabled > QPushButton', {}))
+
     def test_rgba_alpha_accepts_css_and_legacy_byte_forms(self):
         for value, expected in (('rgba(12, 19, 30, 0.82)', 209),
                                 ('rgba(12, 19, 30, 209)', 209),

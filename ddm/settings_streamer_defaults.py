@@ -47,10 +47,8 @@ class StreamerDefaultsPage(QWidget):
         content = QWidget()
         self.scroll.setWidget(content)
         layout = QVBoxLayout(content)
-        layout.addLayout(page_header(
-            '主播监控', '按主播设置开播监控、自动录制和播放偏好。主播未上墙也可监控或自动录制。'
-            '\n同平台的直播间也可能提供不同的画质档位，合并卡片只显示共有档位。'))
-        self.windows_notice_hint = QLabel('在「设置 → 通知」开启 Windows 通知后生效。', objectName='SettingsHint')
+        layout.addLayout(page_header('主播监控', ''))
+        self.windows_notice_hint = QLabel('在「通知」开启 Windows 通知。', objectName='SettingsHint')
         self.windows_notice_hint.setWordWrap(True)
         self.windows_notice_hint.setVisible(not self.windows_notice_available)
         layout.addWidget(self.windows_notice_hint)
@@ -68,7 +66,7 @@ class StreamerDefaultsPage(QWidget):
         label = QLabel('合并相同配置')
         self.merge = ToggleSwitch(label.text())
         self.merge.setChecked(bool(settings.get('streamer_defaults_merge_identical', False)))
-        self.merge.setToolTip('合并相同配置；未选头像时编辑整组，选中头像后单独编辑。')
+        self.merge.setToolTip('未选头像时编辑整组，选中后单独编辑。')
         label.setBuddy(self.merge)
         heading.addWidget(label)
         heading.addWidget(self.merge)
@@ -206,16 +204,21 @@ class StreamerDefaultsPage(QWidget):
         self.changed.emit()
 
     def edit(self, field, values):
+        self.edit_fields({field: values})
+
+    def edit_fields(self, fields):
         changed = False
-        for room_id, value in values.items():
-            row = self.entries[room_id]
-            if row.get(field) == value:
-                continue
-            if value is None:
-                row.pop(field, None)
-            else:
-                row[field] = value
-            changed = True
+        for field, values in fields.items():
+            for room_id, value in values.items():
+                row = self.entries[room_id]
+                legacy = field == 'recording_policy' and row.pop('auto_record', None)
+                if row.get(field) == value and not legacy:
+                    continue
+                if value is None:
+                    row.pop(field, None)
+                else:
+                    row[field] = value
+                changed = True
         if changed:
             self.regroup_timer.start(0)
             self.changed.emit()

@@ -43,17 +43,17 @@ class SettingsThemeEditor(QWidget):
             self.font.addItem(family, family)
         self.font.currentIndexChanged.connect(self._font_changed)
         grid.addWidget(self.font, 2, 1, Qt.AlignRight)
-        grid.addWidget(QLabel('界面字号'), 3, 0)
+        font_size_label = QLabel('界面字号')
+        font_size_hint = '字体与字号用于主界面、设置、按钮和列表；弹幕及视频内文字仍由各自设置控制。'
+        font_size_label.setToolTip(font_size_hint)
+        grid.addWidget(font_size_label, 3, 0)
         self.font_size = QSpinBox()
         self.font_size.setRange(11, 20)
         self.font_size.setSuffix(' px')
         self.font_size.setAccessibleName('界面字号')
+        self.font_size.setToolTip(font_size_hint)
         self.font_size.valueChanged.connect(self._font_changed)
         grid.addWidget(StepperControl(self.font_size), 3, 1, Qt.AlignRight)
-        hint = QLabel('字体与字号用于主界面、设置、按钮和列表；弹幕及视频内文字仍由各自设置控制。')
-        hint.setObjectName('SettingsHint')
-        hint.setWordWrap(True)
-        grid.addWidget(hint, 4, 0, 1, 2)
         self.set_values(settings)
 
     def set_values(self, settings):

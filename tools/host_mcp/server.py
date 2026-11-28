@@ -134,6 +134,12 @@ async def set_layout(pid: int, layout: str) -> dict:
 
 
 @server.tool()
+async def set_pip_picker_visible(pid: int, visible: bool) -> dict:
+    """Open or dismiss the sidebar composition picker without starting or changing PiP playback."""
+    return await request(pid, 'pip_picker', visible=visible)
+
+
+@server.tool()
 async def open_picture_in_picture(pid: int, slots: list[int]) -> dict:
     """Open the selected occupied one-based wall slots in a PiP window."""
     return await request(pid, 'open_pip', slots=slots)
@@ -143,6 +149,26 @@ async def open_picture_in_picture(pid: int, slots: list[int]) -> dict:
 async def close_picture_in_picture(pid: int) -> dict:
     """Close the floating PiP and restore the wall."""
     return await request(pid, 'close_pip')
+
+
+@server.tool()
+async def capture_wall_buffers(pid: int, first_slot: int, seconds: int = 10) -> dict:
+    """Measure up to four consecutive wall slots, starting at a one-based slot. Player records use zero-based slots."""
+    if first_slot < 1 or not 1 <= seconds <= 60:
+        raise ValueError('Invalid slot or duration')
+    return await pipe_request(pid, dict(protocol=1, mode='playback', first_slot=first_slot, seconds=seconds), seconds + 15)
+
+
+@server.tool()
+async def remove_wall_slots(pid: int, slots: list[int]) -> dict:
+    """Remove the selected one-based slots as one undoable wall operation."""
+    return await request(pid, 'remove_slots', slots=slots)
+
+
+@server.tool()
+async def undo_wall_removal(pid: int) -> dict:
+    """Restore the most recent removal if the wall still matches its post-removal state."""
+    return await request(pid, 'undo_remove')
 
 
 @server.tool()

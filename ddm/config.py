@@ -48,6 +48,7 @@ DEFAULT_SETTINGS = {
     "settings_wheel_speed": 1,
     "tile_context_menu": None,
     "tray_context_menu": None,
+    "tray_preview_audio": False,
     "native_crash_dump": False,
     "close_behavior": "ask",  # 首次关闭时选择，可记住隐藏到托盘或退出。
     "tray_pause_playback": True,
@@ -64,6 +65,7 @@ DEFAULT_SETTINGS = {
     "skin_mask_override": False,
     "skin_sidebar_override": False,
     "auto_update": False,     # 启动时检查本体新版，悬浮提醒后由用户选择安装
+    "plugin_preview_updates": False,
     "poll_minutes": 1,        # 关注列表直播状态轮询间隔（分钟）
     "auto_quality": True,     # 主画面自动原画、其余 720P
     "freeze_watch": True,     # 画面卡死检测（可能对静止画面误报）

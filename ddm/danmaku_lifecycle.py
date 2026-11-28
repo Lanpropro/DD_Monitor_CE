@@ -1,5 +1,6 @@
 """Shared room subscriptions and worker retirement; MainWindow owns Qt lifetimes."""
 import sys
+from html import escape
 
 from PySide6.QtCore import QTimer
 
@@ -26,6 +27,16 @@ class DanmakuLifecycle:
             self.recording_rooms = rooms
             self.sync_danmaku()
 
+    def panels(self, *, rendered=False):
+        panes = self.host.wall.pane_danmaku
+        yield from panes.rendered() if rendered else panes.all_panels()
+        pip = getattr(self.host, 'picture_in_picture', None)
+        yield from getattr(pip, 'danmaku_panels', {}).values()
+
+    def _video_tiles(self):
+        pip = getattr(self.host, 'picture_in_picture', None)
+        return (*self.host.wall.tiles, *getattr(pip, 'moved_tiles', ()))
+
     def sync_danmaku(self) -> None:
         """弹幕格与每路画面按需订阅；同房间共用连接，隐藏的画面不另开连接。"""
         host = self.host
@@ -42,28 +53,40 @@ class DanmakuLifecycle:
             if wall.has_danmaku or panel in panes.floating:
                 tile = panes.target(panel)
                 targets[panel] = tile.room if tile is not None else {}
-        wanted = {str(tile.room['room_id']) for tile in wall.tiles
-                  if tile.isVisible() and (tile.danmaku_button.isChecked() or
+        pip = getattr(host, 'picture_in_picture', None)
+        pip_targets = pip.danmaku_targets() if getattr(pip, 'danmaku_panels', None) else {}
+        targets.update(pip_targets)
+        wanted = {str(tile.room['room_id']) for tile in self._video_tiles()
+                  if (tile.isVisible() or tile.property('pictureInPictureIndependent'))
+                  and (tile.danmaku_button.isChecked() or
                       (wall.has_danmaku or panes.floating) and host.settings.get('super_chat_enabled', True))
                   and is_live_danmaku_source(tile.room) and (tile.room.get('live') or tile._player_active)}
         wanted.update(str(room['room_id']) for room in targets.values() if room.get('room_id'))
         wanted.update(self.recording_rooms)
+        replay = getattr(host, 'wall_replay', None)
+        if replay is not None:
+            wanted.update(replay.chat_rooms())
         primary = str(targets.get(wall.danmaku, {}).get('room_id') or '')
         if primary != host._danmaku_room:
             host._danmaku, host._danmaku_room = None, ''
-        for panel in wall.pane_danmaku.all_panels():
+        for panel in self.panels():
             room = targets.get(panel, {})
             room_id = str(room.get('room_id') or '')
             previous = getattr(panel, '_linked_room_id', '')
             panel._linked_room_id = room_id
-            panel.title.setText('弹幕')
+            source_name = room.get('uname') if panel in pip_targets else None
+            title = f'弹幕 · {source_name}' if source_name else '弹幕'
+            panel.title.setText(title)
+            if panel in pip_targets:
+                panel.title.setToolTip(title)
             if not room_id:
                 if previous or not panel._has_content:
-                    panel.set_placeholder('点击上方头像选择关联画面')
+                    panel.set_placeholder('没有可用的弹幕来源' if panel in pip_targets
+                                          else '点击上方头像选择关联画面')
                 panel.set_status('未关联')
                 continue
             if previous != room_id:
-                panel.set_placeholder(f"正在连接 {room.get('uname') or room_id} 的弹幕…")
+                panel.set_placeholder(f"正在连接 {escape(str(room.get('uname') or room_id))} 的弹幕…")
             if panel is wall.danmaku:
                 if host._danmaku is None:
                     host.start_danmaku(room_id, room.get('uname', ''))
@@ -103,7 +126,7 @@ class DanmakuLifecycle:
                 platform = host.plugins.platform_for(room_id)
                 client = platform.danmaku_client(room_id, host) if platform is not None else None
             if client is None:
-                for tile in host.wall.tiles:
+                for tile in self._video_tiles():
                     if str(tile.room.get("room_id") or "") == room_id:
                         tile.danmaku_button.setToolTip("此平台弹幕尚未接入")
                 return None
@@ -176,7 +199,7 @@ class DanmakuLifecycle:
         host._danmaku, host._danmaku_room = None, ""
         for room_id in list(host._danmaku_clients):
             host._stop_danmaku_client(room_id)
-        for tile in host.wall.tiles:
+        for tile in self._video_tiles():
             tile.video_danmaku.clear()
 
     def _stop_danmaku_client(self, room_id: str) -> None:
@@ -265,12 +288,12 @@ class DanmakuLifecycle:
     def apply_danmaku_settings(self) -> None:
         """把设置里的弹幕字体、字号、保留条数交给弹幕格。"""
         host = self.host
-        for panel in host.wall.pane_danmaku.all_panels():
+        for panel in self.panels():
             panel.apply_style(str(host.settings.get("danmaku_font") or ""),
                               int(host.settings.get("danmaku_font_size") or 13))
             panel.set_max_blocks(int(host.settings.get("danmaku_max_blocks") or 3000))
             panel.apply_super_chat_settings(host.settings)
-        for tile in host.wall.tiles:
+        for tile in self._video_tiles():
             tile.apply_video_danmaku_settings(host.settings)
         host.danmaku_blocking.apply()
 
@@ -295,6 +318,9 @@ class DanmakuLifecycle:
         if event_blocked(event, room_id, host.settings):
             return
         event = dict(event, platform=platform_name(room_id), room_id=room_id)
+        replay = getattr(host, 'wall_replay', None)
+        if kind == 'danmaku' and replay is not None:
+            replay.record_comment(room_id, event)
         if kind == "super_chat":
             store = host._super_chats.setdefault(room_id, SuperChatStore())
             event = store.upsert(event)
@@ -304,12 +330,13 @@ class DanmakuLifecycle:
             store.remove(event.get("ids") or ())
             host._publish_super_chats(room_id)
         if kind not in ("super_chat", "super_chat_delete"):
-            for panel in host.wall.pane_danmaku.rendered():
+            for panel in self.panels(rendered=True):
                 if getattr(panel, "_linked_room_id", "") == room_id:
                     panel.add_event(event)
-        for tile in host.wall.tiles:
+        for tile in self._video_tiles():
             if str(tile.room.get("room_id") or "") == room_id:
-                if kind == "danmaku":
+                view = getattr(tile, '_replay_view', None)
+                if kind == "danmaku" and (view is None or not view.in_history):
                     tile.video_danmaku.add_event(event)
         host.plugins.emit(plugin_api.EVENT_DANMAKU, room_id=room_id,
                           message=dict(event))
@@ -318,10 +345,10 @@ class DanmakuLifecycle:
         host = self.host
         store = host._super_chats.get(room_id)
         if store is not None:
-            for tile in host.wall.tiles:
+            for tile in self._video_tiles():
                 if str(tile.room.get('room_id') or '') == room_id:
                     tile.video_danmaku.super_chat_overlay.animate_dismiss(chat_id)
-            for panel in host.wall.pane_danmaku.rendered():
+            for panel in self.panels(rendered=True):
                 if getattr(panel, "_linked_room_id", "") == room_id:
                     panel.super_chats.animate_dismiss(chat_id)
             store.dismiss(chat_id)
@@ -332,10 +359,11 @@ class DanmakuLifecycle:
         store = host._super_chats.get(room_id)
         chats = store.active() if store is not None else []
         chats = [chat for chat in chats if not event_blocked(chat, room_id, host.settings)]
-        for tile in host.wall.tiles:
-            if str(tile.room.get("room_id") or "") == room_id:
+        for tile in self._video_tiles():
+            view = getattr(tile, '_replay_view', None)
+            if str(tile.room.get("room_id") or "") == room_id and (view is None or not view.in_history):
                 tile.video_danmaku.set_super_chats(chats)
-        for panel in host.wall.pane_danmaku.rendered():
+        for panel in self.panels(rendered=True):
             if getattr(panel, "_linked_room_id", "") == room_id:
                 panel.set_super_chats(chats)
 
@@ -347,9 +375,9 @@ class DanmakuLifecycle:
                 changed = True
                 host._publish_super_chats(room_id)
         if changed or any(store.items for store in host._super_chats.values()):
-            for panel in host.wall.pane_danmaku.all_panels():
+            for panel in self.panels():
                 panel.super_chats.tick()
-            for tile in host.wall.tiles:
+            for tile in self._video_tiles():
                 if tile.video_danmaku.super_chats:
                     tile.video_danmaku.super_chat_overlay.set_chats(
                         tile.video_danmaku.super_chats,
@@ -368,11 +396,11 @@ class DanmakuLifecycle:
         if text == "已连接" and host.state.get("buvid3", "") != bili.BUVID3:
             host.state["buvid3"] = bili.BUVID3
             host._save_timer.start()  # 旧配置首次补齐设备身份后自动持久化。
-        for tile in host.wall.tiles:
+        for tile in self._video_tiles():
             if str(tile.room.get("room_id") or "") == room_id:
                 tile.danmaku_button.setToolTip(
                     f"画面弹幕：{text}\n显示参数在「设置 → 弹幕」调整")
-        for panel in host.wall.pane_danmaku.rendered():
+        for panel in self.panels(rendered=True):
             if getattr(panel, "_linked_room_id", "") == room_id:
                 panel.set_status(text)
         host.plugins.emit(plugin_api.EVENT_DANMAKU_STATUS,

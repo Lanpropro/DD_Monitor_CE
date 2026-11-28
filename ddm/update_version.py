@@ -15,6 +15,17 @@ def version_key(value):
     return parts + (0,) * (4 - len(parts))
 
 
+PLUGIN_VERSION_PATTERN = r'\d+(?:\.\d+){0,3}(?:-preview\.[1-9]\d*)?'
+
+
+def plugin_version_key(value):
+    text = str(value).removeprefix('v')
+    if not re.fullmatch(PLUGIN_VERSION_PATTERN, text):
+        raise ValueError('插件版本号必须使用数字或 -preview.N')
+    base, marker, index = text.partition('-preview.')
+    return version_key(base) + (not marker, int(index) if marker else 0)
+
+
 def revision(value=0):
     if type(value) is not int or value < 0:
         raise ValueError('更新修订号必须是非负整数')

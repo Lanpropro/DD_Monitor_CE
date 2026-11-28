@@ -164,7 +164,7 @@ class RepositoryMapTests(unittest.TestCase):
             ui = SimpleNamespace(notes_title=Mock(), notes=Mock())
             show = scope["show_current_notes"]
             show(ui)
-            self.assertIn("本地未附带", ui.notes.setMarkdown.call_args.args[0])
+            ui.notes.setMarkdown.assert_called_with("本地无更新说明，可打开发布页面查看。")
             portable = root / "RELEASE-vtest.md"
             portable.write_text("# Portable notes", encoding="utf-8-sig")
             show(ui)

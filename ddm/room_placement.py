@@ -275,28 +275,23 @@ class RoomPlacement:
     def add_to_wall(self, room: dict, *, empty_only=False, max_tiles) -> None:
         from . import plugins as plugin_api
         host = self.host
-        MAX_TILES = max_tiles
+        wall = host.wall
         room_id = str(room.get("room_id"))
         host.sidebar.watch_history.select(room_id)
         if host._tile_of(room_id) is not None:
             print(f"{room.get('uname')} 已经在画面墙上")
             return
-        room = self.prepare_wall_entry(room)
-        grid = getattr(host.wall, 'snap_grid', None)
-        custom_grid = grid is not None and grid.size
-        if custom_grid:
-            candidates = grid.free_tiles()
-        else:
-            candidates = host.wall.visible_tiles() if empty_only else host.wall.tiles
-        panes = host.wall.pane_danmaku
-        chat_cells = panes.bindings()
-        chat_tiles = {tile for cell, tile in panes.cell_tiles().items() if cell in chat_cells}
+        grid = wall.snap_grid
+        candidates = grid.free_tiles() if grid.size else wall.video_slots()
+        if empty_only and not grid.size:
+            visible = set(wall.visible_tiles())
+            candidates = [tile for tile in candidates if tile in visible]
         empty = next((tile for tile in candidates
-                      if tile not in chat_tiles and not tile.room.get("room_id")), None)
+                      if not tile.room.get("room_id")), None)
         if empty is not None:                      # 优先填空位
             host.recorder.stop(empty)
             host._stop_tile(empty)
-            empty.set_room(room)
+            empty.set_room(self.prepare_wall_entry(room))
             self._sync_snap_grid(new_tile=empty)
             host._wire_tile(empty)
             host.start_tile(empty)
@@ -306,13 +301,13 @@ class RoomPlacement:
             return
         if empty_only:
             return
-        if custom_grid:
-            print('自定义网格没有空闲的画面格')
+        if wall._capacity():
+            print('当前布局没有空闲的画面格')
             return
-        if len(host.wall.tiles) >= MAX_TILES:
-            print(f"画面墙已满（{MAX_TILES} 路）")
+        if len(wall.tiles) >= max_tiles:
+            print(f"画面墙已满（{max_tiles} 路）")
             return
-        tile = host.wall.add_room(room)
+        tile = wall.add_room(self.prepare_wall_entry(room))
         host._wire_tile(tile)
         host.start_tile(tile)
         host.plugins.emit(plugin_api.EVENT_TILE_ADDED, tile=tile,

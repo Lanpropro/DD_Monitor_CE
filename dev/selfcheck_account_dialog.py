@@ -251,7 +251,7 @@ def main():
                 cancel = next(b for b in page.findChildren(QPushButton) if b.text() == "取消")
                 assert dialog.size() == loading_size and page.list.geometry() == list_rect
                 assert cancel.geometry() == cancel_rect and page.import_button.geometry() == import_rect
-                assert page.import_button.isEnabled() and all(b.isEnabled() for b in page.filter_buttons)
+                assert not page.import_button.isEnabled() and all(b.isEnabled() for b in page.filter_buttons)
                 dispose(app, dialog)
 
             # B 站旧请求返回时不能替换已关闭窗口或导入列表。
@@ -280,7 +280,12 @@ def main():
                     return
                 assert dialog.import_bar.platform.isVisible()
                 dialog.page._check_all(True)
-                dialog.page.accept()
+                if dialog.page.selected():
+                    assert dialog.page.import_button.isEnabled()
+                    dialog.page.accept()
+                else:
+                    assert not dialog.page.import_button.isEnabled()
+                    dialog.reject()
             with patch.object(bili, "follow_rooms", return_value=ROOMS), \
                     patch.object(owner, "load_avatars_for"), patch.object(owner, "_refresh_meta"):
                 for _ in range(2):

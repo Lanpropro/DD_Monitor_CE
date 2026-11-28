@@ -35,7 +35,8 @@ def dispatch(host, request):
     operation = request.get('action')
     fields = {'state': (), 'layouts': (), 'set_layout': ('layout',),
               'settings_state': (), 'settings_pages': (), 'settings_open': ('page', 'entry'),
-              'settings_close': (), 'open_pip': ('slots',), 'close_pip': (), 'remove': ('slot',)}
+              'settings_close': (), 'pip_picker': ('visible',), 'open_pip': ('slots',),
+              'close_pip': (), 'remove': ('slot',), 'remove_slots': ('slots',), 'undo_remove': ()}
     if (type(operation) is not str or operation not in fields
             or request.keys() != {'protocol', 'mode', 'action', *fields[operation]}):
         raise ValueError('invalid-request')
@@ -76,6 +77,21 @@ def dispatch(host, request):
         return dict(accepted=True)
     started = time.perf_counter()
     pip = host.picture_in_picture
+    if operation == 'pip_picker':
+        visible = request['visible']
+        if type(visible) is not bool:
+            raise ValueError('invalid-visibility')
+        if pip.dialog is not None and pip.dialog.toolbar_panel is None:
+            raise ValueError('another-picker-open')
+        if visible and pip.dialog is None:
+            button = host.sidebar.picture_in_picture_button
+            if not button.isVisible() or not button.isEnabled():
+                raise ValueError('picker-button-unavailable')
+            button.click()
+        elif not visible and pip.dialog is not None:
+            pip.dialog.reject()
+        return dict(visible=pip.dialog is not None and pip.dialog.isVisible(),
+                    sync_ms=round((time.perf_counter() - started) * 1000, 3))
     if operation == 'set_layout':
         key = request['layout']
         if type(key) is not str or key not in layouts.BY_ID and key not in presets.items:
@@ -94,14 +110,20 @@ def dispatch(host, request):
     elif operation == 'close_pip':
         if pip.active:
             pip.restore()
-    elif operation == 'remove':
-        slot = request['slot']
-        if type(slot) is not int or not 1 <= slot <= len(host.wall.tiles):
+    elif operation == 'undo_remove':
+        removal = host.wall_removal
+        if pip.active or not removal.can_undo() or not removal.undo():
+            raise ValueError('undo-unavailable')
+    elif operation in ('remove', 'remove_slots'):
+        slots = [request['slot']] if operation == 'remove' else request['slots']
+        if (not isinstance(slots, list) or not slots or
+                any(type(slot) is not int or not 1 <= slot <= len(host.wall.tiles) for slot in slots)
+                or len(slots) != len(set(slots))):
             raise ValueError('invalid-slot')
-        tile = host.wall.tiles[slot - 1]
-        if not tile.room.get('room_id') or pip.active:
+        tiles = [host.wall.tiles[slot - 1] for slot in slots]
+        if pip.active or any(not tile.room.get('room_id') for tile in tiles):
             raise ValueError('slot-unavailable')
-        if tile in host.recorder.sessions or tile in host._pending_capture:
+        if any(tile in host.recorder.sessions or tile in host._pending_capture for tile in tiles):
             raise ValueError('slot-recording')
         removal = host.wall_removal
         opened = removal.menu is None or not removal.menu.isVisible()
@@ -110,7 +132,8 @@ def dispatch(host, request):
         try:
             removal.sync()
             removal.select('none')
-            removal.toggle_selection(tile, True)
+            for tile in tiles:
+                removal.toggle_selection(tile, True)
             if not removal.remove_selected():
                 raise ValueError('wall-changed')
         finally:

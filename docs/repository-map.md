@@ -349,6 +349,7 @@
 - `dev/selfcheck_readme.py`
 - `dev/selfcheck_recording.py`
 - `dev/selfcheck_recording_service.py`
+- `dev/selfcheck_recording_schedule.py`
 - `dev/selfcheck_recording_plugin_settings.py`
 - `dev/selfcheck_recording_shutdown.py`
 - `dev/selfcheck_release_metadata.py`

@@ -15,7 +15,7 @@ class PlaybackCapture(QObject):
                   'decoder-frame-drop-count', 'eof-reached')
     DOUYIN_PROPERTIES = ('width', 'height', 'container-fps', 'demuxer-cache-state')
 
-    def __init__(self, window, emit, done, *, seconds=60):
+    def __init__(self, window, emit, done, *, seconds=60, first_slot=None):
         super().__init__(window)
         self.window, self.emit, self.done = window, emit, done
         self.closed = False
@@ -23,6 +23,7 @@ class PlaybackCapture(QObject):
         self.lock = threading.Lock()
         self.started = self.previous = time.monotonic()
         self.seconds = seconds
+        self.first_slot = first_slot
         self.samples = 0
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
@@ -77,7 +78,8 @@ class PlaybackCapture(QObject):
         entry = dict(player=player, core=core, session=session, values={}, observers=[], failed=0,
                      relay=getattr(player, '_hls_proxy', None), network={}, network_callback=None,
                      source=self._douyin_source(player))
-        properties = self.PROPERTIES + (self.DOUYIN_PROPERTIES if entry['source'] is not None else ())
+        measure_format = entry['source'] is not None or self.first_slot is not None
+        properties = self.PROPERTIES + (self.DOUYIN_PROPERTIES if measure_format else ())
         self.players[slot] = entry
         relay = entry['relay']
         if relay is not None and getattr(relay, 'playback_diagnostic', None) is None:
@@ -108,8 +110,16 @@ class PlaybackCapture(QObject):
             if name not in properties:
                 return
             if name == 'demuxer-cache-state':
-                name = 'cache-forward-bytes'
-                value = value.get('fw-bytes') if isinstance(value, dict) else None
+                cache = value if isinstance(value, dict) else {}
+                with self.lock:
+                    if not self.closed and self.players.get(slot) is entry:
+                        fields = [('fw-bytes', 'cache-forward-bytes')]
+                        if self.first_slot is not None:
+                            fields.append(('total-bytes', 'cache-total-bytes'))
+                        for source, target in fields:
+                            count = cache.get(source)
+                            entry['values'][target] = count if type(count) is int and count >= 0 else None
+                return
             if not isinstance(value, (int, float, bool, type(None))):
                 return
             if isinstance(value, (int, float)) and not math.isfinite(value):
@@ -143,10 +153,13 @@ class PlaybackCapture(QObject):
         if self.closed:
             return
         now = time.monotonic()
-        live = [(tile, player) for tile, player in self.window.players.items()
+        tiles = list(self.window.wall.tiles)
+        candidates = self.window.players.items() if self.first_slot is None else (
+            (tile, self.window.players[tile]) for tile in tiles[self.first_slot - 1:self.first_slot + 3]
+            if tile in self.window.players)
+        live = [(tile, player) for tile, player in candidates
                 if not getattr(player, '_released', False) and not getattr(player, 'silent', False)][:4]
         seen, rows = set(), []
-        tiles = list(self.window.wall.tiles)
         for tile, player in live:
             slot = tiles.index(tile) if tile in tiles else len(tiles) + len(rows)
             seen.add(slot)

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ.setdefault("DDM_NO_SAVE", "1")
@@ -36,11 +36,30 @@ host._stop_tile = Mock(side_effect=host.players.pop)
 host.stream_playback = StreamPlayback(host)
 host.codec_control = CodecControl(host)
 host._match_sync_holds = lambda tile: MainWindow._match_sync_holds(host, tile)
-MainWindow.set_match_sync_playback(host, True)
+callbacks = []
+with patch('ddm.stream_playback.QTimer.singleShot', side_effect=lambda _, owner, fn: callbacks.append(fn)):
+    MainWindow.set_match_sync_playback(host, True)
+    assert len(callbacks) == 1 and not host._stop_tile.called
+    assert all(player.set_muted.call_args.args == (True,) for player in players.values())
+    MainWindow.set_match_sync_playback(host, False)
+    stale = callbacks.pop()
+    assert not host._stop_tile.called and not host.start_tile.called
+
+    late_recording = Tile("5")
+    host.players[late_recording] = Mock()
+    MainWindow.set_match_sync_playback(host, True)
+    host.recorder.sessions[late_recording] = object()
+    stale()
+    assert not host._stop_tile.called
+    callbacks.pop()()
+    assert host._stop_tile.call_count == 1
+    while callbacks:
+        callbacks.pop()()
 assert host._stop_tile.call_count == 3
+assert late_recording in host.players
 assert all(call.args[0] not in tiles[3:] for call in host._stop_tile.call_args_list)
 for tile in tiles[3:]:
-    players[tile].set_muted.assert_called_once_with(True)
+    assert players[tile].set_muted.call_args.args == (True,)
 MainWindow.set_match_sync_playback(host, True)
 assert host._stop_tile.call_count == 3
 assert host._match_sync_holds(tiles[0]) and not host._match_sync_holds(tiles[3])
@@ -70,12 +89,13 @@ recording = tiles[3]
 recording.volume, recording.audio_channel, recording.muted = 80, 0, False
 recording.quality = 10000
 player = Mock()
+host.wall = SimpleNamespace(tiles=[recording])
+recording.state_control = Mock()
 host.players[recording] = player
 host._match_sync_active = True
 MainWindow._play_on(host, recording, "https://example.invalid/live", profile="web")
 player.set_muted.assert_called_once_with(True)
 player.play.assert_called_once()
-host.wall = SimpleNamespace(tiles=[recording])
 host.stream_playback.audit_audio()
 player.sync_audio.assert_called_once_with(80, True, 0)
 host._match_sync_active = False

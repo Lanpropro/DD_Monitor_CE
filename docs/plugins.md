@@ -36,10 +36,20 @@ YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的�
 
 ## 录制服务 v1（配套开发接口）
 
+`Plugin.recording_settings_view(parent, controls)` 可提供完整的录制页内容。宿主采用首个返回 QWidget 的插件，并由原页面继续读取、重置和保存本体录制值。`controls` 提供已绑定状态的本体控件，以 `directory`、`browse`、`recording_enabled`、`lock_quality`、`min_free_stepper`、`format`、`codec`、`encoder`、`bitrate_stepper`、`fps`、`segment_stepper`、`replay_enabled`、`replay_scope`、`replay_max_stepper`、`replay_minutes_stepper` 为键。接管者须在返回的控件中安放这些输入，保证用户仍可编辑原设置。返回 `None` 时沿用下面的扩展方式。
+
+如果录制页提供 `parent.presentation_refresh_requested` 信号，插件保存界面选择后可调用其 `emit()`。宿主会保留当前本体录制值，重新调用录制页钩子并重建控件，原控件随后销毁。旧宿主将在下次打开设置时读取新的选择。
+
 插件可覆盖 `Plugin.recording_settings(parent)`，返回一个由父级拥有的 Qt 控件，或返回 `None`。
 本体在首次打开“设置 → 录制”时调用，按插件名放在本体参数下方的独立区域；可选 `Plugin.recording_settings_title` 指定区域标题。页面公开 `add_recording_mode(widget)`，用于在页首放置插件拥有的格子录制方式选择。独立设置进程也嵌入本体的同一页面，不在工作进程加载插件或账号。
 插件控件通过自己的公开服务与持久化接口保存配置，不向本体 `settings()` 塞入私有字段；卸载时插件停止回调并禁用仍存活的控件，Qt 对象由页面销毁。
-旧宿主忽略此可选钩子，插件仍可保留工作区入口。相关离线检查：`python dev/selfcheck_recording_plugin_settings.py`。
+
+只接管录制参数编辑的插件可调用 `context.set_recording_settings_managed(enabled)`。本体保留原录制页，接管期间将字段显示为只读。该操作不更改录制后端、当前录制方式或会话。同一时刻允许一个插件持有接管权，插件卸载时宿主释放接管权。
+
+接管期间，录制页顶部显示接管插件的名称。插件可实现 `Plugin.open_managed_recording_settings()`，提供直达插件录制设置的入口。本体关闭当前设置窗并处理待保存的修改后，才在界面线程调用此方法。旧宿主会忽略此可选钩子。
+
+`context.create_recording_preferences_editor(parent)` 返回供插件自己的设置界面使用的本体录制参数编辑器。可以通过 `recording_controls()` 和 `use_recording_view(widget)` 安排其控件。编辑器仅在本插件持有接管权时自动保存本体录制字段，`flush()` 可立即提交，`refresh()` 重新读取本体参数，`save_error` 信号报告保存结果。切换接管权前可先刷新待保存的参数。
+相关离线检查：`python dev/selfcheck_recording_plugin_settings.py`。
 
 `context.recording` 在 GUI 线程提供 `api_version == 1` 的录制桥接；旧版本没有该属性。
 默认沿用本体录制；功能插件可注册录制会话实现，播放后端不变。`options()` 返回录制目录、FFmpeg 路径及尚在导出的文件；
@@ -48,6 +58,8 @@ YouTube和Twitch导入页提供“重新读取”，重新请求当前账号的�
 `control(source_id, action, session_id=...)` 支持 `record`、`stop`、`buffer`、
 `stop_buffer`、`save_replay`，沿用本体画质/设置流程。传入 `session_id` 时会核对当前会话，变化后拒绝旧操作；省略时不做会话代次校验。
 主播监控的后台来源可通过 `sources()` 的 `recording_mode` 获取会话启动时的选项（`normal`、`clip`、`None` 表示沿用全局）。录制启停由主播监控管理。
+
+`monitoring_status()` 返回与本体主播监控一致的状态快照，包含 `room_id`、`name`、`platform`、`state`、`display_room_id` 和 `live`。`live` 为 `True`（直播中）、`False`（未开播）或 `None`（未知）。插件兼容旧宿主时可先检查该方法和 `live` 字段是否存在。
 `open_settings()` 打开本体录制设置。
 
 `register_backend(RecordingSessionSubclass, enabled=True)` 将本体后续新建的录制/缓存会话交给插件，
@@ -417,7 +429,7 @@ context.clear_tile_caption(tile)
 
 `context.create_caption_preview(parent)` 返回使用同一渲染器和手势的嵌入式设置预览，提供 `set_style(dict)` 和 `styleChanged(dict)`；预览始终可操作，保留传入的真实锁定偏好，不创建 native 浮窗。`context.room_presentation(tile)` 返回房间 ID、名称及与画中画选择器相同的缓存头像 `pixmap`，无网络或截图操作；插件可用它构建房间多选界面。
 
-职责边界：`video_caption.py` 拥有当前字幕与样式、绘制和 native 层级；`caption_geometry.py` 计算归一化安全位置；`caption_interaction.py` 处理编辑手势与快捷菜单；`caption_toolbar.py` 提供字幕上方的图标快捷栏，不占用字幕文字区域，不保存第二份样式；`caption_preview.py` 复用真实渲染组件并桥接预览参数；`plugin_types.py` 维护回调所有权与公开预览／房间展示入口。预览与实际字幕通过映射交换值，不共享可变控件状态。
+职责边界：`video_caption.py` 拥有当前字幕与样式、绘制和 native 层级；`caption_geometry.py` 计算归一化安全位置；`caption_interaction.py` 处理编辑手势与快捷菜单；`caption_toolbar.py` 将图标快捷栏居中放在字幕框上方，背景跟随字幕的黑底透明度；`caption_preview.py` 复用真实渲染组件并桥接预览参数；`plugin_types.py` 维护回调所有权与公开预览／房间展示入口。预览与实际字幕通过映射交换值，不共享可变控件状态。
 
 未锁定字幕悬停时显示图标栏，提供显示内容、字号、位置复位和锁定；鼠标离开字幕及工具栏后收起。工具栏跟随字幕并限制在视频安全区域，清除、隐藏和销毁字幕时一并回收。锁定后仍从格子右键或设置页解锁。
 
@@ -521,6 +533,8 @@ B 站互动由本体提供，其他平台的互动能力通过插件扩展。
 
 `context.show_workspace(widget, manages_content=False, pause_wall_playback=False)` 将 QWidget 嵌入主内容区并替换画面墙显示，返回是否成功。功能页必须使用普通 QWidget 而非独立窗口；返回/关闭页面恢复原内容的可见状态，后台任务由插件管理，不能因返回而取消。播放型功能页可设置 `pause_wall_playback=True`，在显示期间暂停画面墙观看，退出后恢复。录制继续进行，保留的播放器在功能页显示期间静音。
 
+`context.settings_presentation()` 返回本体设置页的材质和滚轮偏好快照。复用 `SettingsWindow` 的插件可以在显示或重新激活时调用 `set_material(values)` 和 `input_focus.set_wheel_speed(values['settings_wheel_speed'])`。设置窗口的 `skinPart` 使用 `settings` 可沿用当前皮肤的设置窗口配色。宿主返回的是可独立使用的字典，插件可自行安排分类和卡片布局。
+
 `context.create_workspace_player(video_widget)` 在 GUI 线程为功能页的 QWidget 创建本体原生播放器。插件在视频承载控件显示后使用 `play(url, profile, headers=None)` 开始播放，通过 `stateChanged` 接收 `connecting`、`buffering`、`playing`、`frozen` 和 `error` 等状态。`set_muted(bool)` 控制声音。页面关闭或插件卸载时调用 `release()` 释放播放资源，重新播放时可创建新的播放器。旧宿主需先检查此方法是否存在。
 
 需要在直播缓存内微调偏移的功能页可传 `live_rewind=True` 保留最近的已播放数据。`cached_seek_ranges()` 返回可跳转区间，`seek_cached(seconds)` 仅接受当前缓存内的目标位置。`playback_timing()` 返回主画面当前媒体位置及可用时长，`play(..., options=decode_media_options(mode))` 可沿用本体的解码模式。
@@ -530,6 +544,8 @@ B 站互动由本体提供，其他平台的互动能力通过插件扩展。
 `context.create_plugin_widget(plugin_id, capability, parent, **options)` 在 GUI 线程调用已启用插件的 `create_embedded_widget(capability, parent, caller, **options)`。各提供方定义能力名称和选项。提供方缺失或不支持该能力时返回 `None`。提供的控件以调用方传入的容器为父对象，调用方在关闭页面时负责关闭并释放控件。
 
 `context.workspace_background_mask()` 返回本体生效的背景蒙版强度（0 到 100）。关闭蒙版时返回 0。功能页可监听 `context.workspace_background_changed` 更新蒙版强度，无背景控制器时该信号为 `None`。可同时监听 `theme.signals().changed` 更新蒙版颜色。
+
+`context.workspace_background_image()` 返回当前静态背景的 `QImage` 副本。无静态背景时返回空图像，可与 `workspace_background_changed` 配合更新功能页材质。
 
 使用本体 `Tile` 的功能页可以将 `roomDropOnly` 动态属性设为 `True`，保留关注卡片拖放并关闭空状态的添加按钮和右键菜单。
 

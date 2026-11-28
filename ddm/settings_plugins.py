@@ -8,20 +8,48 @@ from PySide6.QtWidgets import (
 from .plugin_card_layout import PluginCardLayout
 from . import theme
 from .motion import AnimatedDialog, SlidingTabs
-from .ui import ActionButton, SettingsSurface, DisclosureButton, ElidedLabel, ToggleSwitch, page_header as _page_head
+from .settings_window import SettingsTitleBar
+from .ui import ActionButton, SettingsSurface, DisclosureButton, ElidedLabel, HintLabel, TitleLabel, ToggleSwitch, page_header as _page_head
 from .search import matches_query
 
 
 class PluginRemovePrompt(AnimatedDialog):
-    def __init__(self, plugin_name, parent=None):
+    def __init__(self, plugin_name, parent=None, *, icon_png=''):
         super().__init__(parent)
         self.setWindowTitle('删除插件')
+        self.setWindowFlag(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setObjectName('PluginRemovePrompt')
+        self.setStyleSheet('#PluginRemovePrompt {background: palette(window); '
+                           'border: 1px solid palette(dark); border-radius: 22px;}')
         self.setMinimumWidth(440)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 22)
-        layout.setSpacing(20)
-        layout.addLayout(_page_head('删除这个插件？',
-            f'将删除插件“{plugin_name}”及其文件。\n已加载的插件将在重启后停止运行。'))
+        layout.setContentsMargins(20, 12, 20, 18)
+        layout.setSpacing(14)
+        self.titlebar = SettingsTitleBar(self)
+        self.titlebar.setMinimumHeight(38)
+        self.titlebar.row.setContentsMargins(0, 0, 0, 0)
+        self.titlebar.breadcrumb.setText(self.windowTitle())
+        self.titlebar.close_button.setAccessibleName('关闭删除插件确认')
+        self.titlebar.close_button.setToolTip('取消删除')
+        layout.addWidget(self.titlebar)
+        self.identity = QWidget(self)
+        identity_layout = QHBoxLayout(self.identity)
+        identity_layout.setContentsMargins(0, 0, 0, 0)
+        identity_layout.setSpacing(10)
+        if icon_png:
+            from .plugin_store_ui import PluginStoreLogo
+            icon = PluginStoreLogo({'icon_png': icon_png}, self.identity)
+            identity_layout.addWidget(icon)
+            icon.setVisible(not icon.pixmap.isNull())
+        self.plugin_title = TitleLabel(plugin_name, self.identity)
+        self.plugin_title.setTextFormat(Qt.PlainText)
+        self.plugin_title.setWordWrap(True)
+        identity_layout.addWidget(self.plugin_title, 1)
+        layout.addWidget(self.identity)
+        self.detail = HintLabel('将删除此插件及其文件。\n已加载的插件将在重启后停止运行。')
+        self.detail.setTextFormat(Qt.PlainText)
+        layout.addWidget(self.detail)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.cancel_button = ActionButton('取消')
@@ -29,12 +57,24 @@ class PluginRemovePrompt(AnimatedDialog):
         self.cancel_button.clicked.connect(self.reject)
         buttons.addWidget(self.cancel_button)
         self.delete_button = ActionButton('删除')
-        self.delete_button.setObjectName('PrimaryButton')
+        self.delete_button.setObjectName('DangerButton')
         self.delete_button.setAutoDefault(False)
         self.delete_button.clicked.connect(self.accept)
         buttons.addWidget(self.delete_button)
         layout.addLayout(buttons)
         self.cancel_button.setFocus()
+
+    def show_error(self, error):
+        self.setWindowTitle('删除插件失败')
+        self.titlebar.breadcrumb.setText(self.windowTitle())
+        self.titlebar.close_button.setAccessibleName('关闭删除失败提示')
+        self.titlebar.close_button.setToolTip('关闭')
+        self.identity.hide()
+        self.detail.setText(str(error))
+        self.delete_button.hide()
+        self.cancel_button.setText('关闭')
+        self.cancel_button.setFocus()
+        self.exec()
 
 
 class PluginSettingsPage(QWidget):
@@ -42,7 +82,7 @@ class PluginSettingsPage(QWidget):
 
     changed = Signal()
 
-    def __init__(self, manager=None, parent=None):
+    def __init__(self, manager=None, parent=None, *, include_preview=False):
         super().__init__(parent)
         self.manager = manager
         self.setAcceptDrops(True)
@@ -60,11 +100,16 @@ class PluginSettingsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("插件", "拖入 ZIP 插件包或含插件 ZIP 的 EXE；安装和启用更改在重启后生效"))
+        layout.addLayout(_page_head("插件", ""))
         self.install_button = ActionButton("装载插件…")
+        self.install_button.setToolTip('支持 ZIP 插件包及内含插件 ZIP 的 EXE，可拖入此页安装。')
         self.install_button.clicked.connect(self._install)
         actions = QHBoxLayout()
         actions.addWidget(self.install_button)
+        self.drop_feedback = HintLabel('松开鼠标安装插件包')
+        self.drop_feedback.setStyleSheet('color: palette(highlight); font-weight: 600;')
+        self.drop_feedback.hide()
+        actions.addWidget(self.drop_feedback)
         actions.addStretch(1)
         layout.addLayout(actions)
 
@@ -88,7 +133,7 @@ class PluginSettingsPage(QWidget):
         self.cards = PluginCardLayout()
         self.cards.setContentsMargins(0, 0, 0, 0)
         installed_layout.addLayout(self.cards)
-        self.empty = QLabel('未发现插件。可装载 ZIP 插件包', content)
+        self.empty = QLabel('暂无已安装插件。', content)
         self.empty.setObjectName('SettingsHint')
         self.empty.setWordWrap(True)
         installed_layout.addWidget(self.empty)
@@ -103,7 +148,7 @@ class PluginSettingsPage(QWidget):
             self._add_card(entry)
         scroll.setWidget(content)
         installed_page_layout.addWidget(scroll, 1)
-        self.store_page = PluginStorePage(manager)
+        self.store_page = PluginStorePage(manager, include_preview=include_preview)
         self.tabs = SlidingTabs()
         self.tabs.setObjectName("PluginTabs")
         self.tabs.tabBar().setCursor(Qt.PointingHandCursor)
@@ -115,7 +160,11 @@ class PluginSettingsPage(QWidget):
         self.store_page.controlsChanged.connect(self._sync_update_buttons)
         self._show_update_notes(self.store_page.offers)
         layout.addWidget(self.tabs, 1)
-        self.installed_scroll.viewport().installEventFilter(self)
+        self._package_drop_targets = (self.installed_scroll.viewport(), self.store_page.scroll.viewport(),
+                                      self.installed_browser.search, self.store_page.search)
+        for target in self._package_drop_targets:
+            target.setAcceptDrops(True)
+            target.installEventFilter(self)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -162,15 +211,16 @@ class PluginSettingsPage(QWidget):
             self._installed_authors[plugin_id].setText('@' + author if author else '')
             self._installed_authors[plugin_id].setToolTip('@' + author if author else '')
             self._installed_authors[plugin_id].setVisible(bool(author))
-        self._sync_update_buttons()
+        self._sync_update_buttons(refilter=True)
 
-    def _sync_update_buttons(self):
-        from .online_ui import plugin_update_offers
+    def _sync_update_buttons(self, *, refilter=False):
+        from .update_offers import available_plugin_updates
         from .plugin_updates import pending_versions
-        offers = {offer['id']: offer for offer in
-                  plugin_update_offers(self.manager, self.store_page.offers)}
-        self._available_update_ids = set(offers)
         pending = pending_versions(self.manager) if self.manager else {}
+        offers = {offer['id'] for offer in
+                  available_plugin_updates(self._installed_entries, pending, self.store_page.offers)}
+        refilter = refilter or offers != self._available_update_ids
+        self._available_update_ids = offers
         running = {task.key: task for task in self.store_page.jobs}
         for plugin_id, button in self.update_buttons.items():
             task = running.get(plugin_id)
@@ -181,7 +231,8 @@ class PluginSettingsPage(QWidget):
             state = self.store_page.downloads.states.get(plugin_id)
             if state:
                 self._installed_progress[plugin_id].set_state(state)
-        self._filter_installed(reset_scroll=False)
+        if refilter:
+            self._filter_installed(reset_scroll=False)
 
     def _filter_installed(self, *_args, reset_scroll=True):
         query = self.installed_browser.search.text()
@@ -198,7 +249,7 @@ class PluginSettingsPage(QWidget):
             self._installed_cards[plugin_id].setVisible(matches)
             status = entry['status']
             if enabled != self._initial_enabled.get(plugin_id, entry['enabled']):
-                status += ' · 已选择' + ('启用' if enabled else '禁用') + '，重启后生效'
+                status += ' · 重启后' + ('启用' if enabled else '禁用')
             self.card_details[plugin_id][1].setText(status)
             self.card_details[plugin_id][1].setToolTip(status)
             if matches:
@@ -215,14 +266,25 @@ class PluginSettingsPage(QWidget):
             self.cards.addWidget(self._installed_cards[entry['id']])
         self.cards.fit_columns(self.installed_scroll.viewport().width() - 4)
         self.installed_browser.count.setText(f'{len(visible)} / {len(self._installed_entries)} 个插件')
-        self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '未发现插件。可装载 ZIP 插件包')
+        self.empty.setText('没有符合条件的已安装插件。' if self._installed_entries else '暂无已安装插件。')
         self.empty.setVisible(not visible)
         self.installed_scroll.verticalScrollBar().setValue(0 if reset_scroll else position)
 
     def eventFilter(self, watched, event):
-        if watched is self.installed_scroll.viewport() and event.type() == QEvent.Resize:
+        kind = event.type()
+        if watched is self.installed_scroll.viewport() and kind == QEvent.Resize:
             if event.size().width() != event.oldSize().width():
                 self._filter_installed(reset_scroll=False)
+        elif watched in self._package_drop_targets:
+            if kind == QEvent.DragLeave and not self.drop_feedback.isHidden():
+                self.dragLeaveEvent(event)
+                return True
+            if kind in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop) and event.mimeData().hasUrls():
+                if kind == QEvent.Drop:
+                    self.dropEvent(event)
+                else:
+                    self.dragEnterEvent(event)
+                return True
         return super().eventFilter(watched, event)
 
     def _installed_selection_changed(self, _checked):
@@ -339,18 +401,18 @@ class PluginSettingsPage(QWidget):
     def _remove(self, plugin_id, card):
         if self.manager is None:
             return
-        name = next((entry['name'] for entry in self.manager.catalog() if entry['id'] == plugin_id), plugin_id)
-        prompt = PluginRemovePrompt(name, self)
+        entry = self._installed_entries[plugin_id]
+        prompt = PluginRemovePrompt(entry['name'], self, icon_png=entry.get('icon_png', ''))
         try:
             if prompt.exec() != PluginRemovePrompt.Accepted:
                 return
+            try:
+                self.manager.remove_plugin(plugin_id)
+            except (OSError, ValueError) as error:
+                prompt.show_error(error)
+                return
         finally:
             prompt.deleteLater()
-        try:
-            self.manager.remove_plugin(plugin_id)
-        except (OSError, ValueError) as error:
-            QMessageBox.warning(self, "删除插件失败", str(error))
-            return
         del self.checks[plugin_id]
         self.card_details.pop(plugin_id, None)
         self.update_buttons.pop(plugin_id, None)
@@ -368,24 +430,38 @@ class PluginSettingsPage(QWidget):
         self.changed.emit()
         self._filter_installed(reset_scroll=False)
 
+    def _package_paths(self, event):
+        if self.manager is None or not event.possibleActions() & Qt.CopyAction:
+            return []
+        paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        return [path for path in paths if path.lower().endswith(('.zip', '.exe'))]
+
     def dragEnterEvent(self, event):
-        urls = event.mimeData().urls()
-        if (self.manager is not None and urls and all(
-                url.isLocalFile() and url.toLocalFile().lower().endswith((".zip", ".exe"))
-                for url in urls)):
-            event.acceptProposedAction()
+        accepted = bool(self._package_paths(event))
+        self.drop_feedback.setVisible(accepted)
+        self._accept_package_drop(event, accepted)
+
+    def dropEvent(self, event):
+        paths = self._package_paths(event)
+        self.drop_feedback.hide()
+        self._accept_package_drop(event, bool(paths))
+        for path in paths:
+            self._install_archive(path)
+
+    @staticmethod
+    def _accept_package_drop(event, accepted):
+        if accepted:
+            event.setDropAction(Qt.CopyAction)
+            event.accept()
         else:
             event.ignore()
 
-    def dropEvent(self, event):
-        self.dragEnterEvent(event)
-        if not event.isAccepted():
-            return
-        for url in event.mimeData().urls():
-            self._install_archive(url.toLocalFile())
-
     def dragMoveEvent(self, event):
         self.dragEnterEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self.drop_feedback.hide()
+        event.accept()
 
     def _install(self):
         archive, _ = QFileDialog.getOpenFileName(self, "装载插件", "", "插件包 (*.zip *.exe)")
@@ -410,7 +486,7 @@ class PluginSettingsPage(QWidget):
         self._files_changed = True
         self.changed.emit()
         from .online_ui import show_result
-        show_result(self.window(), "插件已安装，重启后生效")
+        show_result(self.window(), "插件已安装")
 
     def needs_restart(self):
         return self._files_changed or {

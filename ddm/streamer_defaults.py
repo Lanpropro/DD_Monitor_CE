@@ -1,6 +1,9 @@
 """Saved room defaults and resolution matching for playback and recording."""
 import re
 
+from .follow_folders import normalize_folders, recording_folders
+from .recording_schedule import normalize_schedule, normalize_title_keywords
+
 
 QUALITY_LEVELS = ((0, '最高可用'), (2160, '4K · 2160P'), (1440, '2K · 1440P'),
                   (1080, '1080P'), (720, '720P'), (540, '540P'), (480, '480P'), (360, '360P'))
@@ -17,6 +20,12 @@ def room_defaults(settings, room_id):
         return {}
     values = {key: True for key in ('auto_record', 'windows_recording_notice', 'windows_live_notice')
               if row.get(key) is True}
+    if row.get('recording_policy') in ('off', 'live', 'schedule'):
+        values['recording_policy'] = row['recording_policy']
+    if schedule := normalize_schedule(row.get('recording_schedule')):
+        values['recording_schedule'] = schedule
+    if keywords := normalize_title_keywords(row.get('recording_title_keywords')):
+        values['recording_title_keywords'] = keywords
     if isinstance(row.get('monitor_live'), bool) or monitors_live(row):
         values['monitor_live'] = monitors_live(row)
     mode = row.get('auto_record_mode')
@@ -40,7 +49,39 @@ def monitors_live(row):
     enabled = row.get('monitor_live')
     if isinstance(enabled, bool):
         return enabled
-    return row.get('auto_record') is True or row.get('windows_live_notice') is True
+    return recording_policy(row) in ('live', 'schedule') or row.get('windows_live_notice') is True
+
+
+def recording_policy(row):
+    policy = row.get('recording_policy')
+    return policy if policy in ('off', 'live', 'schedule') else (
+        'live' if row.get('auto_record') is True else 'off')
+
+
+def migrate_folder_recording_plans(settings, rooms, folders, *, suspended=()):
+    """Keep previously inherited plans as per-room preferences."""
+    if not any(isinstance(folder, dict) and 'recording_schedule' in folder for folder in folders):
+        return folders
+    normalized = normalize_folders(folders)
+    rooms = {str(room['room_id']): room for room in rooms if room.get('room_id')}
+    for platform in suspended:
+        metadata = platform.get('platform_rooms', {})
+        for room in platform.get('rooms', ()):
+            if room_id := room.get('room_id'):
+                rooms.setdefault(room_id, metadata.get(room_id, {}))
+    saved = settings.get('streamer_defaults')
+    profiles = dict(saved) if isinstance(saved, dict) else {}
+    for room_id, folder in recording_folders(normalized, rooms).items():
+        schedule = folder.get('recording_schedule')
+        existing = profiles.get(room_id)
+        row = existing if isinstance(existing, dict) else {}
+        if not schedule or row.get('recording_policy') in ('off', 'live', 'schedule') or row.get('auto_record') is True:
+            continue
+        profiles[room_id] = dict(row, name=row.get('name') or rooms[room_id].get('uname') or room_id,
+                                 recording_policy='schedule', recording_schedule=schedule)
+    settings['streamer_defaults'] = profiles
+    return [{key: value for key, value in folder.items() if key != 'recording_schedule'}
+            for folder in folders]
 
 
 def monitored_streamers(settings):
@@ -58,7 +99,9 @@ def streamer_profile_group(row):
         value = row.get(key)
         label = value['label'] if isinstance(value, dict) else QUALITY_LABELS.get(value, '继承')
         qualities.append(label.strip().casefold() if key in row else None)
-    return (*qualities, row.get('volume'), monitors_live(row), bool(row.get('auto_record')),
+    return (*qualities, row.get('volume'), monitors_live(row), recording_policy(row),
+            normalize_schedule(row.get('recording_schedule')),
+            normalize_title_keywords(row.get('recording_title_keywords')),
             bool(row.get('windows_recording_notice')), bool(row.get('windows_live_notice')),
             row.get('auto_record_mode'))
 

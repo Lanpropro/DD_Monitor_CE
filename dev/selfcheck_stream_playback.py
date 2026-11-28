@@ -95,6 +95,8 @@ class Host(QObject):
         self._accounts, self._match_sync_saved = {}, {}
         self.settings = {'bili_codec': 'avc', 'decode_mode': 'auto', 'auto_quality': True}
         self._closing, self._fullscreen_tile = False, None
+        self._audio_devices = None
+        self._audio_device_timer = Mock()
         self.plugins = SimpleNamespace(platform_for=Mock(return_value=None), emit=Mock())
         self.playback_recovery, self.recorder = Mock(), Mock()
         self._save_timer, self._stats_refresh_timer = Mock(), Mock()
@@ -266,6 +268,24 @@ class StreamPlaybackTests(unittest.TestCase):
             cwd=ROOT, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(vars(self.host.stream_playback), {'host': self.host})
+
+    def test_idle_host_import_defers_media_libraries(self):
+        result = subprocess.run([sys.executable, '-c', "import sys; import ddm.app; "
+            "assert 'mpv' not in sys.modules and 'PySide6.QtMultimedia' not in sys.modules; "
+            "from ddm.player import mpv; assert mpv is sys.modules['mpv']"],
+            cwd=ROOT, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_audio_monitor_starts_once_at_first_accepted_stream(self):
+        self.host._play_on(self.tile, 'fixture:stale', room_id='different')
+        self.assertIsNone(self.host._audio_devices)
+        self.host._play_on(self.tile, 'fixture:first')
+        monitor = self.host._audio_devices
+        self.assertIsNotNone(monitor)
+        self.assertIs(monitor.parent(), self.host)
+        self.host._play_on(self.tile, 'fixture:second')
+        self.assertIs(self.host._audio_devices, monitor)
+        self.host._audio_device_timer.start.assert_called_once_with()
 
     def test_request_gates_and_platform_offline_handling(self):
         for state in ('closing', 'empty', 'offline', 'missing-plugin', 'tray', 'sync'):

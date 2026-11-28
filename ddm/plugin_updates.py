@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
-from .online import version_key
+from .update_version import plugin_version_key, version_key
 from .file_ops import replace_directory
 from .plugin_manifest import RETIRED_BUNDLED_PLUGINS
 from .version import VERSION
@@ -24,7 +24,7 @@ def stage(manager, archive, plugin_id, expected_version):
     if not target.is_dir() or target.is_symlink():
         raise ValueError('待升级插件不存在或目录无效')
     old = next(entry for entry in manager.catalog() if entry['id'] == plugin_id)
-    if version_key(expected_version) <= version_key(old['version']):
+    if plugin_version_key(expected_version) <= plugin_version_key(old['version']):
         raise ValueError('新版必须高于当前插件版本')
     pending = Path(manager.plugins_dir) / '.updates'
     pending.mkdir(exist_ok=True)

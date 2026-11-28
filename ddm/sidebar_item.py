@@ -23,7 +23,12 @@ class NavSelectionCheck(QCheckBox):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(QPen(QColor('#ffffff'), 1.5) if not self.isChecked() else Qt.NoPen)
         painter.setBrush(theme.qcolor(theme.ACCENT) if self.isChecked() else QColor(12, 15, 20, 170))
-        painter.drawEllipse(QRectF(4, 4, 20, 20))
+        circle = QRectF(4, 4, 20, 20)
+        if self.isDown():
+            circle.adjust(3, 3, -3, -3)
+        elif self.underMouse() and self.isEnabled():
+            circle.adjust(-1, -1, 1, 1)
+        painter.drawEllipse(circle)
 
     def hitButton(self, pos):
         return self.rect().contains(pos)

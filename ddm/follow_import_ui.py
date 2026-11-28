@@ -12,6 +12,7 @@ from .playback_controls import RefreshButton
 from .corner_geometry import continuous_path
 from .widget_support import BRAND_ASSETS_DIR
 from .settings_window import SettingsTitleBar
+from .ui.basics import ActionButton
 from .ui.selection import SegmentMotion
 
 
@@ -30,7 +31,7 @@ class ImportPlatformTabs(QWidget):
 
     selectionRequested = Signal(str)
 
-    def __init__(self, platforms, parent=None, *, segmented=False):
+    def __init__(self, platforms, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setMinimumHeight(theme.CONTROL_HEIGHT)
@@ -40,20 +41,19 @@ class ImportPlatformTabs(QWidget):
         self.actions = {}
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        surface = (_LoginSegments(self, objectName='LoginPlatformSegments') if segmented
-                   else QWidget(self, objectName='ImportPlatformButtons'))
-        surface.setAttribute(Qt.WA_StyledBackground, segmented)
+        surface = _LoginSegments(self, objectName='LoginPlatformSegments')
+        surface.setAttribute(Qt.WA_StyledBackground)
         outer.addWidget(surface)
         outer.addStretch(1)
         self._row = QHBoxLayout(surface)
-        inset = 3 if segmented else 0
+        inset = 3
         self._row.setContentsMargins(inset, inset, inset, inset)
-        self._row.setSpacing(2 if segmented else 4)
+        self._row.setSpacing(2)
         self._row.setSizeConstraint(QLayout.SetNoConstraint)
         self.menu = QMenu(self)
         for kind, label in platforms:
             button = QPushButton(label)
-            button.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
+            button.setObjectName('LoginPlatformSegment')
             button.setCheckable(True)
             button.setAutoDefault(False)
             button.setCursor(Qt.PointingHandCursor)
@@ -63,8 +63,7 @@ class ImportPlatformTabs(QWidget):
                 path = os.path.join(BRAND_ASSETS_DIR, 'platforms', 'generic.svg')
             button.setIcon(QIcon(path))
             button.setIconSize(QSize(18, 18))
-            button.setFixedSize(min(148, max(54 if segmented else 64,
-                                             button.fontMetrics().horizontalAdvance(label) + (34 if segmented else 44))),
+            button.setFixedSize(min(148, max(54, button.fontMetrics().horizontalAdvance(label) + 34)),
                                 theme.CONTROL_HEIGHT - 2 * inset)
             button.clicked.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self._row.addWidget(button, 0, Qt.AlignTop)
@@ -75,7 +74,7 @@ class ImportPlatformTabs(QWidget):
             action.triggered.connect(lambda _checked=False, key=kind: self.selectionRequested.emit(key))
             self.actions[kind] = action
         self.more = QPushButton('…')
-        self.more.setObjectName('LoginPlatformSegment' if segmented else 'IconButton')
+        self.more.setObjectName('LoginPlatformSegment')
         self.more.setAutoDefault(False)
         self.more.setFixedSize(34, theme.CONTROL_HEIGHT - 2 * inset)
         self.more.setCursor(Qt.PointingHandCursor)
@@ -85,12 +84,10 @@ class ImportPlatformTabs(QWidget):
         self.more.setStyleSheet('QPushButton {padding:0;} '
                                'QPushButton::menu-indicator {image:none; width:0;}')
         self._row.addWidget(self.more, 0, Qt.AlignTop)
-        self._selection = None
-        if segmented:
-            self._selection = surface.indicator = SegmentMotion(
-                surface, self._segment_rects, lambda: self._current, self._choose_segment)
-            for button in self.buttons.values():
-                self._selection.watch(button)
+        self._selection = surface.indicator = SegmentMotion(
+            surface, self._segment_rects, lambda: self._current, self._choose_segment)
+        for button in self.buttons.values():
+            self._selection.watch(button)
 
     def _segment_rects(self):
         return {key: QRectF(button.geometry()).adjusted(0, 0, 0, -1) for key, button in self.buttons.items()
@@ -131,9 +128,10 @@ class ImportPlatformTabs(QWidget):
             button.setVisible(key in visible)
             self.actions[key].setVisible(key not in visible)
         self.more.setVisible(len(visible) < len(self.buttons))
-        if self._selection is not None:
-            self._row.activate()
-            self._selection.sync()
+        # 平台数量改变内层容器宽度，先更新外层布局再读取按钮坐标。
+        self.layout().activate()
+        self._row.activate()
+        self._selection.sync()
 
 
 class AccountImportBar(QWidget):
@@ -158,33 +156,58 @@ class AccountImportBar(QWidget):
             self.account.setStyleSheet('QFrame#ImportAccount {background:transparent; border:none;}')
             self.account.setMinimumWidth(0)
             self.account.setCursor(Qt.ArrowCursor)
-            self.refresh = RefreshButton(self, size=30, object_name='IconButton')
+            self.refresh = RefreshButton(self, object_name='NavigationButton')
+            self.refresh.setFixedSize(self.titlebar.close_button.size())
             self.refresh.setAccessibleName('刷新关注列表')
             self.refresh.setToolTip('重新读取当前平台关注')
             self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.account)
             self.titlebar.row.insertWidget(self.titlebar.row.count() - 1, self.refresh)
         layout.addWidget(self.titlebar)
-        self.platform = ImportPlatformTabs(platforms, self, segmented=login_only)
+        self.platform = ImportPlatformTabs(platforms, self)
         if login_only:
             self.platform.more.setAccessibleName('其他登录平台')
         layout.addWidget(self.platform)
 
     def set_account(self, account, kind):
         self.account.set_account(account.get('uname') or ('已登录' if account else ''),
-                                 account.get('_pixmap'), platform=kind)
+                                 account.get('_pixmap'), platform=kind, uid=account.get('uid'))
         self.account.arrow.hide()
         self.account.platform_badge.hide()
-        text_width = self.account.name.fontMetrics().horizontalAdvance(self.account.name.text())
-        self.account.setFixedWidth(min(160, max(78, text_width + 52)))
+        row = self.account.layout()
+        margins = row.contentsMargins()
+        inset = margins.left() + margins.right() + self.account.avatar.width() + row.spacing()
+        name_width = self.account.name.sizeHint().width()
+        id_width = self.account.account_id.sizeHint().width() if self.account.uid else 0
+        self.account.setFixedWidth(max(78, inset + id_width, min(200, inset + name_width)))
 
 
-def paint_import_surface(widget):
+def paint_import_surface(widget, *, native_corners=False):
     painter = QPainter(widget)
+    if native_corners:
+        painter.fillRect(widget.rect(), theme.qcolor(theme.BG))
+        return
     painter.setRenderHint(QPainter.Antialiasing)
     path = continuous_path(QRectF(widget.rect()).adjusted(.5, .5, -.5, -.5), 22)
     painter.fillPath(path, theme.qcolor(theme.BG))
     painter.setPen(QPen(theme.qcolor(theme.BORDER_STRONG), 1))
     painter.drawPath(path)
+
+
+class FollowImportFolderButton(ActionButton):
+    def __init__(self, text):
+        super().__init__(text)
+        self.setProperty("followFolderSelect", True)
+        self.setAccessibleName("选择导入文件夹")
+        self.setFixedHeight(theme.CONTROL_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.setMaximumWidth(220)
+        self.setAutoDefault(False)
+
+    def sizeHint(self):
+        return QSize(self.maximumWidth(), theme.CONTROL_HEIGHT)
+
+    def minimumSizeHint(self):
+        return QSize(128, theme.CONTROL_HEIGHT)
 
 
 class FollowImportItem(QListWidgetItem):
@@ -201,6 +224,7 @@ class FollowImportDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.existing = existing
         self.channels = channels
+        self.avatar_size = 32 if channels else 44
 
     def sizeHint(self, option, index):
         listing = self.parent()
@@ -215,7 +239,8 @@ class FollowImportDelegate(QStyledItemDelegate):
         painter.setPen(Qt.NoPen)
         painter.setBrush(theme.qcolor(theme.ACCENT_SOFT if checked else theme.CONTENT))
         painter.drawPath(continuous_path(QRectF(rect), 12))
-        avatar = QRect(rect.left() + 12, rect.center().y() - 16, 32, 32)
+        avatar = QRect(rect.left() + 12, rect.center().y() - self.avatar_size // 2,
+                       self.avatar_size, self.avatar_size)
         icon = index.data(Qt.DecorationRole)
         if icon is not None and not icon.isNull():
             icon.paint(painter, avatar)
@@ -225,25 +250,37 @@ class FollowImportDelegate(QStyledItemDelegate):
             painter.setPen(theme.qcolor(theme.TEXT2))
             painter.drawText(avatar, Qt.AlignCenter, room['uname'][:1])
         checkbox = QRect(rect.right() - 30, rect.center().y() - 9, 18, 18)
-        painter.setPen(QPen(theme.qcolor(theme.ACCENT if checked else theme.BORDER_STRONG), 1))
-        painter.setBrush(theme.qcolor(theme.ACCENT if checked else theme.CONTENT_HOVER))
-        painter.drawRoundedRect(QRectF(checkbox), 5, 5)
-        if checked:
-            painter.setPen(QPen(theme.qcolor(theme.BG), 2))
-            painter.drawLine(checkbox.left() + 4, checkbox.top() + 9, checkbox.left() + 7, checkbox.top() + 12)
-            painter.drawLine(checkbox.left() + 7, checkbox.top() + 12, checkbox.left() + 14, checkbox.top() + 5)
+        badge = index.data(Qt.AccessibleDescriptionRole)
+        right = checkbox.left() - 12
+        if badge:
+            font = option.font
+            font.setBold(False)
+            painter.setFont(font)
+            width = QFontMetrics(font).horizontalAdvance(badge)
+            right = rect.right() - 12
+            painter.setPen(theme.qcolor(theme.TEXT2))
+            painter.drawText(QRect(right - width, rect.top(), width, rect.height()), Qt.AlignVCenter, badge)
+            right -= width + 12
+        else:
+            painter.setPen(QPen(theme.qcolor(theme.ACCENT if checked else theme.BORDER_STRONG), 1))
+            painter.setBrush(theme.qcolor(theme.ACCENT if checked else theme.CONTENT_HOVER))
+            painter.drawRoundedRect(QRectF(checkbox), 5, 5)
+            if checked:
+                painter.setPen(QPen(theme.qcolor(theme.BG), 2))
+                painter.drawLine(checkbox.left() + 4, checkbox.top() + 9, checkbox.left() + 7, checkbox.top() + 12)
+                painter.drawLine(checkbox.left() + 7, checkbox.top() + 12, checkbox.left() + 14, checkbox.top() + 5)
         if option.state & QStyle.State_HasFocus:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 10, 10)
         left = avatar.right() + 12
-        right = checkbox.left() - 12
         font = option.font
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(theme.qcolor(theme.TEXT1))
         metrics = QFontMetrics(font)
-        name_rect = QRect(left, rect.top() + 8, max(0, right - left), metrics.height())
+        name_top = rect.top() + 8 if self.channels else rect.center().y() - metrics.height() - 1
+        name_rect = QRect(left, name_top, max(0, right - left), metrics.height())
         painter.drawText(name_rect, Qt.AlignVCenter,
                          metrics.elidedText(room['uname'], Qt.ElideRight, name_rect.width()))
         font.setBold(False)
@@ -258,8 +295,8 @@ class FollowImportDelegate(QStyledItemDelegate):
                 status += ' · 识别失败'
             elif room.get('title'):
                 status += ' · ' + room['title']
-        if str(room['room_id']) in self.existing:
-            badge = '已添加' if self.channels else '已关注'
+        if self.channels and str(room['room_id']) in self.existing:
+            badge = '已添加'
             width = metrics.horizontalAdvance(badge)
             painter.setPen(theme.qcolor(theme.TEXT2))
             painter.drawText(QRect(right - width, name_rect.bottom() + 3, width, metrics.height()),
@@ -313,7 +350,7 @@ class FollowImportList(QListWidget):
         self._pressed_item = None
         if event.button() == Qt.LeftButton and item is not None:
             position = event.position().toPoint()
-            if (self.itemAt(position) is item and
+            if (item.flags() & Qt.ItemIsUserCheckable and self.itemAt(position) is item and
                     (position - self._press_position).manhattanLength() < QApplication.startDragDistance()):
                 item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
                 self.itemDelegate().checkChanged.emit()
@@ -323,8 +360,8 @@ class FollowImportList(QListWidget):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Space and self.currentItem() is not None:
-            if not event.isAutoRepeat():
-                item = self.currentItem()
+            item = self.currentItem()
+            if not event.isAutoRepeat() and item.flags() & Qt.ItemIsUserCheckable:
                 item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
                 self.itemDelegate().checkChanged.emit()
             event.accept()

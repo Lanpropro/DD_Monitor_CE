@@ -111,6 +111,7 @@ class PluginManager:
         self._contexts = weakref.WeakSet()
         self._caption_owners = weakref.WeakKeyDictionary()
         self._workspace_pages = None
+        self._recording_settings_access = None
         self._unloaded = False
         self._notices = None
         if window is not None:
@@ -141,6 +142,14 @@ class PluginManager:
         if self._bili_interaction is not None:
             yield self._bili_interaction
         yield from self.plugins
+
+    @property
+    def recording_settings_access(self):
+        from PySide6.QtCore import QObject
+        if self._recording_settings_access is None and isinstance(self.window, QObject):
+            from .recording_preferences import RecordingSettingsAccess
+            self._recording_settings_access = RecordingSettingsAccess(self.window)
+        return self._recording_settings_access
 
     def load(self) -> None:
         if not os.path.isdir(self.plugins_dir):
@@ -253,6 +262,8 @@ class PluginManager:
         for context in tuple(self._contexts):
             context._clear_workspace_controls()
             context._clear_tile_captions()
+            if self._recording_settings_access is not None:
+                self._recording_settings_access.set_managed(context, False)
             if context._recording is not None:
                 context._recording.close()
 

@@ -1,5 +1,6 @@
 """Manual settings navigation, search, interruption and lifetime regressions."""
 from copy import deepcopy
+from datetime import date
 import os
 from pathlib import Path
 import sys
@@ -9,14 +10,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 os.environ['DDM_NO_SAVE'] = '1'
-from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QPoint, Qt
-from PySide6.QtGui import QColor, QCursor, QImage, QPainter, QRegion
+from PySide6.QtCore import QAbstractAnimation, QCoreApplication, QEvent, QMimeData, QPoint, QPointF, QUrl, Qt
+from PySide6.QtGui import QColor, QContextMenuEvent, QCursor, QDragEnterEvent, QDropEvent, QImage, QPainter, QRegion
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton, QWidget
 from shiboken6 import isValid
 from ddm.settings_pages import PAGE_INDEX
 from ddm import config, theme
 from ddm.dialogs import SettingsDialog
+from ddm.recording_schedule_dialog import RecordingScheduleDialog
 from ddm.settings_material_paint import glass_tint, window_background_tint
 from ddm.settings_navigation import SettingsNavigation
 from ddm.settings_streamer_defaults import StreamerDefaultsPage
@@ -104,21 +106,20 @@ class SettingsNavigationTests(unittest.TestCase):
         dialog.nav.setCurrentRow(page_index)
         page = dialog.stack.currentWidget()
         self.assertFalse(page.cards)
-        self.assertEqual(list(page.picker.visible_groups), ['first', 'later'])
-        self.assertIs(page.picker.grid.itemAtPosition(0, 0).widget(), page.picker.headings['first'])
-        self.assertIs(page.picker.grid.itemAtPosition(2, 0).widget(), page.picker.headings['later'])
-        platform = page.picker.buttons['huya:1001'].findChild(QLabel, 'RoomChoicePlatform')
-        self.assertEqual(platform.accessibleName(), '虎牙')
-        self.assertEqual(platform.text(), '')
-        self.assertFalse(platform.pixmap().isNull())
-        self.assertFalse(page.picker.view.viewport().autoFillBackground())
-        page.picker.search.setText('zby')
-        self.assertTrue(page.picker.buttons['1001'].isHidden())
-        self.assertTrue(page.picker.headings['later'].isHidden())
-        self.assertFalse(page.picker.buttons['huya:1001'].isHidden())
-        page.picker.buttons['huya:1001'].click()
-        page.picker.search.clear()
-        page.picker.buttons['1001'].click()
+        from ddm.room_choice import RoomChoice
+        picker = page.picker
+        model = picker.model
+        self.assertEqual(model.index(1, 0).data(Qt.UserRole), 'huya:1001')
+        self.assertEqual(model.index(3, 0).data(Qt.UserRole), '1001')
+        self.assertIn(rooms['huya:1001']['platform'], model.index(1, 0).data(Qt.AccessibleTextRole))
+        self.assertFalse(picker.findChildren(RoomChoice))
+        picker.search.setText('zby')
+        self.assertEqual(model.rowCount(), 2)
+        self.assertEqual(model.index(1, 0).data(Qt.UserRole), 'huya:1001')
+        picker.scroll.clicked.emit(model.index(1, 0))
+        picker.search.clear()
+        self.assertEqual(model.index(1, 0).data(Qt.UserRole), '1001')
+        picker.scroll.clicked.emit(model.index(1, 0))
         self.assertEqual(list(page.cards), [('huya:1001',), ('1001',)])
         for room_id in page.entries:
             card = page.cards[(room_id,)]
@@ -165,8 +166,8 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertFalse(card.remove_button.text())
         self.assertFalse(any(widget.accessibleName() == '刷新画质' for widget in card.findChildren(QWidget)))
         self.assertIn('57%', card.summary_values['volume'].text())
-        self.assertFalse(card.auto_record.isChecked())
-        card.auto_record.click()
+        self.assertEqual(card.auto_record.currentData(), 'off')
+        card.auto_record.setCurrentIndex(card.auto_record.findData('live'))
         APP.processEvents()
         card = page.cards[('huya:1001',)]
         card.windows_notice.click()
@@ -179,7 +180,7 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertEqual(set(saved), {'1001', 'huya:1001'})
         self.assertEqual(saved['1001']['playback']['qn'], 10000)
         self.assertEqual(saved['huya:1001']['playback']['qn'], 1)
-        self.assertIs(saved['huya:1001']['auto_record'], True)
+        self.assertEqual(saved['huya:1001']['recording_policy'], 'live')
         self.assertIs(saved['huya:1001']['windows_recording_notice'], True)
         self.assertEqual(saved['huya:1001']['auto_record_mode'], 'clip')
         self.assertNotIn('auto_record', saved['1001'])
@@ -244,6 +245,7 @@ class SettingsNavigationTests(unittest.TestCase):
             page = dialog._loaded_pages[streamer]
             card = page.cards[('1001',)]
             self.assertEqual(card.windows_notice.isEnabled(), first == notifications)
+            self.assertEqual(page.windows_notice_hint.text(), '在「通知」开启 Windows 通知。')
             self.assertEqual(page.windows_notice_hint.isHidden(), first == notifications)
             self.assertEqual(card.mode_summary_value.text(), '切片')
             self.assertFalse(card.auto_record_summary.isHidden())
@@ -291,7 +293,9 @@ class SettingsNavigationTests(unittest.TestCase):
         card.monitor_live.click()
         APP.processEvents()
         self.assertEqual(card.auto_record_summary.text(), '自动录制已暂停')
-        for toggle in (card.auto_record, card.live_notice, card.windows_notice):
+        self.assertFalse(card.auto_record.isEnabled())
+        self.assertEqual(card.auto_record.currentData(), 'live')
+        for toggle in (card.live_notice, card.windows_notice):
             self.assertFalse(toggle.isEnabled())
             self.assertTrue(toggle.isChecked())
         paused = dialog.settings()['streamer_defaults']['1001']
@@ -306,6 +310,238 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertTrue(card.live_notice.isEnabled() and card.windows_notice.isEnabled())
         self.assertEqual(card.auto_record_summary.text(), '自动录制')
 
+    def test_merged_card_edits_recording_conditions_for_group_or_selected_room(self):
+        ids = ('1001', '1002')
+        page = StreamerDefaultsPage(
+            {'streamer_defaults_merge_identical': True,
+             'streamer_defaults': {room_id: {'monitor_live': True} for room_id in ids}},
+            {room_id: {'name': room_id, 'followed': True} for room_id in ids})
+        self.addCleanup(page.deleteLater)
+        card = page.cards[ids]
+        self.assertEqual(card.auto_record.findData('inherit'), -1)
+        self.assertTrue(card.schedule_edit.isHidden())
+        card.auto_record.setCurrentIndex(card.auto_record.findData('schedule'))
+        self.assertFalse(card.schedule_edit.isHidden())
+        self.assertEqual(card.schedule_edit.text(), '')
+        self.assertEqual(card.schedule_edit.toolTip(), '编辑计划')
+        strategy = card.auto_record.parentWidget().layout()
+        self.assertEqual(strategy.indexOf(card.schedule_edit), strategy.indexOf(card.auto_record) + 1)
+        changes = []
+        page.changed.connect(lambda: changes.append(page.values()['streamer_defaults']))
+
+        def edit_group(dialog):
+            dialog.add_row(6, 60, 180)
+            dialog.keyword_input.setText('BO3，赛事复盘、bo3')
+            return QDialog.Accepted
+
+        with patch.object(RecordingScheduleDialog, 'exec', new=edit_group):
+            card.schedule_edit.click()
+        APP.processEvents()
+        self.assertEqual(len(changes), 1)
+        for row in changes[0].values():
+            self.assertEqual(row['recording_policy'], 'schedule')
+            self.assertEqual(row['recording_schedule'], ((6, 60, 180),))
+            self.assertEqual(row['recording_title_keywords'], ('bo3', '赛事复盘'))
+
+        card = page.cards[ids]
+        card.avatars['1002'].click()
+
+        def edit_selected(dialog):
+            dialog._remove(dialog.rows[0])
+            for tag, remove in tuple(dialog.keyword_tags.tags.values()):
+                tag.customContextMenuRequested.emit(tag.rect().center())
+                remove.click()
+            dialog.keyword_input.setText('决赛')
+            return QDialog.Accepted
+
+        with patch.object(RecordingScheduleDialog, 'exec', new=edit_selected):
+            card.schedule_edit.click()
+        APP.processEvents()
+        profiles = page.values()['streamer_defaults']
+        self.assertEqual(profiles['1001'], changes[0]['1001'])
+        self.assertNotIn('recording_schedule', profiles['1002'])
+        self.assertEqual(profiles['1002']['recording_title_keywords'], ('决赛',))
+        self.assertEqual(page.cards[('1002',)].schedule_hint.text(), '按标题匹配')
+        selected = page.cards[('1002',)]
+        selected.auto_record.setCurrentIndex(selected.auto_record.findData('live'))
+        self.assertTrue(selected.schedule_edit.isHidden())
+
+    def test_recording_plan_editor_uses_settings_controls_and_marks_only_overnight_rows(self):
+        from ddm.settings_window import SettingsTitleBar
+        from ddm.ui import NavigationButton
+
+        dialog = RecordingScheduleDialog(None, ((4, 1200, 1320), (5, 1380, 60)), ('决赛',))
+        self.addCleanup(dialog.deleteLater)
+        dialog.setAttribute(Qt.WA_ShowWithoutActivating)
+        accepted = []
+        dialog.accepted.connect(lambda: accepted.append(dialog.schedule()))
+        dialog.show()
+        APP.processEvents()
+        self.assertIsInstance(dialog.titlebar, SettingsTitleBar)
+        self.assertTrue(dialog.windowFlags() & Qt.FramelessWindowHint)
+        self.assertEqual(dialog.save.objectName(), 'PrimaryButton')
+        self.assertEqual(dialog.keyword_input.accessibleName(), '直播间标题关键词')
+        same_day, overnight = dialog.rows
+        self.assertEqual(same_day[-1].text(), '')
+        self.assertEqual(overnight[-1].text(), '次日')
+        self.assertEqual(same_day[1].height(), same_day[2].height())
+        same_day[3].setTime(same_day[2].time())
+        self.assertFalse(dialog.save.isEnabled())
+        self.assertTrue(dialog.error.isVisible())
+        same_day[0].findChild(NavigationButton).click()
+        self.assertTrue(dialog.save.isEnabled())
+        self.assertFalse(dialog.error.isVisible())
+        dialog.save.click()
+        self.assertEqual(accepted, [((5, 1380, 60),)])
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows OCR entry')
+    def test_calendar_import_reviews_and_saves_selected_rows(self):
+        from ddm.recording_calendar import CalendarEntry
+
+        editor = RecordingScheduleDialog(None, ((0, 600, 720),), ('123',))
+        self.addCleanup(editor.deleteLater)
+        editor.setAttribute(Qt.WA_ShowWithoutActivating)
+        editor.show()
+        tags = editor.keyword_tags
+        self.assertEqual(editor.import_calendar.text(), '周表识别')
+        self.assertTrue(editor.calendar.isHidden())
+        editor.import_calendar.click()
+        APP.processEvents()
+        self.assertEqual(editor.import_calendar.text(), '收起周表识别')
+        self.assertEqual(tags.tag_area.height(), tags.tags['123'][0].height())
+        for word in ('recording title A ' * 3, 'recording title B ' * 3, 'recording title C ' * 3):
+            tags.input.setText(word)
+            QTest.keyClick(tags.input, Qt.Key_Return)
+        for expanded in (True, False, True):
+            editor.import_calendar.setChecked(expanded)
+            APP.processEvents()
+            last_tag_bottom = max(tag.geometry().bottom() + 1 for tag, _ in tags.tags.values())
+            self.assertGreater(last_tag_bottom, tags.tags['123'][0].height())
+            self.assertEqual(tags.tag_area.height(), last_tag_bottom)
+        calendar = editor.calendar
+        self.assertTrue(calendar.isVisible())
+        self.assertIs(calendar.window(), editor)
+        self.assertTrue(calendar.drop_area.isVisible())
+        self.assertGreater(editor.height(), editor.compact_height)
+        image = QImage(100, 140, QImage.Format_RGB32)
+        image.fill(Qt.white)
+        with patch.object(calendar.process, 'start'):
+            calendar.load_image(image)
+        APP.processEvents()
+        self.assertTrue(calendar.drop_area.isHidden())
+        self.assertTrue(calendar.preview.isVisible())
+        self.assertTrue(calendar.remove_image.isVisible())
+        self.assertEqual(calendar.remove_image.geometry().topRight(), calendar.preview.geometry().topRight())
+        calendar.today = date(2026, 11, 28)
+        calendar._add_row(CalendarEntry(date(2026, 11, 25), 900, None, '15:00'))
+        calendar._add_row(CalendarEntry(date(2026, 12, 1), 1200, None, '20:00'))
+        calendar.review.show()
+        past, chosen = calendar.rows
+        self.assertFalse(calendar.confirm.isEnabled())
+        past[0].setChecked(True)
+        self.assertFalse(calendar.confirm.isEnabled())
+        calendar.frequency.setCurrentIndex(1)
+        self.assertEqual(calendar.schedule(), ((2, 900, None),))
+        past[0].setChecked(False)
+        calendar.frequency.setCurrentIndex(0)
+        chosen[0].setChecked(True)
+        self.assertTrue(calendar.confirm.isEnabled())
+        calendar.confirm.click()
+        self.assertEqual(editor.schedule(), ((0, 600, 720), ('2026-12-01', 1200, None)))
+        calendar.rows[0][0].setChecked(True)
+        calendar.remove_image.click()
+        self.assertTrue(calendar.drop_area.isVisible())
+        self.assertFalse(calendar.preview.isVisible())
+        self.assertFalse(calendar.rows)
+        editor.save.click()
+        self.assertEqual(editor.result(), QDialog.Accepted)
+        self.assertEqual(editor.schedule(), ((0, 600, 720), ('2026-12-01', 1200, None)))
+        reopened = RecordingScheduleDialog(None, editor.schedule())
+        self.addCleanup(reopened.deleteLater)
+        self.assertEqual(reopened.schedule(), editor.schedule())
+        self.assertEqual(reopened.rows[1][3].text(), '至下播')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows OCR entry')
+    def test_calendar_accepts_image_drops_from_file_and_browser(self):
+        editor = RecordingScheduleDialog(None, ())
+        self.addCleanup(editor.deleteLater)
+        editor.setAttribute(Qt.WA_ShowWithoutActivating)
+        editor.show()
+        APP.processEvents()
+
+        def drop(widget, mime):
+            pos = widget.rect().center()
+            enter = QDragEnterEvent(pos, Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            APP.sendEvent(widget, enter)
+            self.assertTrue(enter.isAccepted())
+            event = QDropEvent(QPointF(pos), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+            APP.sendEvent(widget, event)
+            self.assertTrue(event.isAccepted())
+
+        with tempfile.TemporaryDirectory() as workspace, patch.object(editor.calendar.loader, 'load') as load:
+            file = QUrl.fromLocalFile(str(Path(workspace) / '周表.png'))
+            image = QImage(10, 10, QImage.Format_RGB32)
+            image.fill(Qt.white)
+            self.assertTrue(image.save(file.toLocalFile()))
+            local = QMimeData()
+            local.setUrls([file])
+            drop(editor, local)
+            self.assertTrue(editor.calendar.isVisible())
+            load.assert_called_with(file)
+
+            web = QMimeData()
+            web.setUrls([QUrl('https://example.com/dynamic/1')])
+            web.setHtml('<a href="/dynamic/1"><img src="//cdn.example.com/calendar.webp"></a>')
+            drop(editor.calendar.drop_area, web)
+            load.assert_called_with(QUrl('https://cdn.example.com/calendar.webp'))
+            bitmap = QMimeData()
+            bitmap.setImageData(image)
+            drop(editor.calendar.drop_area, bitmap)
+            self.assertEqual(load.call_args.args[0].size(), image.size())
+
+            thumbnail = 'https://i1.hdslb.com/bfs/new_dyn/calendar.png@264w_264h_1e_1c.avif'
+            web.setHtml(f'<img src="{thumbnail}">')
+            web.setImageData(image)
+            drop(editor.calendar.drop_area, web)
+            load.assert_called_with(QUrl(thumbnail))
+
+            enlarged = QMimeData()
+            enlarged.setHtml('<img src="//i1.hdslb.com/bfs/new_dyn/calendar.png@1052w_!web-dynamic.avif">')
+            drop(editor.calendar.drop_area, enlarged)
+            load.assert_called_with(QUrl('https://i1.hdslb.com/bfs/new_dyn/calendar.png@1052w_!web-dynamic.avif'))
+
+        loader = editor.calendar.loader
+        with patch.object(loader, '_get') as get:
+            loader.load(QUrl(thumbnail))
+            get.assert_called_once_with(QUrl('https://i1.hdslb.com/bfs/new_dyn/calendar.png@2560w.webp'),
+                                        QUrl('https://i1.hdslb.com/bfs/new_dyn/calendar.png'))
+            get.reset_mock()
+            direct = QUrl('https://example.com/calendar@256w.webp')
+            loader.load(direct)
+            get.assert_called_once_with(direct)
+
+    def test_recording_keywords_add_with_enter_and_save_pending_text(self):
+        editor = RecordingScheduleDialog(None, (), ('existing',))
+        self.addCleanup(editor.deleteLater)
+        editor.setAttribute(Qt.WA_ShowWithoutActivating)
+        editor.show()
+        editor.keyword_input.setText('BO3')
+        QTest.keyClick(editor.keyword_input, Qt.Key_Return)
+        self.assertTrue(editor.isVisible())
+        self.assertEqual(editor.keyword_input.text(), '')
+        tag, remove = editor.keyword_tags.tags['bo3']
+        self.assertTrue(remove.isHidden())
+        pos = tag.rect().center()
+        APP.sendEvent(tag, QContextMenuEvent(QContextMenuEvent.Mouse, pos, tag.mapToGlobal(pos)))
+        self.assertTrue(remove.isVisible())
+        remove.click()
+        self.assertEqual(editor.title_keywords(), ('existing',))
+        editor.keyword_input.setText('决赛复盘')
+        editor.save.click()
+        self.assertEqual(editor.result(), QDialog.Accepted)
+        self.assertEqual(editor.title_keywords(), ('existing', '决赛复盘'))
+        self.assertIn('决赛复盘', editor.keyword_tags.tags)
+
     def test_streamer_monitor_card_groups_and_fits_wide_and_narrow_windows(self):
         settings = {'notice_windows_recording': True, 'streamer_defaults': {
             '1001': {'name': '布局示例', 'monitor_live': True, 'auto_record': True}}}
@@ -315,9 +551,16 @@ class SettingsNavigationTests(unittest.TestCase):
         page.setAttribute(Qt.WA_ShowWithoutActivating)
         page.show()
         card = page.cards[('1001',)]
+        header = page.scroll.widget().layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['主播监控'])
+        self.assertEqual(page.merge.toolTip(), '未选头像时编辑整组，选中后单独编辑。')
+        self.assertEqual(card.monitor_live.toolTip(), '关闭后暂停 Windows 开播通知及后续自动录制，保留设置。')
+        self.assertEqual(card.windows_notice.toolTip(), '自动开录、确认下播或计划结束时通知。')
+        self.assertEqual(card.windows_notice.accessibleDescription(), card.windows_notice.toolTip())
         card.toggle.click()
         left, right = card.details.section('playback'), card.details.section('capture')
-        capture_fields = (card.auto_record, card.recording, card.auto_record_mode, card.windows_notice)
+        strategy = card.auto_record.parentWidget()
+        capture_fields = (strategy, card.recording, card.auto_record_mode, card.windows_notice)
         for size, columns in (((1040, 700), 2), ((480, 760), 1)):
             page.resize(*size)
             # Resizing the outer scroll area and switching the column layout
@@ -339,7 +582,7 @@ class SettingsNavigationTests(unittest.TestCase):
                                  recording_label.mapTo(card.details, recording_label.rect().center()).y())
             self.assertEqual(live_label.text(), '开播时发送 Windows 通知')
             self.assertEqual(recording_label.text(), '录制时发送 Windows 通知')
-            self.assertLess(card.auto_record.y(), card.windows_notice.y())
+            self.assertLess(strategy.y(), card.windows_notice.y())
             self.assertLess(card.windows_notice.y(), card.recording.y())
             for control in capture_fields:
                 self.assertIs(control.parentWidget(), right)
@@ -365,7 +608,8 @@ class SettingsNavigationTests(unittest.TestCase):
         self.assertIn('正在读取', card.status.text())
         dialog.receive_streamer_quality('1001', requests['1001'], [{'qn': 400, 'label': '蓝光'}], '')
         dialog.receive_streamer_quality('1002', requests['1002'], [], '')
-        self.assertIn('点击头像', card.status.text())
+        self.assertEqual(card.status.text(), '无共有档位。点头像查看。')
+        self.assertEqual(card.remove_button.toolTip(), '移除整组主播设置')
         for control in (card.playback, card.recording):
             self.assertEqual([control.itemText(index) for index in range(control.count())], ['继承', '最高可用'])
             control.setCurrentIndex(control.findText('最高可用'))

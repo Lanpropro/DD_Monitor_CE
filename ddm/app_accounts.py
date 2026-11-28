@@ -242,15 +242,10 @@ class AppAccounts:
             selected = dialog.rooms
             pending_count = dialog.pending_count
             folder_id = dialog.folder_id
-            removed_ids = dialog.removed_ids
-            move_existing = dialog.folder_changed
-            folder_room_ids = dialog.folder_room_ids
         finally:
             dialog.deleteLater()
-        if import_follows and result == QDialog.Accepted and not host._closing:
-            host._import_selected_follows(selected, folder_id=folder_id,
-                                          removed_ids=removed_ids, move_existing=move_existing,
-                                          folder_room_ids=folder_room_ids, pending_count=pending_count)
+        if import_follows and result == QDialog.Accepted and not host._closing and (selected or pending_count):
+            host._import_selected_follows(selected, folder_id=folder_id, pending_count=pending_count)
 
     def update_bilibili_credentials(self, changes: dict) -> None:
         host = self.host
@@ -282,17 +277,11 @@ class AppAccounts:
             return
         host._open_account_dialog(host._follow_platforms(), import_follows=True)
 
-    def import_selected_follows(self, selected: list, *, folder_id: str = "",
-                                 removed_ids=(), move_existing=False, folder_room_ids=None, pending_count=0,
-                                 on_complete=None) -> None:
+    def import_selected_follows(self, selected: list, *, folder_id: str = "", pending_count=0,
+                                on_complete=None) -> None:
         host = self.host
         if host._closing or getattr(host, "_follow_import_timer", None) is not None:
             return
-        selected_ids = {str(room["room_id"]) for room in selected}
-        removing = set(removed_ids) - selected_ids
-        for room in list(host.sidebar.rooms()):
-            if str(room["room_id"]) in removing:
-                host.remove_room(room)
         # Small imports finish immediately; large imports yield between bounded batches.
         added_rooms = []
         offset = 0
@@ -314,31 +303,22 @@ class AppAccounts:
             timer.stop()
             timer.deleteLater()
             host._follow_import_timer = None
-            host._finish_follow_import(selected, added_rooms, folder_id=folder_id,
-                                       move_existing=move_existing, folder_room_ids=folder_room_ids,
-                                       pending_count=pending_count)
+            host._finish_follow_import(selected, added_rooms, folder_id=folder_id, pending_count=pending_count)
             if on_complete is not None:
                 on_complete()
 
         timer.timeout.connect(import_batch)
         import_batch()
 
-    def finish_follow_import(self, selected, added_rooms, *, folder_id, move_existing,
-                              folder_room_ids=None, pending_count):
+    def finish_follow_import(self, selected, added_rooms, *, folder_id, pending_count):
         host = self.host
-        moving = selected if move_existing else added_rooms
-        if move_existing and folder_room_ids is not None:
-            folder_ids = set(folder_room_ids)
-            moving = [room for room in selected if str(room["room_id"]) in folder_ids]
-        if (folder_id or move_existing) and moving:
-            host.sidebar.move_to_folder([str(room["room_id"]) for room in moving], folder_id)
-        if not move_existing:
-            pending_folders = {}
-            for room in added_rooms:
-                if room.get("pending_folder_id"):
-                    pending_folders.setdefault(room["pending_folder_id"], []).append(str(room["room_id"]))
-            for pending_folder, room_ids in pending_folders.items():
-                host.sidebar.move_to_folder(room_ids, pending_folder)
+        folders = {}
+        for room in added_rooms:
+            target = folder_id or room.get("pending_folder_id")
+            if target:
+                folders.setdefault(target, []).append(str(room["room_id"]))
+        for target, room_ids in folders.items():
+            host.sidebar.move_to_folder(room_ids, target)
         added = len(added_rooms)
         host.load_avatars_for(selected)          # 导入后立刻补头像
         host._refresh_meta()

@@ -13,6 +13,7 @@ QUALITY_NAMES = {value: name for name, value in QUALITY_CHOICES}
 QUALITY_NAMES[20000] = "4K"
 
 TILE_BAR_HEIGHT = 36          # 底部信息条高度（不覆盖画面）
+REPLAY_ICON_PATH = 'M3 4v6h6M3.6 9.6A9 9 0 1 1 4.7 17m5-8 5 3-5 3Z'
 TILE_MIME = "application/x-ddm-tile"
 DANMAKU_MIME = "application/x-ddm-danmaku"
 DANMAKU_CELL_MIME = "application/x-ddm-danmaku-cell"

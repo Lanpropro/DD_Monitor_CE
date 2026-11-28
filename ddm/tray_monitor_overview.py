@@ -26,7 +26,9 @@ class _ProfileStack(QWidget):
         detail = QVBoxLayout()
         detail.setAlignment(Qt.AlignVCenter)
         detail.setSpacing(2)
-        detail.addWidget(monitor_status_badge(entries[0].state), 0, Qt.AlignRight)
+        first = entries[0]
+        self.status = monitor_status_badge(first.state, live=first.live)
+        detail.addWidget(self.status, 0, Qt.AlignRight)
         self.elapsed = QLabel(self, objectName='AppSubtitle')
         detail.addWidget(self.elapsed, 0, Qt.AlignRight)
         self.elapsed.setHidden(not self.started_at)
@@ -70,7 +72,7 @@ class _ProfileStack(QWidget):
         lines = []
         for entry in self.shown:
             line = f'{escape(entry.name)} · {escape(monitor_identifier(entry))}'
-            if live_label := monitored_live_label(entry):
+            if live_label := monitored_live_label(entry.state, entry.live):
                 line += f' · {live_label}'
             if now is not None and entry.started_at:
                 line += f' · {monitor_elapsed(entry.started_at, now)}'
@@ -104,7 +106,8 @@ class TrayMonitorOverview(StreamerMonitorPanel):
         groups = {}
         for entry in entries:
             key = entry.profile_group if entry.profile_group is not None else entry.room_id
-            groups.setdefault((entry.state, key), []).append(entry)
+            live_status = monitored_live_label(entry.state, entry.live)
+            groups.setdefault((entry.state, key, live_status), []).append(entry)
         for group in groups.values():
             if len(group) == 1:
                 self._add_row(group[0], compact=True)

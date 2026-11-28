@@ -1,14 +1,16 @@
 """Playback buttons and popup; playback state and native surfaces stay with the host."""
 import math
 
-from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPointF, QRectF, Qt, Signal, QVariantAnimation
+from PySide6.QtCore import QAbstractAnimation, QByteArray, QEasingCurve, QPointF, QRectF, Qt, Signal, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QFrame, QPushButton, QStyle, QStyleOption, QStyleOptionButton
 
 from .corner_geometry import continuous_path
 from . import motion, theme
 from .config import DEFAULT_VOLUME
 from .dock_feedback import icon_color as navigation_icon_color
+from .widget_support import REPLAY_ICON_PATH
 
 
 class TileButton(QPushButton):
@@ -345,6 +347,53 @@ class SidebarToggleButton(QPushButton):
         painter.drawLine(QPointF(-2.25, -6.75), QPointF(-2.25, 6.75))
         tail, tip = (0.75, 3.0) if self.collapsed else (3.0, 0.75)
         painter.drawPolyline(QPolygonF([QPointF(tail, -2.25), QPointF(tip, 0), QPointF(tail, 2.25)]))
+
+
+class ReplayButton(TileButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('TileCtrl')
+        self.setFixedSize(26, 26)
+        self.setCheckable(True)
+        self.setToolTip('回看这路直播')
+        self.setAccessibleName(self.toolTip())
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        self._scale_press(painter)
+        center = QRectF(self.rect()).center()
+        color = _icon_color(self)
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+               f'stroke="{color.name()}" stroke-opacity="{color.alphaF()}" stroke-width="1.9" '
+               f'stroke-linecap="round" stroke-linejoin="round"><path d="{REPLAY_ICON_PATH}"/></svg>')
+        QSvgRenderer(QByteArray(svg.encode())).render(painter, QRectF(center.x() - 9, center.y() - 9, 18, 18))
+        if self.isChecked():
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(theme.qcolor(theme.ACCENT))
+            painter.drawEllipse(QPointF(center.x() + 8, center.y() + 8), 1.6, 1.6)
+
+
+class ReplayLatestButton(TileButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('TileCtrl')
+        self.setProperty('tileButton', True)
+        self.setFixedSize(26, 26)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip('回到最新时间')
+        self.setAccessibleName(self.toolTip())
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        self._scale_press(painter)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.translate(QRectF(self.rect()).center())
+        painter.setPen(QPen(_icon_color(self), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPolygon(QPolygonF([QPointF(-6, -5), QPointF(2, 0), QPointF(-6, 5)]))
+        painter.drawLine(QPointF(5.5, -5), QPointF(5.5, 5))
 
 
 class DanmakuSettingsButton(TileButton):

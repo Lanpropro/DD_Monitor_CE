@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import requests
 from . import image_cache
 from .cache_cleanup import store_catalog
-from .update_version import version_key
+from .update_version import PLUGIN_VERSION_PATTERN, plugin_version_key, version_key
 from .plugin_manifest import PLUGIN_ID, RETIRED_BUNDLED_PLUGINS, read_manifest
 from .plugin_icons import package_icon
 from .plugin_packages import PluginPackages
@@ -18,7 +18,7 @@ from .file_ops import replace_directory
 
 CATALOG_CHECK_SECONDS = 15 * 60
 CATALOG_CACHE_VERSION = 2
-PLUGIN_ARCHIVE = re.compile(r'([a-z][a-z0-9_-]*)-v?(\d+(?:\.\d+){0,3})\.zip')
+PLUGIN_ARCHIVE = re.compile(r'([a-z][a-z0-9_-]*)-v?(' + PLUGIN_VERSION_PATTERN + r')\.zip')
 _PACKAGE_METADATA = ('name', 'description', 'min_app_version', 'author', 'icon_png')
 
 
@@ -34,7 +34,7 @@ def _package_metadata(path, plugin_id, plugin_version):
         manifest = read_manifest(str(folder), installed)
         if manifest['version'] != plugin_version:
             raise ValueError('安装包版本与附件文件名不一致')
-        version_key(manifest['version'])
+        plugin_version_key(manifest['version'])
         minimum = manifest.get('min_app_version', '0.3')
         version_key(minimum)
         author = manifest.get('author', '')
@@ -45,18 +45,19 @@ def _package_metadata(path, plugin_id, plugin_version):
             'icon_png': package_icon(folder, manifest.get('icon'))}
 
 
-def plugin_catalog(client, current_version, cache=None):
+def plugin_catalog(client, current_version, cache=None, *, include_preview=False):
     from . import online as api
     try:
-        published = api.releases(api.PLUGIN_REPOSITORY, client, cache=cache)
+        published = (api.releases(api.PLUGIN_REPOSITORY, client, cache=cache, include_preview=True)
+                     if include_preview else api.releases(api.PLUGIN_REPOSITORY, client, cache=cache))
     except requests.RequestException:
-        saved = (cache or {}).get('offers', [])
+        saved = [offer for offer in (cache or {}).get('offers', []) if include_preview or not offer.get('prerelease')]
         if not saved:
             raise
         return [dict(offer, cached=True) for offer in _compatible_offers(saved, current_version)]
     candidates = {}
     for release in published:
-        if release.get('draft') or release.get('prerelease'):
+        if release.get('draft') or (release.get('prerelease') and not include_preview):
             continue
         for asset in release.get('assets', []):
             match = PLUGIN_ARCHIVE.fullmatch(asset.get('name', ''))
@@ -64,40 +65,56 @@ def plugin_catalog(client, current_version, cache=None):
                 continue
             plugin_id, plugin_version = match.groups()
             plugin_id = plugin_id.replace('-', '_')
+            prerelease = bool(release.get('prerelease') or '-preview.' in plugin_version)
+            if prerelease and not include_preview:
+                continue
             if plugin_id in RETIRED_BUNDLED_PLUGINS:
                 continue
-            previous = candidates.get(plugin_id)
-            if previous is None or version_key(plugin_version) > version_key(previous[0]):
-                candidates[plugin_id] = (plugin_version, asset, release)
+            channels = candidates.setdefault(plugin_id, {})
+            previous = channels.get(prerelease)
+            if previous is None or plugin_version_key(plugin_version) > plugin_version_key(previous[0]):
+                channels[prerelease] = (plugin_version, asset, release, prerelease)
     saved = {offer['id']: offer for offer in (cache or {}).get('offers', [])}
     offers = []
-    for plugin_id, (plugin_version, asset, release) in candidates.items():
-        offer = {'id': plugin_id, 'name': plugin_id, 'description': '',
-                 'version': plugin_version, 'min_app_version': '0.3',
-                 'notes': release.get('body') or '', 'author': '', 'icon_png': '',
-                 'release_url': release.get('html_url', ''), 'available': True, 'cached': False}
-        try:
-            info = api.asset_info(asset, api.PLUGIN_REPOSITORY)
-            previous = saved.get(plugin_id, {})
-            if (previous.get('version') == plugin_version and
-                    all(previous.get(key) == info[key] for key in ('url', 'sha256', 'size')) and
-                    all(key in previous for key in _PACKAGE_METADATA) and
-                    (previous.get('available') or previous.get('reason', '').startswith('请先更新本体至 '))):
-                offer.update({key: previous[key] for key in _PACKAGE_METADATA})
-            else:
-                with tempfile.TemporaryDirectory(prefix='ddm-catalog-') as temporary:
-                    path = api.download(info, Path(temporary) / 'plugin.zip', client)
-                    offer.update(_package_metadata(path, plugin_id, plugin_version))
-            # Asset names are filenames, not the plugin's display name.
-            offer.update({key: info[key] for key in ('url', 'sha256', 'size')})
-            if version_key(current_version) < version_key(offer['min_app_version']):
-                offer.update(available=False, reason='请先更新本体至 ' + offer['min_app_version'])
-        except (requests.RequestException, OSError, ValueError, zipfile.BadZipFile, KeyError, TypeError) as error:
-            offer.update(available=False, reason='插件包核验失败：' + str(error))
+    for plugin_id, channels in candidates.items():
+        primary = max(channels.values(), key=lambda item: (plugin_version_key(item[0]), not item[3]))
+        offer = _verified_offer(client, current_version, plugin_id, primary, saved.get(plugin_id, {}))
+        if offer['prerelease'] and not offer['available'] and False in channels:
+            stable = _verified_offer(client, current_version, plugin_id, channels[False], saved.get(plugin_id, {}))
+            if stable['available']:
+                offer = stable
         offers.append(offer)
     if cache is not None:
         cache['source'] = 'releases'
     return offers
+
+
+def _verified_offer(client, current_version, plugin_id, candidate, previous):
+    from . import online as api
+    plugin_version, asset, release, prerelease = candidate
+    offer = {'id': plugin_id, 'name': plugin_id, 'description': '',
+             'version': plugin_version, 'min_app_version': '0.3',
+             'notes': release.get('body') or '', 'author': '', 'icon_png': '',
+             'release_url': release.get('html_url', ''), 'available': True, 'cached': False,
+             'prerelease': prerelease}
+    try:
+        info = api.asset_info(asset, api.PLUGIN_REPOSITORY)
+        if (previous.get('version') == plugin_version and
+                all(previous.get(key) == info[key] for key in ('url', 'sha256', 'size')) and
+                all(key in previous for key in _PACKAGE_METADATA) and
+                (previous.get('available') or previous.get('reason', '').startswith('请先更新本体至 '))):
+            offer.update({key: previous[key] for key in _PACKAGE_METADATA})
+        else:
+            with tempfile.TemporaryDirectory(prefix='ddm-catalog-') as temporary:
+                path = api.download(info, Path(temporary) / 'plugin.zip', client)
+                offer.update(_package_metadata(path, plugin_id, plugin_version))
+        # Asset names are filenames, not the plugin's display name.
+        offer.update({key: info[key] for key in ('url', 'sha256', 'size')})
+        if version_key(current_version) < version_key(offer['min_app_version']):
+            offer.update(available=False, reason='请先更新本体至 ' + offer['min_app_version'])
+    except (requests.RequestException, OSError, ValueError, zipfile.BadZipFile, KeyError, TypeError) as error:
+        offer.update(available=False, reason='插件包核验失败：' + str(error))
+    return offer
 
 
 def _compatible_offers(offers, current_version):
@@ -133,7 +150,7 @@ def load_plugin_cache(path):
                 return {}
             version_key(offer.get('min_app_version', '0.3'))
             if offer.get('version'):
-                version_key(offer['version'])
+                plugin_version_key(offer['version'])
             if offer.get('available') or offer.get('url'):
                 api.asset_info({'browser_download_url': offer['url'], 'digest': 'sha256:' + offer['sha256'],
                             'size': offer['size'], 'name': offer['name']}, api.PLUGIN_REPOSITORY)
@@ -146,16 +163,23 @@ def load_plugin_cache(path):
         return {}
 
 
-def cached_plugin_catalog(client, current_version, path, force=False):
+def plugin_catalog_path(root, include_preview=False):
+    filename = 'plugin-catalog-preview.json' if include_preview else 'plugin-catalog.json'
+    return Path(root) / 'cache' / filename
+
+
+def cached_plugin_catalog(client, current_version, path, force=False, *, include_preview=False):
     from . import online as api
     stamp = image_cache.ticket()
     cache = api.load_plugin_cache(path)
     now = time.time()
-    if not force and cache and 0 <= now - cache['checked_at'] < api.CATALOG_CHECK_SECONDS:
+    if (not force and cache and cache.get('include_preview', False) == include_preview
+            and 0 <= now - cache['checked_at'] < api.CATALOG_CHECK_SECONDS):
         return api._compatible_offers(cache['offers'], current_version)
-    offers = api.plugin_catalog(client, current_version, cache=cache)
+    offers = (api.plugin_catalog(client, current_version, cache=cache, include_preview=True)
+              if include_preview else api.plugin_catalog(client, current_version, cache=cache))
     cache.update(repository=api.PLUGIN_REPOSITORY, catalog_version=CATALOG_CACHE_VERSION,
-                 offers=offers, checked_at=now)
+                 offers=offers, checked_at=now, include_preview=include_preview)
     path = Path(path)
     try:
         store_catalog(path, json.dumps(cache, ensure_ascii=False).encode('utf-8'), stamp)

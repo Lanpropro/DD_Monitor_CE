@@ -1,10 +1,38 @@
 """Followed room collection, asynchronous add/remove and platform activation; original window owns state."""
+from PySide6.QtCore import QTimer, Qt
+
+
+ROOM_ADD_TIMEOUT_MS = 30_000
+
+
+class RoomAddAttempt:
+    def __init__(self, panel, on_timeout):
+        self.panel = panel
+        self.active = True
+        self.timer = QTimer(panel)
+        self.timer.setSingleShot(True)
+        self.timer.setInterval(ROOM_ADD_TIMEOUT_MS)
+        self.timer.timeout.connect(lambda: on_timeout(self))
+
+    def pause(self):
+        self.timer.stop()
+        self.panel.cancel_button.hide()
+
+    def resume(self):
+        self.timer.start()
+        self.panel.cancel_button.show()
+
+    def finish(self):
+        self.active = False
+        self.timer.stop()
+        self.timer.deleteLater()
 
 
 class RoomCatalog:
     def __init__(self, host):
         self.host = host
         self._add_panel = None
+        self._add_attempt = None
         self._add_target = None
         self._replacement_room = None
         ui = getattr(host, 'state', {}).get('ui') or {}
@@ -39,7 +67,8 @@ class RoomCatalog:
             getattr(host.sidebar, "set_" + key)(saved[key])
         host.sidebar.apply_pins(saved["pinned"])
         host.sidebar.set_folders(saved.get("follow_folders") or [])
-        for index, room in enumerate(wall):
+        capacity = host.wall._capacity()
+        for index, room in enumerate(wall[:capacity or None]):
             if index >= len(host.wall.tiles):
                 host.wall.add_room(host.room_placement.prepare_wall_entry(room))
                 continue
@@ -88,14 +117,14 @@ class RoomCatalog:
         from .room_add_panel import RoomAddPanel
         host = self.host
         if self._add_panel is None:
-            self._add_panel = RoomAddPanel(host.sidebar)
+            self._add_panel = RoomAddPanel(host.sidebar, followed_live_only=self.followed_live_only)
             self._add_panel.submitted.connect(self._submit_inline)
+            self._add_panel.cancel_requested.connect(self._cancel_inline)
             self._add_panel.followed_requested.connect(self._load_followed)
             self._add_panel.followed_selected.connect(self._select_followed)
             self._add_panel.preset_selected.connect(self._select_preset)
             self._add_panel.dismissed.connect(self._clear_add_target)
-            self._add_panel.followed.live_only.setChecked(self.followed_live_only)
-            self._add_panel.followed.live_only.toggled.connect(self._remember_followed_live_only)
+            self._add_panel.followed_filter_changed.connect(self._remember_followed_live_only)
         if not self._add_panel.busy:
             self._add_target = target_tile
             self._replacement_room = (target_tile.room if target_tile is not None and target_tile.can_replace_room()
@@ -207,17 +236,31 @@ class RoomCatalog:
                 panel.show_error('替换此格时，请输入一个房间号或链接')
                 return
         panel.set_busy(True)
+        attempt = self._add_attempt = RoomAddAttempt(panel, self._timeout_inline)
+        attempt.resume()
         if len(rooms) == 1:
             self.add_room_id(rooms[0], folder_id=folder_id, target_tile=target,
-                             resolver_type=self._add_resolver_type, on_complete=self._complete_inline)
+                             resolver_type=self._add_resolver_type, attempt=attempt,
+                             on_complete=lambda success, message: self._complete_inline(attempt, success, message))
         else:
             from .room_add_batch import RoomAddBatch
             RoomAddBatch(host, rooms, folder_id, target_tile=target,
-                         resolver_type=self._add_resolver_type, on_complete=self._complete_batch).start()
+                         resolver_type=self._add_resolver_type, attempt=attempt,
+                         on_complete=lambda batch: self._complete_batch(attempt, batch)).start()
 
-    def _complete_inline(self, success, message=''):
-        if self.host._closing:
+    def _cancel_inline(self):
+        attempt = self._add_attempt
+        if attempt is not None and attempt.timer.isActive():
+            self._complete_inline(attempt, False, '已取消解析，可以重试')
+
+    def _timeout_inline(self, attempt):
+        self._complete_inline(attempt, False, '解析超时，可以重试')
+
+    def _complete_inline(self, attempt, success, message=''):
+        if self.host._closing or attempt is not self._add_attempt:
             return
+        self._add_attempt = None
+        attempt.finish()
         panel = self._add_panel
         panel.set_busy(False)
         if success:
@@ -226,22 +269,29 @@ class RoomCatalog:
             self._clear_add_target()
         else:
             panel.show_error(message)
+            if panel.isVisible():
+                panel.entry.setFocus(Qt.OtherFocusReason)
+            else:
+                self._clear_add_target()
 
-    def _complete_batch(self, batch):
+    def _complete_batch(self, attempt, batch):
+        if not attempt.active:
+            return
         if batch.failures:
             self._add_panel.entry.setPlainText('\n'.join(room_id for room_id, _reason in batch.failures))
             message = '\n'.join(f'{room_id}：{reason}' for room_id, reason in batch.failures)
-            self._complete_inline(False, message)
+            self._complete_inline(attempt, False, message)
         else:
-            self._complete_inline(True)
+            self._complete_inline(attempt, True)
 
-    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None, on_complete=None) -> None:
+    def add_room_id(self, room_id: str, *, folder_id: str = "", resolver_type, target_tile=None,
+                    on_complete=None, attempt=None) -> None:
         from PySide6.QtWidgets import QMessageBox
         host = self.host
         InfoResolver = resolver_type
         from .room_input import bili_profile_uid, is_bili_short_url
         def added(room):
-            if host._closing:
+            if host._closing or (attempt is not None and not attempt.active):
                 return
             error = host._on_room_added(room, folder_id=folder_id, target_tile=target_tile)
             if on_complete is not None:
@@ -266,7 +316,7 @@ class RoomCatalog:
                 elif message:
                     QMessageBox.warning(host, '导入频道', message)
             RoomListImport(host, platform.room_list, room_id, folder_id=folder_id,
-                           target_tile=target_tile, on_complete=list_added).start()
+                           target_tile=target_tile, on_complete=list_added, attempt=attempt).start()
             return
         if ":" in room_id and not (short_link or profile_link):
             if platform is None:
@@ -278,7 +328,8 @@ class RoomCatalog:
             resolver = InfoResolver(room_id, host, platform=platform)
             resolver.resolved.connect(added)
             resolver.failed.connect(lambda _rid, r=resolver: self.on_platform_room_failed(
-                r, platform, room_id, folder_id=folder_id, target_tile=target_tile, on_complete=on_complete)
+                r, platform, room_id, folder_id=folder_id, target_tile=target_tile,
+                on_complete=on_complete, attempt=attempt)
                 if on_complete is not None else host._on_platform_room_failed(
                     r, platform, room_id, folder_id=folder_id, target_tile=target_tile))
             resolver.finished.connect(lambda r=resolver: host._platform_info_running.discard(r))
@@ -306,22 +357,27 @@ class RoomCatalog:
         host._platform_info_running.add(resolver)
         resolver.start()
 
-    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None, on_complete=None):
+    def on_platform_room_failed(self, resolver, platform, room_id, *, folder_id="", target_tile=None,
+                                on_complete=None, attempt=None):
         from PySide6.QtWidgets import QDialog, QMessageBox
         host = self.host
-        if host._closing:
+        if host._closing or (attempt is not None and not attempt.active):
             return
         if (getattr(resolver, "browser_verification", False) is True
                 and platform.kind == "douyin" and getattr(platform, "room_browser_init_script", "")):
             from .profile_room import ProfileRoomDialog
+            if attempt is not None:
+                attempt.pause()
             dialog = ProfileRoomDialog(platform, "", host, room_id=room_id)
             result = dialog.exec()
             canonical = dialog.room_id
             dialog.deleteLater()
             if result == QDialog.Accepted and canonical and not host._closing:
                 if on_complete is not None:
+                    if attempt is not None:
+                        attempt.resume()
                     self.add_room_id(canonical, folder_id=folder_id, target_tile=target_tile,
-                                     resolver_type=type(resolver), on_complete=on_complete)
+                                     resolver_type=type(resolver), on_complete=on_complete, attempt=attempt)
                 else:
                     host._add_room_id(canonical, folder_id=folder_id, target_tile=target_tile)
             elif on_complete is not None:
@@ -336,8 +392,10 @@ class RoomCatalog:
     def place_in_target(self, target, room):
         from . import layouts
         host = self.host
+        if target is None:
+            return False
         destinations = (host.wall.visible_tiles() if layouts.snap_grid_size(getattr(host.wall, 'layout_id', ''))
-                        else host.wall.tiles)
+                        else host.wall.video_slots())
         if (target in destinations and (self._is_replacement(target) or not target.room.get('room_id'))
                 and host._tile_of(str(room['room_id'])) is None):
             host.room_placement.drop_room(target, str(room['room_id']), room=room)

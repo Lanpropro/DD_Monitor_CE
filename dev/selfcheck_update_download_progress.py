@@ -338,6 +338,7 @@ class UpdateDownloadTests(unittest.TestCase):
         layout.addWidget(progress)
         surface.show()
         self.app.processEvents()
+        self.assertIsNone(progress.bar)
         original = progress.geometry()
         button_width, button_height = button.width(), button.height()
         state = dict(received=50 * 1024 * 1024, total=250 * 1024 * 1024,
@@ -602,7 +603,9 @@ class UpdateDownloadTests(unittest.TestCase):
                          speed=12 * 1024 * 1024, percent=50, phase='downloading')
             store.downloads.states[keys[0]] = state
             store._busy(False)
-            page._sync_update_buttons()
+            with patch.object(self.manager, 'catalog', side_effect=AssertionError('unexpected catalog rescan')):
+                page._sync_update_buttons()
+                store.update_dots()
             page.show()
             for tab in (0, 1):
                 page.tabs.setCurrentIndex(tab)
@@ -698,7 +701,7 @@ class UpdateDownloadTests(unittest.TestCase):
             self.assertEqual(states, [Qt.Checked.value if check.isChecked() else Qt.Unchecked.value])
             self.assertEqual(toggled, [not before])
             self.assertEqual(page_changes, [not before])
-            self.assertIn('重启后生效', page.card_details[key][1].text())
+            self.assertIn('重启后' + ('禁用' if before else '启用'), page.card_details[key][1].text())
             for control in (page.install_button, page.update_buttons[key], store.refresh,
                             *store.buttons.values(), prompt.cancel_button, prompt.delete_button):
                 self.assertIsInstance(control, ActionButton)
@@ -707,7 +710,7 @@ class UpdateDownloadTests(unittest.TestCase):
             self.assertIsInstance(page._detail_buttons[key], DisclosureButton)
             self.assertTrue(prompt.cancel_button.isDefault())
             self.assertFalse(prompt.delete_button.autoDefault())
-            self.assertEqual(prompt.delete_button.objectName(), 'PrimaryButton')
+            self.assertEqual(prompt.delete_button.objectName(), 'DangerButton')
             with patch('ddm.settings_plugins.QFileDialog.getOpenFileName', return_value=('', '')) as choose:
                 page.install_button.click()
                 choose.assert_called_once()

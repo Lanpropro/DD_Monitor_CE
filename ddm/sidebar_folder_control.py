@@ -1,4 +1,5 @@
 """Follow-folder commands and presentation; data and Qt children belong to the sidebar."""
+from collections import Counter
 from uuid import uuid4
 
 from PySide6.QtCore import Qt
@@ -321,6 +322,10 @@ class SidebarFolderControl:
         entries = []
         visible = host.visible_items() if preview_items is None else [
             item for item in preview_items if not item.filtered_out]
+        live_ids = ({str(item.room.get("room_id")) for item in host._items if item.room.get("live")}
+                    if host.live_only else None)
+        counts = Counter(folder_id for room_id, folder_id in host._folder_assignments.items()
+                         if live_ids is None or room_id in live_ids)
         active_copies = set()
         for folder in host.folders:
             button = host._folder_buttons.get(folder["id"])
@@ -329,11 +334,11 @@ class SidebarFolderControl:
                 host._folder_buttons[folder["id"]] = button
             members = [item for item in visible
                        if host.folder_for(str(item.room.get("room_id"))) == folder["id"]]
-            count = sum(fid == folder["id"] for fid in host._folder_assignments.values())
+            count = counts[folder["id"]]
             copies = folder["type"] == "smart" and folder["rule"].get("display") == "copy"
             if copies:
                 matched = follow_folders.smart_members(host.rooms(), host.folders, folder, host._folder_pending)
-                count = len(matched)
+                count = len(matched if live_ids is None else matched & live_ids)
                 members = [item for item in host._items if str(item.room["room_id"]) in matched
                            and host.matches(item, host.filter_text.split(), folder["id"])]
                 order = host.import_order if folder["sort"] == "imported" else host.custom_order

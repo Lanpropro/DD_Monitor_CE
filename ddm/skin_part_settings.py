@@ -78,7 +78,7 @@ class PartSettings(QDialog):
         self.page_title.setObjectName('SettingsTitle')
         right.addWidget(self.page_title)
         self.page_title.setVisible(not embedded)
-        self.introduction = QLabel('点击预览图中的可修改区域，在选项中自定义样式' if embedded else
+        self.introduction = QLabel('点击预览图中的彩框编辑样式。' if embedded else
                                   '点击左侧预览图中可修改部分 在下方自定义修改')
         self.introduction.setObjectName('SettingsHint')
         self.introduction.setWordWrap(True)

@@ -1,8 +1,7 @@
 """Icon shortcuts above editable captions, separate from their text geometry."""
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QToolButton
-from . import theme
 
 
 class CaptionToolButton(QToolButton):
@@ -15,16 +14,15 @@ class CaptionToolButton(QToolButton):
         self.setFocusPolicy(Qt.NoFocus)
         self.setCursor(Qt.PointingHandCursor)
         self.clicked.connect(callback)
-        theme.signals().changed.connect(self.update)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if self.underMouse() or self.isDown():
             painter.setPen(Qt.NoPen)
-            painter.setBrush(theme.qcolor(theme.CONTENT_HOVER))
+            painter.setBrush(QColor(255, 255, 255, 42))
             painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 6, 6)
-        painter.setPen(QPen(theme.qcolor(theme.TEXT1), 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.setPen(QPen(Qt.white, 1.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.setBrush(Qt.NoBrush)
         if self.kind in ('larger', 'smaller'):
             painter.drawLine(5, 20, 10, 7)
@@ -75,7 +73,6 @@ class CaptionToolbar(QFrame):
         self._hide_timer.setInterval(350)
         self._hide_timer.timeout.connect(self._hide_if_left)
         caption.destroyed.connect(self.deleteLater)
-        theme.signals().changed.connect(self.update)
         self.hide()
 
     def _content_menu(self):
@@ -104,7 +101,8 @@ class CaptionToolbar(QFrame):
         if area is None:
             return
         position = caption._owner.mapFromGlobal(caption.pos()) if caption.qt_composited else caption.pos()
-        x = max(area.left(), min(position.x(), area.right() - self.width() + 1))
+        center = position.x() + (caption.width() - self.width()) // 2
+        x = max(area.left(), min(center, area.right() - self.width() + 1))
         y = position.y() - self.height() - 2
         if y < area.top():
             y = min(area.bottom() - self.height() + 1, position.y() + caption.height() + 2)
@@ -129,6 +127,6 @@ class CaptionToolbar(QFrame):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
-        painter.setBrush(theme.qcolor(theme.ELEVATED))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(self.interaction.caption._style.background_color())
         painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 9, 9)

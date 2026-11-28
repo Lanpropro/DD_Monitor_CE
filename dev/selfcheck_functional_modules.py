@@ -52,7 +52,7 @@ class FunctionalModulesTests(unittest.TestCase):
         sidebar, appearance = Sidebar([], auto_compact=False), AppearanceButton()
         self.widgets += [sidebar, appearance]
         self.assertEqual(vars(sidebar.items_control), {
-            'host': sidebar, '_auto_record_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
+            'host': sidebar, '_monitored_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
         })
         self.assertEqual(vars(sidebar.interaction_control), {'host': sidebar})
         self.assertFalse(hasattr(appearance, 'items_control'))

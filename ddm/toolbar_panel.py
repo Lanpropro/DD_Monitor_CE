@@ -1,17 +1,47 @@
-"""Dismissal, bounds and pointer gestures for the toolbar's PiP panel."""
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, QTimer, Qt
+"""Position and manage a floating panel attached to a toolbar button."""
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer, Qt
 from PySide6.QtGui import QWindow
 from PySide6.QtWidgets import QApplication, QWidget
 from .panel_resize import resize_edges, resized_rect, set_resize_cursor
 
 
-class ToolbarPipPanel(QObject):
-    def __init__(self, dialog, anchor, *, below):
+def _clamp_position(dialog, position, area):
+    return QPoint(max(area.left(), min(position.x(), area.right() + 1 - dialog.width())),
+                  max(area.top(), min(position.y(), area.bottom() + 1 - dialog.height())))
+
+
+def place_near(dialog, anchor, available, *, below):
+    gap = 8
+    area = available.adjusted(gap, gap, -gap, -gap)
+    if not area.isValid():
+        return
+    dialog.layout().activate()
+    dialog.resize(dialog.size().boundedTo(area.size()))
+    width, height = dialog.width(), dialog.height()
+    if below:
+        x = anchor.left()
+        y = anchor.bottom() + 1 + gap
+        above = anchor.top() - height - gap
+        if y + height > area.bottom() + 1 and above >= area.top():
+            y = above
+    else:
+        x = anchor.right() + 1 + gap
+        y = anchor.top()
+        left = anchor.left() - width - gap
+        if x + width > area.right() + 1 and left >= area.left():
+            x = left
+    dialog.move(_clamp_position(dialog, QPoint(x, y), area))
+
+
+class ToolbarPanel(QObject):
+    def __init__(self, dialog, host, anchor, *, below, preferred_size, remember_size=None):
         super().__init__(dialog)
         self.dialog = dialog
-        self.host = dialog.controller.host
+        self.host = host
         self.anchor = anchor
         self.below = below
+        self.preferred_size = preferred_size
+        self.remember_size = remember_size
         self.position = None
         self._gesture = None
 
@@ -42,14 +72,12 @@ class ToolbarPipPanel(QObject):
         if not area.isValid() or minimum.boundedTo(area.size()) != minimum:
             dialog.reject()
             return False
-        saved = dialog.controller.picker_size
-        preferred = QSize(*saved) if saved else dialog.COMPACT_SIZE
-        dialog.resize(preferred.boundedTo(area.size()))
+        dialog.resize(self.preferred_size.boundedTo(area.size()))
         if self.position is None:
             rect = QRect(self.anchor.mapToGlobal(QPoint()), self.anchor.size())
-            dialog.place_near(rect, available, below=self.below)
+            place_near(dialog, rect, available, below=self.below)
         else:
-            dialog.move(dialog._clamp_position(self.host.mapToGlobal(self.position), area))
+            dialog.move(_clamp_position(dialog, self.host.mapToGlobal(self.position), area))
         return True
 
     def _belongs_to_panel(self, widget):
@@ -83,7 +111,9 @@ class ToolbarPipPanel(QObject):
         if QWidget.mouseGrabber() is widget:
             widget.releaseMouse()
         if edges and self.dialog.size() != original.size():
-            self.dialog.controller.remember_picker_size(self.dialog.size())
+            self.preferred_size = self.dialog.size()
+            if self.remember_size is not None:
+                self.remember_size(self.preferred_size)
         self.dialog.unsetCursor()
 
     def _move_gesture(self, point):
@@ -91,7 +121,7 @@ class ToolbarPipPanel(QObject):
         delta = point - pressed
         area = self._available().adjusted(8, 8, -8, -8)
         if not edges:
-            position = self.dialog._clamp_position(original.topLeft() + delta, area)
+            position = _clamp_position(self.dialog, original.topLeft() + delta, area)
             self.dialog.move(position)
         else:
             self.dialog.setGeometry(resized_rect(original, edges, delta, area, self.dialog.minimumSizeHint()))

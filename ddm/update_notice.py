@@ -49,6 +49,7 @@ class UpdateNavDelegate(QStyledItemDelegate):
 class UpdateNotice(QFrame):
     """不抢焦点的悬浮更新提醒，十秒后自动收起。"""
     activated = Signal()
+    dismissed = Signal(object)
     updateRequested = Signal(str)
     _slide_distance = 24
 
@@ -60,6 +61,7 @@ class UpdateNotice(QFrame):
         self.setObjectName('UpdateNotice')
         self._history_entries = set()
         self._update_rows = {}
+        self._offered_versions = {}
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 12, 14)
         layout.setSpacing(12)
@@ -93,7 +95,7 @@ class UpdateNotice(QFrame):
         close.setObjectName('NoticeClose')
         close.setFixedSize(24, 24)
         close.setToolTip('关闭提示')
-        close.clicked.connect(lambda: self.dismiss(handled=True))
+        close.clicked.connect(self._dismiss_by_user)
         self.heading.addWidget(close, 0, Qt.AlignTop)
         layout.addLayout(self.heading)
         self.updates_scroll = None
@@ -299,6 +301,11 @@ class UpdateNotice(QFrame):
         if record is not None and record[1] is not None:
             self._history_entries.add(record)
 
+    def _dismiss_by_user(self):
+        versions = dict(self._offered_versions)
+        self.dismiss(handled=True)
+        self.dismissed.emit(versions)
+
     def dismiss(self, animate=True, *, handled=False):
         if handled:
             for center, entry in self._history_entries:
@@ -331,6 +338,7 @@ class UpdateNotice(QFrame):
 
     def set_updates(self, entries):
         from .update_progress_ui import UpdateProgress
+        self._offered_versions = {entry['key']: entry['version'] for entry in entries if 'version' in entry}
         single = len(entries) == 1
         if self.updates_scroll is None:
             self.updates_container = QWidget(self)

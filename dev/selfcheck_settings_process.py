@@ -74,11 +74,17 @@ def child(action):
                 report(theme.mode())
                 return
             if action == 'streamer-defaults':
+                from PySide6.QtCore import Qt
                 index = self.PAGE_INDEX['streamer_defaults']
                 self.nav.setCurrentRow(index)
                 page = self._loaded_pages[index]
                 for room_id in ('1001', 'fixture:7'):
-                    page.picker.buttons[room_id].click()
+                    picker = page.picker
+                    index = next(picker.model.index(row, column)
+                                 for row in range(picker.model.rowCount())
+                                 for column in range(picker.model.columnCount())
+                                 if picker.model.index(row, column).data(Qt.UserRole) == room_id)
+                    picker.scroll.clicked.emit(index)
 
                 def configure():
                     if page.requests:
@@ -345,9 +351,9 @@ def check_worker(app, action):
                     combined.update(saved.get('settings', {}))
                 if action == 'streamer-defaults':
                     assert combined == {'streamer_defaults': {
-                        '1001': {'name': 'Fixture', 'playback': {'qn': 15000, 'label': '2K'},
+                        '1001': {'name': 'Fixture', 'monitor_live': True, 'playback': {'qn': 15000, 'label': '2K'},
                                  'recording': {'qn': 400, 'label': '蓝光'}, 'volume': 57},
-                        'fixture:7': {'name': 'Other', 'playback': {'qn': 2, 'label': '超清'},
+                        'fixture:7': {'name': 'Other', 'monitor_live': True, 'playback': {'qn': 2, 'label': '超清'},
                                       'recording': {'qn': 1, 'label': '原画'}, 'volume': 62},
                     }}
                 else:
@@ -835,6 +841,12 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 if action == 'embed-appearance':
                     assert message['glass'], 'Worker must use live composition blur while host pages are embedded'
                     assert session.stack.property('settings_glass_enabled')
+                    if message['index'] == PAGE_INDEX['appearance']:
+                        page = session.dialog.appearance_page
+                        if not page.windowed_transparent_controls.isChecked():
+                            assert not page.windowed_auto_hide_controls.isEnabled()
+                            page.windowed_transparent_controls.click()
+                            page.windowed_auto_hide_controls.click()
                 assert session.dialog.nav.currentRow() == (message['index'] if message['index'] in settings_process.HOST_PAGES else -1)
                 if message['index'] in settings_process.HOST_PAGES:
                     if action == 'embed-scroll':
@@ -986,6 +998,9 @@ def check_host_application(app, action='save', *, installed_controls=False):
                 assert getattr(window, '_settings_host', None) is None, 'Host pages leaked after close'
                 assert window.settings['default_volume'] == 17
                 assert window.settings['auto_update'] is (action not in ('embed-footer', 'embed-appearance'))
+                if action == 'embed-appearance':
+                    assert window.settings['windowed_transparent_controls']
+                    assert window.settings['windowed_auto_hide_controls']
                 assert window.settings['skin_mask'] == 29 and window.shortcuts['fullscreen'] == 'Ctrl+F10'
                 if action in ('embed-footer', 'embed-coordinates'):
                     process_pid = client.process.processId()

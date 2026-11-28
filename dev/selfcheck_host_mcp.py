@@ -23,7 +23,7 @@ def main():
     fixture.setUpClass()
     fixture.setUp()
     try:
-        window = fixture.window([{'room_id': '101', 'live': False}], offscreen=True)
+        window = fixture.window([{'room_id': str(i), 'live': False} for i in (101, 102)], offscreen=True)
         with tempfile.TemporaryDirectory() as directory:
             endpoint = DiagnosticEndpoint(window, directory, directory)
             try:
@@ -108,6 +108,13 @@ def main():
                 assert endpoint.active is None and TilePlayer._check is player_check
 
                 pages = call('settings_pages')['result']['pages']
+                assert call('pip_picker', visible=1)['reason'] == 'invalid-visibility'
+                socket = capture('sidebar-performance', seconds=2)
+                assert response(socket)['status'] == 'armed'
+                assert call('pip_picker', visible=True)['result']['visible']
+                report = next(row for row in response(socket)['records'] if row['stage'] == 'sidebar-performance')
+                assert len(report['picker_first_paint_ms']) == 1 and report['phases']['picker-choice']['calls'] > 0
+                assert not call('pip_picker', visible=False)['result']['visible']
                 assert len(pages) == 11 and any(row['id'] == 'streamer_defaults' for row in pages)
                 assert call('settings_state')['result'] == dict(window='closed', visible=False, page=None)
                 assert call('settings_open', page=[], entry='sidebar')['reason'] == 'unknown-settings-page'
@@ -117,6 +124,11 @@ def main():
                 assert call('set_layout', layout='INVALID')['status'] == 'error'
                 assert call('remove', slot=0)['reason'] == 'invalid-slot'
                 assert call('remove', slot=True)['reason'] == 'invalid-slot'
+                assert call('remove_slots', slots=[1, 1])['reason'] == 'invalid-slot'
+                assert call('undo_remove')['reason'] == 'undo-unavailable'
+                assert response(open_request(dict(protocol=1, mode='playback', first_slot=True)))['reason'] == 'invalid-request'
+                socket = open_request(dict(protocol=1, mode='playback', first_slot=2, seconds=1))
+                assert response(socket)['status'] == 'armed' and response(socket)['status'] == 'complete'
                 assert call('remove', slot=1, extra=2)['reason'] == 'invalid-request'
                 assert call('open_pip', slots=[1, 1])['reason'] == 'invalid-pip-slots'
                 window.sidebar.layoutChosen.emit('1x2')
@@ -125,13 +137,24 @@ def main():
                 assert state['orientation'] == 'portrait' and state['last_layout_change']['sync_ms'] >= 0
                 assert call('open_pip', slots=[1])['result']['state']['picture_in_picture']
                 assert call('remove', slot=1)['reason'] == 'slot-unavailable'
+                socket = capture('sidebar-performance', seconds=2)
+                assert response(socket)['status'] == 'armed'
                 assert not call('close_pip')['result']['state']['picture_in_picture']
+                phases = next(row['phases'] for row in response(socket)['records']
+                              if row['stage'] == 'sidebar-performance')
+                for phase in ('pip-return', 'pip-return-attach', 'pip-return-layout', 'pip-return-show'):
+                    assert phases[phase]['calls'] == 1
                 tile = window.wall.tiles[0]
                 window._pending_capture[tile] = True
                 try:
                     assert call('remove', slot=1)['reason'] == 'slot-recording'
                 finally:
                     del window._pending_capture[tile]
+                before = [slot.room.get('room_id') for slot in window.wall.tiles]
+                assert call('remove_slots', slots=[1, 2])['status'] == 'complete'
+                assert not any(slot.room.get('room_id') for slot in window.wall.tiles[:2])
+                assert call('undo_remove')['status'] == 'complete'
+                assert [slot.room.get('room_id') for slot in window.wall.tiles] == before
                 assert not call('remove', slot=1)['result']['state']['slots'][0]['occupied']
                 assert window.wall_removal.can_undo() and window.wall_removal.undo()
                 if python := os.environ.get('DDM_MCP_PYTHON'):

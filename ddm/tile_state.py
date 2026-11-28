@@ -190,7 +190,7 @@ class TileState:
     def set_video_active(self, active: bool) -> None:
         host = self.host
         host._player_active = active
-        host.video_danmaku.set_active(active)
+        host.video_danmaku.set_active(active or self._showing_replay())
         host.cover.setVisible(not active)
         host._layout_cover()
         if active:
@@ -206,6 +206,8 @@ class TileState:
         host._status_detail = detail
         host._connecting = text.startswith("连接中")
         host._sync_status_label()
+        if self._showing_replay():
+            return
         if detail:
             host.spinner.start()
             host._layout_areas()
@@ -241,7 +243,7 @@ class TileState:
         host._connecting = active
         host._buffering = bool(active)
         host._sync_status_label()
-        if active:
+        if active and not self._showing_replay():
             host.spinner.start()
         else:
             host.spinner.stop()
@@ -258,6 +260,8 @@ class TileState:
     def set_paused(self, paused: bool) -> None:
         host = self.host
         host.paused = bool(paused)
+        if self._showing_replay():
+            return
         host.pause_button.set_paused(host.paused)
         host.video_danmaku.set_paused(host.paused)
         if host.paused and host._player_active:
@@ -267,6 +271,10 @@ class TileState:
             host.pause_overlay.stop()
         host._update_quick_danmaku_mask()
         host._layout_controls()
+
+    def _showing_replay(self):
+        view = self.host._replay_view
+        return view is not None and view.in_history
 
     def set_live(self, live: bool, viewers: str = "") -> None:
         host = self.host
@@ -283,8 +291,12 @@ class TileState:
         host = self.host
         host.room["uname"] = uname or ""
         host.room["title"] = title or ""
+        if (host.title_badge.uname, host.title_badge.title) == (host.room["uname"], host.room["title"]):
+            return
         host.title_badge.set_text(host.room["uname"], host.room["title"])
-        host.title_badge.setVisible(bool(host.room["uname"]) and host._overlay_visible)
+        host.presentation_control.layout_status_badges()
+        if host._overlay_visible:
+            host._update_quick_danmaku_mask()
 
     def set_watched(self, watched_text: str) -> None:
         """实时在线人数（高能榜 onlineNum，和 B 站页面一致）。"""
@@ -303,8 +315,9 @@ class TileState:
         host.stream_badge.set_state(live, watched or (WATCHING_TEXT if live and supports_count else ""))
         # 悬停才露（和控制条同步）；不然一屏好几格的 LIVE 一直挂着太吵。
         # 宽度够不够同时放下它和控制条，交给 _sync_stream_badge() 一起算
-        host._sync_stream_badge()
-        host._layout_areas()          # 浮标宽度会变（人数位数不同），标题要跟着重新让位
+        host.presentation_control.layout_status_badges()
+        if host._overlay_visible:
+            host._update_quick_danmaku_mask()
         if not supports_count:
             host.stream_badge.setToolTip("直播中" if live else "未开播")
         elif watched and popularity:
