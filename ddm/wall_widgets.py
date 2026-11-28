@@ -39,12 +39,14 @@ class WallGrid(QWidget):
     floatingDanmakuChanged = Signal()
 
     def __init__(self, rooms: list[dict], layout_id: str = "", parent=None, *, prepare_room=None,
-                 corner_ratios=None, layout_ratios=None, pane_layouts=None, seamless=False):
+                 corner_ratios=None, layout_ratios=None, pane_layouts=None, seamless=False,
+                 room_danmaku_switches=None):
         super().__init__(parent)
         self.presentation_control = WallPresentation(self)
         self.layout_control = WallLayout(self)
         self.snap_grid = WallSnapGrid(self)
         self._prepare_room = prepare_room
+        self.room_danmaku_switches = dict(room_danmaku_switches or {})
         self.setObjectName("WallGrid")
         self.setProperty('seamless', bool(seamless))
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -235,7 +237,8 @@ class WallGrid(QWidget):
             room = self._prepare_room(room)
         # 竖屏布局是手动 setGeometry，不经过 QGridLayout 的 addWidget；
         # 先挂到画面墙，新增空格才不会在 setVisible() 时变成顶层悬浮窗。
-        tile = Tile(room, self)
+        tile = Tile(room, self, room_danmaku_switches=self.room_danmaku_switches)
+        tile.videoDanmakuChanged.connect(lambda enabled, t=tile: self._sync_room_danmaku(t, enabled))
         tile.open_danmaku_float = lambda: self.pane_danmaku.open_for_tile(tile)
         if self._quick_danmaku_layer is not None:
             tile.video_danmaku.attach_quick_layer(self._quick_danmaku_layer)
@@ -251,6 +254,13 @@ class WallGrid(QWidget):
         self.tiles.append(tile)
         self.tileCreated.emit(tile)
         return tile
+
+    def _sync_room_danmaku(self, source: Tile, enabled: bool) -> None:
+        rid = str(source.room.get("room_id") or "")
+        if rid:
+            for tile in self.tiles:
+                if tile is not source and str(tile.room.get("room_id") or "") == rid:
+                    tile.danmaku_button.setChecked(enabled)
 
     def _drop_tile(self, tile: Tile) -> None:
         controls = getattr(tile, '_plugin_controls', None)

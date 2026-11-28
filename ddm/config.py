@@ -246,7 +246,7 @@ def _read_json(path: str) -> dict:
         return {}
 
 
-from .room_configuration import (_unique, sync_platform_rooms, build_rooms)
+from .room_configuration import (_unique, sync_platform_rooms, build_rooms, room_danmaku_switches)
 
 
 def load() -> dict:
