@@ -61,6 +61,24 @@ def sync_platform_rooms(state: dict, active_platforms: set[str]) -> dict:
     return state
 
 
+def room_danmaku_switches(state: dict) -> dict[str, bool]:
+    saved = state.get("room_danmaku_switches")
+    if isinstance(saved, dict):
+        return {rid: value for rid, value in saved.items() if rid and isinstance(value, bool)}
+
+    # 旧版把开关存在格子上。重复房间采用第一个有明确设置的格子，含停用平台暂存的格子。
+    slots = list(state.get("wall") or [])
+    for platform in (state.get("suspended_platform_rooms") or {}).values():
+        slots.extend(record["slot"] for record in platform.get("wall", []))
+    switches = {}
+    for slot in slots:
+        rid = str(slot.get("room_id") or "")
+        enabled = slot.get("video_danmaku_enabled")
+        if rid and isinstance(enabled, bool):
+            switches.setdefault(rid, enabled)
+    return switches
+
+
 def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     """(侧栏房间, 画面墙房间)。格子设置从配置里带。
 
@@ -73,6 +91,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
     from . import config as settings_api
     room_ids = _unique(state.get("rooms", []))
     wall_slots = state.get("wall", []) or []
+    switches = room_danmaku_switches(state)
     default_volume = int((state.get("settings") or {}).get("default_volume", settings_api.DEFAULT_VOLUME))
 
     def placeholder(room_id: str) -> dict:
@@ -110,7 +129,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
                 "volume": int(slot.get("volume", default_volume)),
                 "quality": int(slot.get("quality", 250)),
                 "audio_channel": int(slot.get("audio_channel", 0)),
-                "video_danmaku_enabled": bool(slot.get("video_danmaku_enabled", False)),
+                "video_danmaku_enabled": False,
                 "video_danmaku_overrides": settings_api.video_danmaku_overrides(slot.get("video_danmaku_overrides")),
                 "codec_overrides": settings_api.codec_overrides(slot.get("codec_overrides")),
             })
@@ -120,7 +139,7 @@ def build_rooms(state: dict) -> tuple[list[dict], list[dict]]:
         room["volume"] = int(slot.get("volume", default_volume))
         room["quality"] = int(slot.get("quality", 250))
         room["audio_channel"] = int(slot.get("audio_channel", 0))
-        room["video_danmaku_enabled"] = bool(slot.get("video_danmaku_enabled", False))
+        room["video_danmaku_enabled"] = switches.get(room_id, True)
         room["video_danmaku_overrides"] = settings_api.video_danmaku_overrides(slot.get("video_danmaku_overrides"))
         room["codec_overrides"] = settings_api.codec_overrides(slot.get("codec_overrides"))
         wall.append(room)

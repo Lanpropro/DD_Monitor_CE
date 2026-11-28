@@ -36,7 +36,7 @@ jobs:
   smoke:
     name: Functional smoke
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -91,7 +91,8 @@ jobs:
         run: |
           python dev/run_checks.py --script selfcheck_picture_in_picture --timeout 180
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python dev/run_checks.py --script selfcheck_pip_picker --timeout 180
+          # The picker runs its native cases serially in fresh Qt processes.
+          python dev/run_checks.py --script selfcheck_pip_picker --timeout 240
       - name: Check native badge redraw memory
         run: python dev/run_checks.py --script selfcheck_badge_memory
       - name: Check native sidebar drag hit testing

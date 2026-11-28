@@ -77,7 +77,7 @@ class Tile(QFrame):
     videoDanmakuAdvancedRequested = Signal()
     pluginMenuRequested = Signal()     # 右键菜单要弹了，请外部先把插件菜单项填好
 
-    def __init__(self, room: dict, parent=None):
+    def __init__(self, room: dict, parent=None, *, room_danmaku_switches=None):
         super().__init__(parent)
         self.menu_control = TileContextMenu(self)
         self.presentation_control = TilePresentation(self)
@@ -96,6 +96,7 @@ class Tile(QFrame):
         self.stream_codec = ""
         self.stream_headers: dict = {}
         self.room = dict(room)
+        self.room_danmaku_switches = room_danmaku_switches if room_danmaku_switches is not None else {}
         self.room.pop('_streamer_initial_volume', None)
         self._cover_source = room.get("cover")
         self._status_text = ""
@@ -217,7 +218,7 @@ class Tile(QFrame):
         self.danmaku_button.setFixedSize(34, 26)
         self.danmaku_button.setToolTip("切换这一路的画面弹幕（默认 B）；右侧齿轮可调整观看设置")
         self.danmaku_button.toggled.connect(self._toggle_video_danmaku)
-        self.danmaku_button.setChecked(bool(room.get("video_danmaku_enabled", False)))
+        self.state_control.restore_video_danmaku()
         self.danmaku_button.setToolTip("关闭画面弹幕（默认 B）" if self.danmaku_button.isChecked()
                                        else "开启画面弹幕（默认 B）")
         self.danmaku_settings_button = DanmakuSettingsButton()

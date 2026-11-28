@@ -144,6 +144,7 @@ class BiliPluginBoundaryTests(unittest.TestCase):
             APP.processEvents()
             popup.open_at(composer.emote_button)
             popup.set_packages([{'pkg_type': 3, 'pkg_id': 1, 'emoticons': emotes}])
+            popup.tabs.setCurrentIndex(1)
             for _ in range(100):
                 if len(popup._buttons) == len(emotes) and not popup._buttons[-1].icon().isNull():
                     break
@@ -170,8 +171,13 @@ class BiliPluginBoundaryTests(unittest.TestCase):
         popup.hide()
         popup._holder_size = QSize(310, popup._holder_size.height())
         popup.open_at(composer.emote_button)
-        QTest.qWait(20)
-        self.assertEqual(popup.grid.getItemPosition(popup.grid.indexOf(first))[:2], (1, 1))
+        popup.tabs.setCurrentIndex(1)
+        for _ in range(100):
+            if len(popup._buttons) == len(emotes):
+                break
+            QTest.qWait(10)
+        buttons = popup._buttons
+        self.assertEqual(popup.grid.getItemPosition(popup.grid.indexOf(buttons[4]))[:2], (1, 1))
         self.assertEqual(popup.scroll.horizontalScrollBar().maximum(), 0)
         popup.scroll.ensureWidgetVisible(buttons[-1])
         self.assertTrue(popup.scroll.viewport().rect().contains(

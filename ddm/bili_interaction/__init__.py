@@ -8,6 +8,7 @@ from ..plugin_types import PluginContext
 from .composer import DanmakuComposer
 from .gift_controller import GiftCoordinator
 from .notifications import NotificationReporter
+from .recent_emoticons import RecentEmoticons
 from .session import BiliSession
 from .workers import wait_for_requests
 
@@ -45,12 +46,13 @@ class BiliInteraction:
         self.context = PluginContext(manager, 'bili_live')
         self.session = BiliSession(self.context)
         self.coordinator = GiftCoordinator()
+        self.recent = RecentEmoticons(self.context)
         self.controls = weakref.WeakSet()
         self.context.register_tile_control('interaction', self._make_control, priority=100)
 
     def _make_control(self, context):
         composer = DanmakuComposer(self.session, context.parent, coordinator=self.coordinator,
-                                   notifier=NotificationReporter(self.context))
+                                   notifier=NotificationReporter(self.context), recent=self.recent)
         control = BiliTileControl(composer, context)
         self.controls.add(control)
         return control

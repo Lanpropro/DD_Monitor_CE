@@ -16,6 +16,7 @@ from pathlib import Path
 from ddm import config, theme
 from .gift_media import _fetch
 from .emoticon_order import EmoticonOrder, emoticon_order
+from .recent_emoticons import RecentEmoticons
 from .popup import AnchoredPopup, RefreshSpinner, picker_style
 from .workers import start_worker as _start
 
@@ -227,11 +228,13 @@ class EmoticonTabs(QTabBar):
 class EmoticonPopup(AnchoredPopup):
     selected = Signal(int, dict)
     retryRequested = Signal()
+    RECENT = "_recent"
     _holder_size = QSize(388, 368)
 
-    def __init__(self, parent=None, *, order=None):
+    def __init__(self, parent=None, *, order=None, recent=None):
         super().__init__(parent)
         self.order = order if order is not None else emoticon_order
+        self.recent = recent if recent is not None else RecentEmoticons()
         self._syncing_tabs = False
         self._columns = _MAX_EMOTICON_COLUMNS
         self.setObjectName("EmoticonPopup")
@@ -272,8 +275,11 @@ class EmoticonPopup(AnchoredPopup):
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.ElideRight)
         self.tabs.setIconSize(QSize(24, 24))
+        self.tabs.addTab("最近")
+        self.tabs.setTabData(0, self.RECENT)
+        self.tabs.setTabToolTip(0, "最近发送")
+        self.tabs.setAccessibleTabName(0, "最近发送")
         self.tabs.currentChanged.connect(self._select_package)
-        self.tabs.hide()
         layout.addWidget(self.tabs)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -295,6 +301,7 @@ class EmoticonPopup(AnchoredPopup):
         self._holder = holder
         self._holder.setFixedSize(self._holder_size)
         self.order.changed.connect(self._order_changed)
+        self.recent.changed.connect(self._recent_changed)
 
     def _clear_body(self):
         self._drag_button = None
@@ -326,10 +333,9 @@ class EmoticonPopup(AnchoredPopup):
         self._covers.clear()
         self._pixmaps.clear()
         self.tabs.blockSignals(True)
-        while self.tabs.count():
-            self.tabs.removeTab(0)
+        while self.tabs.count() > 1:
+            self.tabs.removeTab(self.tabs.count() - 1)
         self.tabs.blockSignals(False)
-        self.tabs.hide()
 
     def set_loading(self,*,clear=False):
         if clear:self._clear_packages()
@@ -356,7 +362,7 @@ class EmoticonPopup(AnchoredPopup):
         self.retry_button.setEnabled(True)
         self.retry_button.show()
         if packages and packages==self._packages:
-            self.status.setText("表情" if self._emotes else "暂无可用表情")
+            self._set_category_status()
             self.status.show()
             return
         selected = self._category
@@ -392,18 +398,23 @@ class EmoticonPopup(AnchoredPopup):
                 self.tabs.setCurrentIndex(index)
                 break
         self.tabs.blockSignals(False)
-        self.tabs.setVisible(bool(self._packages))
-        self._select_package(self.tabs.currentIndex())
+        self._select_package()
 
     def refresh_theme(self):
-        for index, package in enumerate(self._packages):
+        for index, package in enumerate(self._packages, 1):
             if package['pkg_type'] == 3:
                 self.tabs.setTabIcon(index, _emoji_category_icon())
 
     def _tab_moved(self, source, target):
-        self._packages.insert(target, self._packages.pop(source))
+        if source == 0 or target == 0:
+            # Keep the history tab fixed while allowing ordinary packages to move.
+            self.tabs.blockSignals(True)
+            self.tabs.moveTab(target, source)
+            self.tabs.blockSignals(False)
+            return
+        self._packages.insert(target - 1, self._packages.pop(source - 1))
         self._covers.clear()
-        for index, package in enumerate(self._packages):
+        for index, package in enumerate(self._packages, 1):
             cover = package.get('current_cover')
             if package['pkg_type'] != 3 and isinstance(cover, str) and cover.startswith(('https://', 'http://')):
                 self._covers.setdefault(cover, []).append(index)
@@ -418,9 +429,11 @@ class EmoticonPopup(AnchoredPopup):
             for target, package in enumerate(self.order.arrange_packages(self._packages)):
                 source = self._packages.index(package)
                 if source != target:
-                    self.tabs.moveTab(source, target)
+                    self.tabs.moveTab(source + 1, target + 1)
         finally:
             self._syncing_tabs = False
+        if self._category == self.RECENT:
+            return
         arranged = self.order.arrange(self._category, self._emotes)
         if arranged != self._emotes:
             # Complete categories can move existing cells without losing icons,
@@ -432,22 +445,34 @@ class EmoticonPopup(AnchoredPopup):
                 self._arrange_buttons()
             else:
                 scroll = self.scroll.verticalScrollBar().value()
-                self._select_package(self.tabs.currentIndex(), force=True)
+                self._select_package(force=True)
                 self.scroll.verticalScrollBar().setValue(scroll)
 
-    def _select_package(self, index, force=False):
-        key = self.tabs.tabData(index) if index >= 0 else None
+    def _recent_changed(self):
+        if self._category == self.RECENT:
+            self._select_package(force=True)
+
+    def _set_category_status(self):
+        if self._category == self.RECENT:
+            self.status.setText("最近发送" if self._emotes else "暂无当前直播间可用的最近表情")
+        else:
+            self.status.setText("表情" if self._emotes else "暂无可用表情")
+
+    def _select_package(self, *, force=False):
+        key = self.tabs.tabData(self.tabs.currentIndex())
         if not force and key is not None and key == self._category:
             return
         self._clear_body()
+        self._category = key
         package = next((p for p in self._packages if self.order.package_key(p) == key), None)
-        if package is not None:
+        if key == self.RECENT:
+            self._emotes = self.recent.available_items(self._packages)
+        elif package is not None:
             self._kind = package["pkg_type"]
-            self._category = key
             self._emotes = self.order.arrange(key,
                 [e for e in package.get("emoticons") or [] if isinstance(e, dict)])
-            self._set_grid_height()
-        self.status.setText("表情" if self._emotes else "暂无可用表情")
+        self._set_grid_height()
+        self._set_category_status()
         self.status.show()
         self._resume_loading()
 
@@ -471,12 +496,13 @@ class EmoticonPopup(AnchoredPopup):
             button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
             button.setCursor(Qt.PointingHandCursor)
             button.installEventFilter(self)
+            kind = emote["_pkg_type"] if self._category == self.RECENT else self._kind
             available = emote.get("perm") == 1 and bool(emote.get(
-                "emoji" if self._kind == 3 else "emoticon_unique"))
+                "emoji" if kind == 3 else "emoticon_unique"))
             button.setEnabled(available)
             button.setToolTip(text if available else
                               f"{text}：{emote.get('unlock_show_text') or '当前账号尚未解锁'}")
-            button.clicked.connect(lambda _checked=False, k=self._kind, e=dict(emote): self._choose(k, e))
+            button.clicked.connect(lambda _checked=False, k=kind, e=dict(emote): self.selected.emit(k, e))
             self.grid.addWidget(button, *divmod(index, self._columns))
             self._buttons.append(button)
             url = emote.get("url")
@@ -503,7 +529,7 @@ class EmoticonPopup(AnchoredPopup):
             self._drag_button.move(positions[self._drag_button])
 
     def eventFilter(self, button, event):
-        if button not in getattr(self, '_buttons', ()):
+        if button not in getattr(self, '_buttons', ()) or self._category == self.RECENT:
             return super().eventFilter(button, event)
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             self._drag_origin = event.globalPosition().toPoint()
@@ -604,11 +630,9 @@ class EmoticonPopup(AnchoredPopup):
             self._build_timer.start()
         self._start_images()
 
-    def _choose(self, kind, emote):
-        self.hide()
-        self.selected.emit(kind, emote)
-
     def open_at(self, button):
+        if not self.isVisible():
+            self.tabs.setCurrentIndex(0)
         screen = button.screen().availableGeometry()
         self._holder.setFixedSize(self._holder_size.boundedTo(screen.size() - QSize(16, 16)))
         margins = self._holder.layout().contentsMargins()

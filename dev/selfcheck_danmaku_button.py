@@ -14,13 +14,14 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from ddm import app as module, motion
 from dev.selfcheck_tile_fullscreen import SilentPoller
-from dev.selfcheck_video_danmaku import Client
+from dev.selfcheck_video_danmaku import Client, wait_comment_raster
 
 
 def main():
     app = QApplication([])
     module.StatusPoller = module.StatsPoller = SilentPoller
-    room = dict(room_id='1001', uname='Offline status, active playback', live=False)
+    room = dict(room_id='1001', uname='Offline status, active playback', live=False,
+                video_danmaku_enabled=False)
     with patch('PySide6.QtCore.QTimer.singleShot'), patch.object(module, 'DanmakuClient', Client):
         window = module.MainWindow([room], [dict(room)], layout_id='1x1',
             state={'plugins_enabled': [], 'settings': {'auto_update': False}})
@@ -39,6 +40,7 @@ def main():
                 assert tile.danmaku_button.grab().toImage() != before, 'Checked state must visibly differ'
                 client = window._danmaku_clients['1001']
                 client.message.emit({'text': 'Button works before live status arrives'})
+                wait_comment_raster(app, tile.video_danmaku)
                 assert tile.video_danmaku.comments
                 QTest.qWait(30)
                 paints = []
@@ -63,6 +65,7 @@ def main():
         QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
         client = window._danmaku_clients['1001']
         client.message.emit({'text': 'Last comment before the host goes offline'})
+        wait_comment_raster(app, tile.video_danmaku)
         assert tile.video_danmaku.comments and tile.video_danmaku.isVisible()
         window._on_status_updated({'1001': dict(live=False, live_known=True, viewers='', title='')})
         assert not tile.video_danmaku.active and not tile.video_danmaku.isVisible()
@@ -76,6 +79,7 @@ def main():
         tile.set_video_active(True)
         assert tile.video_danmaku.isVisible() and not tile.video_danmaku.comments
         window._danmaku_clients['1001'].message.emit({'text': 'New broadcast'})
+        wait_comment_raster(app, tile.video_danmaku)
         assert tile.video_danmaku.comments
         QTest.mouseClick(tile.danmaku_button, Qt.LeftButton)
         tile.room['live'] = False

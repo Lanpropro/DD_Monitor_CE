@@ -300,6 +300,7 @@ class MainWindow(QMainWindow):
             [self.room_placement.prepare_wall_entry(room) for room in (wall_rooms or ())],
             layout_id if layout_id and layout_id != "auto"
             else self._saved_layout("landscape"), prepare_room=self._prepare_room,
+            room_danmaku_switches=config_module.room_danmaku_switches(self.state),
             corner_ratios=ui.get("corner_ratios"),
             layout_ratios=self.layout_presets.restore_wall_ratios(ui.get("layout_ratios")),
             pane_layouts=ui.get("pane_layouts"), seamless=self.settings.get('wall_seamless', False))
@@ -767,6 +768,7 @@ class MainWindow(QMainWindow):
         return {
             "version": config_module.STATE_VERSION,
             "room_presets": deepcopy(self.room_presets),
+            "room_danmaku_switches": dict(self.wall.room_danmaku_switches),
             "user_notice_accepted": bool(self.state.get("user_notice_accepted", False)),
             "official_announcement_id": self.state.get("official_announcement_id", ""),
             "suspended_platform_rooms": self.state.get("suspended_platform_rooms", {}),

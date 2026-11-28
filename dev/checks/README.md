@@ -117,6 +117,7 @@ Windows x64 检查进程的原生栈记录由 `build_native_crash.cmd` 编译 `n
 | [selfcheck_add_room_hints](../selfcheck_add_room_hints.py) | 单项执行前核对；多次主窗口构造有 Qt 类型异常记录，不作为本次主页识别通过的依据 |
 | [selfcheck_alt_tab_orientation](../selfcheck_alt_tab_orientation.py) | Windows 原生单项；空配置、禁用插件装载，最大化跟随屏幕，还原保留最大化前的窗口方向 |
 | [selfcheck_bili_2k_live](../selfcheck_bili_2k_live.py) | 单项执行前核对 |
+| [selfcheck_bili_builtin_recent](../selfcheck_bili_builtin_recent.py) | `offline`、`smoke`；内置表情窗连续点选、模拟发送、最近记录与房间权限 |
 | [selfcheck_bili_plugin_boundary](../selfcheck_bili_plugin_boundary.py) | `offline`、`smoke` |
 | [selfcheck_bili_cookies](../selfcheck_bili_cookies.py) | `offline` |
 | [selfcheck_cover_cache](../selfcheck_cover_cache.py) | 单项执行前核对 |
