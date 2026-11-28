@@ -939,7 +939,10 @@ class PaneDanmakuTests(unittest.TestCase):
         second.set_quality_options([{'qn': 23, 'desc': '720x1280 · 60fps'}, {'qn': 88, 'desc': '540x960'}])
         locked.quality_locked = True
         first.danmaku_button.setChecked(True)
+        second.danmaku_button.setChecked(False)
         locked.room['supports_live_danmaku'] = False
+        locked.danmaku_button.setChecked(False)
+        hidden.danmaku_button.setChecked(True)
         original_locked, original_hidden = locked.quality, (hidden.quality, hidden.volume)
         controls = window.wall_quick_settings
         self.assertIsNone(controls.menu)
@@ -979,9 +982,12 @@ class PaneDanmakuTests(unittest.TestCase):
             menu.danmaku.click()
             changed.assert_called_once_with(True)
         self.assertTrue(first.danmaku_button.isChecked() and second.danmaku_button.isChecked())
-        self.assertFalse(locked.danmaku_button.isChecked() or hidden.danmaku_button.isChecked())
+        self.assertFalse(locked.danmaku_button.isChecked())
+        self.assertTrue(hidden.danmaku_button.isChecked())
         menu.danmaku.click()
         self.assertFalse(first.danmaku_button.isChecked() or second.danmaku_button.isChecked())
+        self.assertFalse(locked.danmaku_button.isChecked())
+        self.assertTrue(hidden.danmaku_button.isChecked())
 
         panel = panes.panels[3]
         menu.floats.click()

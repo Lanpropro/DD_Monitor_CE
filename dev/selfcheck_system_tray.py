@@ -15,6 +15,7 @@ from ddm import config, system_tray
 from ddm.app import MainWindow
 from ddm.dialogs import GeneralSettingsPage, SettingsDialog, TraySettingsPage
 from ddm.single_instance import restore_main_window
+from dev.selfcheck_video_danmaku import Client, Snapshot
 
 
 class FakeTray(QObject):
@@ -68,6 +69,8 @@ class SystemTrayTests(unittest.TestCase):
         self.stack.enter_context(patch.object(config, 'CONFIG_PATH', str(root / 'config.json')))
         self.stack.enter_context(patch.dict(os.environ, {'DDM_NO_SAVE': ''}))
         self.stack.enter_context(patch.object(system_tray, 'QSystemTrayIcon', FakeTray))
+        self.stack.enter_context(patch('ddm.app.DanmakuClient', Client))
+        self.stack.enter_context(patch('ddm.app.SuperChatSnapshot', Snapshot))
         FakeTray.supported = True
         self.windows = []
 
@@ -193,6 +196,8 @@ class SystemTrayTests(unittest.TestCase):
         window = self.window('tray')
         tile = window.wall.tiles[0]
         tile.set_room({'room_id': '123', 'uname': 'Fixture', 'live': True})
+        self.assertTrue(tile.danmaku_button.isChecked())
+        self.assertIsInstance(window._danmaku_clients['123'], Client)
         player, resolver = Mock(), Mock()
         window.players[tile] = player
         window._resolvers[tile] = resolver
