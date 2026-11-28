@@ -39,9 +39,9 @@ def check():
     images = [target for target in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', readme)
               if '://' not in target]
     assert images == [
-        'docs/assets/screenshots/v1.0-landscape.png',
-        'docs/assets/screenshots/v1.0-portrait.png',
-        'docs/assets/screenshots/v1.0-danmaku.png',
+        'docs/assets/screenshots/overview4_Landscape_mode.png',
+        'docs/assets/screenshots/overview2_Portrait_Mode.png',
+        'docs/assets/screenshots/overview5_Landscape_mode.png',
     ], 'README must use the selected current screenshots'
     logos = re.findall(r'<img\s+src="([^"]+)"', readme)
     assert logos == ['design/icon-concepts/app-icon-badge.png'], 'README must use the selected brand logo'
