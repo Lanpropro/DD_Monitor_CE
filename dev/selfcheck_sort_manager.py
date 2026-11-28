@@ -47,20 +47,14 @@ def main() -> None:
         sidebar.set_side(side)
         app.processEvents()
         button = sidebar.batch_button
-        assert button.text() == "" and button._icon_mode
+        assert button.text() == "" and button.objectName() == 'NavigationButton'
         assert button.accessibleName() == "多选直播间"
         if side == "left":
-            assert button.parentWidget() is sidebar.status_row
-            box = sidebar.status_row.layout()
-            assert box.indexOf(button) == box.indexOf(sidebar.count_label) + 1
-            assert sidebar._header_row.layout().indexOf(button) == -1
-            assert button.size().width() == button.size().height() == 22
-        if side == 'left':
-            sidebar.navigation.open_manage_menu()
-            sidebar.navigation.menu.actions()[0].trigger()
-            sidebar.navigation.menu.hide()
+            assert button.parentWidget() is sidebar.navigation.filters
         else:
-            QTest.mouseClick(button, Qt.LeftButton)
+            assert button.parentWidget() is sidebar.presentation_control.orientation.portrait.controls
+        assert button.size().width() == button.size().height() == 26
+        QTest.mouseClick(button, Qt.LeftButton)
         assert sidebar.select_mode and button.isChecked()
         assert sidebar.account_row.isHidden() and sidebar.tool_row.isHidden()
         assert sidebar.normal_bar.isHidden() and not sidebar.batch_bar.isHidden()

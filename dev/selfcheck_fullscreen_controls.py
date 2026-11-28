@@ -234,6 +234,9 @@ def check_control_contrast(app, tile):
             bar = tile.bottom
             alpha = render(bar, 'transparent', QWidget.DrawWindowBackground)
             check_gradient(alpha, bar.width() // 2)
+            for button in (tile.pause_button, tile.fullscreen_button):
+                button.setAttribute(Qt.WA_UnderMouse, False)
+                app.sendEvent(button, QEvent(QEvent.Leave))
             white = render(bar, '#ffffff')
             dark = render(bar, '#101010')
             for widget in (tile.pause_button, tile.fullscreen_button):
