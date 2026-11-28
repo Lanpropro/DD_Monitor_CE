@@ -108,6 +108,13 @@ def main():
                 assert endpoint.active is None and TilePlayer._check is player_check
 
                 pages = call('settings_pages')['result']['pages']
+                assert call('pip_picker', visible=1)['reason'] == 'invalid-visibility'
+                socket = capture('sidebar-performance', seconds=2)
+                assert response(socket)['status'] == 'armed'
+                assert call('pip_picker', visible=True)['result']['visible']
+                report = next(row for row in response(socket)['records'] if row['stage'] == 'sidebar-performance')
+                assert len(report['picker_first_paint_ms']) == 1 and report['phases']['picker-choice']['calls'] > 0
+                assert not call('pip_picker', visible=False)['result']['visible']
                 assert len(pages) == 11 and any(row['id'] == 'streamer_defaults' for row in pages)
                 assert call('settings_state')['result'] == dict(window='closed', visible=False, page=None)
                 assert call('settings_open', page=[], entry='sidebar')['reason'] == 'unknown-settings-page'
@@ -125,7 +132,13 @@ def main():
                 assert state['orientation'] == 'portrait' and state['last_layout_change']['sync_ms'] >= 0
                 assert call('open_pip', slots=[1])['result']['state']['picture_in_picture']
                 assert call('remove', slot=1)['reason'] == 'slot-unavailable'
+                socket = capture('sidebar-performance', seconds=2)
+                assert response(socket)['status'] == 'armed'
                 assert not call('close_pip')['result']['state']['picture_in_picture']
+                phases = next(row['phases'] for row in response(socket)['records']
+                              if row['stage'] == 'sidebar-performance')
+                for phase in ('pip-return', 'pip-return-attach', 'pip-return-layout', 'pip-return-show'):
+                    assert phases[phase]['calls'] == 1
                 tile = window.wall.tiles[0]
                 window._pending_capture[tile] = True
                 try:
