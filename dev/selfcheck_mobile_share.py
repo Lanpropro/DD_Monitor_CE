@@ -177,7 +177,7 @@ class MobileShareTests(unittest.TestCase):
             self.assertEqual(warning.call_count, 2)
         owner._closing = False
         first.resolved.emit({'room_id': '22748536'})
-        owner._on_room_added.assert_called_once_with({'room_id': '22748536'}, folder_id='my-folder')
+        owner._on_room_added.assert_called_once_with({'room_id': '22748536'}, folder_id='my-folder', target_tile=None)
         first.finished.emit()
         second.finished.emit()
         self.assertFalse(owner._platform_info_running)
@@ -317,7 +317,7 @@ class MobileShareTests(unittest.TestCase):
         worker = next(iter(owner._platform_info_running))
         self.assertTrue(worker.started)
         worker.resolved.emit({'room_id': '47867'})
-        owner._on_room_added.assert_called_once_with({'room_id': '47867'}, folder_id='my-folder')
+        owner._on_room_added.assert_called_once_with({'room_id': '47867'}, folder_id='my-folder', target_tile=None)
         worker.finished.emit()
         self.assertFalse(owner._platform_info_running)
 

@@ -85,7 +85,7 @@ class DiagnosticSettingsTests(unittest.TestCase):
         self.assertFalse(page.generate.isEnabled())
         self.wait(lambda: page.zip_path is not None or not page.export.busy)
         self.assertIsNotNone(page.zip_path, page.status.text())
-        self.assertIn('手动发送', page.status.text())
+        self.assertEqual(page.status.text(), '诊断包已生成，请检查后手动发送。')
         with zipfile.ZipFile(page.zip_path) as archive:
             self.assertEqual(json.loads(archive.read('problem.json'))['description'], 'fixture report')
             self.assertFalse(json.loads(archive.read('native-crashes.json'))['dump_export_requested'])

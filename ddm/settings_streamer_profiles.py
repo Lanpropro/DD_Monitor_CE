@@ -1,15 +1,17 @@
 """Expandable streamer cards and overlapped, independently selectable avatars."""
 from PySide6.QtCore import QRectF, QSignalBlocker, Qt
 from PySide6.QtGui import QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
                               QScrollArea, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from . import theme
 from .quality_labels import compact_quality_label, distinguish_quality_labels
+from .recording_schedule import normalize_schedule, plan_hint
+from .recording_schedule_dialog import RecordingScheduleDialog
 from .room_artwork import platform_icon, room_platform
 from .settings_layout import SettingsColumns
 from .settings_navigation import _icon as paint_settings_icon
-from .streamer_defaults import QUALITY_LABELS, monitors_live
+from .streamer_defaults import QUALITY_LABELS, monitors_live, recording_policy
 from .ui import Avatar, ElidedLabel, NavigationButton, SelectControl, StepperControl, ToggleSwitch
 
 RECORDING_MODES = (('沿用全局', None), ('普通录制', 'normal'), ('DDCut 切片录制', 'clip'))
@@ -92,7 +94,9 @@ class StreamerProfileCard(QFrame):
             button.setFixedSize(size, size)
             button.setStyleSheet('QPushButton {border: 1px solid palette(mid); border-radius: 17px;'
                                  'background: palette(window);} QPushButton:checked, QPushButton:focus '
-                                 '{border: 2px solid palette(highlight);}')
+                                 '{border: 2px solid palette(highlight);} '
+                                 'QPushButton:hover {background: palette(light);} '
+                                 'QPushButton:pressed {background: palette(highlight);}')
             description = ' · '.join(part for part in (room['name'], room.get('platform'), key) if part)
             button.setAccessibleName(description)
             button.setToolTip(description)
@@ -170,10 +174,11 @@ class StreamerProfileCard(QFrame):
         self.details.add_section('capture', capture_options)
         playback_form.addRow(QLabel('开播监控', objectName='SettingsSectionTitle'))
         self.monitor_live = ToggleSwitch('监控开播状态')
-        self.monitor_live.setToolTip('关闭后暂停 Windows 开播通知和后续自动录制，保留原有选项。')
+        self.monitor_live.setToolTip('关闭后暂停 Windows 开播通知及后续自动录制，保留设置。')
         self.monitor_live.toggled.connect(lambda enabled: page.edit(
             'monitor_live', dict.fromkeys(self.editing_rooms, enabled)))
         playback_form.addRow('监控开播状态', self.monitor_live)
+        playback_form.labelForField(self.monitor_live).setMinimumHeight(theme.CONTROL_HEIGHT)
         self.live_notice = ToggleSwitch('开播时发送 Windows 通知')
         self.live_notice.setToolTip('应用内开播提醒跟随「设置 → 通知」。')
         self.live_notice.toggled.connect(lambda enabled: page.edit(
@@ -181,17 +186,33 @@ class StreamerProfileCard(QFrame):
         playback_form.addRow('开播时发送 Windows 通知', self.live_notice)
         playback_form.addRow(QLabel('播放偏好', objectName='SettingsSectionTitle'))
         capture_form.addRow(QLabel('自动录制', objectName='SettingsSectionTitle'))
-        self.auto_record = ToggleSwitch('开播时自动录制')
+        self.auto_record = SelectControl()
+        self.auto_record.setAccessibleName('自动录制策略')
+        for label, policy in (('关闭', 'off'),
+                              ('开播即录', 'live'), ('按计划录制', 'schedule')):
+            self.auto_record.addItem(label, policy)
         self.auto_record.setToolTip('自动录制须开启「设置 → 录制」中的录制功能。')
-        self.auto_record.toggled.connect(lambda enabled: page.edit(
-            'auto_record', dict.fromkeys(self.editing_rooms, True if enabled else None)))
-        capture_form.addRow('开播时自动录制', self.auto_record)
+        self.auto_record.currentIndexChanged.connect(self._edit_recording_policy)
+        recording_strategy = QWidget()
+        strategy_layout = QHBoxLayout(recording_strategy)
+        strategy_layout.setContentsMargins(0, 0, 0, 0)
+        strategy_layout.setSpacing(6)
+        strategy_layout.addWidget(self.auto_record)
+        self.schedule_edit = NavigationButton('编辑计划', 'rename', recording_strategy)
+        self.schedule_edit.setAutoDefault(False)
+        self.schedule_edit.clicked.connect(self._edit_schedule)
+        strategy_layout.addWidget(self.schedule_edit)
+        capture_form.addRow('自动录制策略', recording_strategy)
+        capture_form.labelForField(recording_strategy).setBuddy(self.auto_record)
+        self.schedule_hint = QLabel(objectName='SettingsHint')
+        self.schedule_hint.setWordWrap(True)
         self.windows_notice = ToggleSwitch('录制时发送 Windows 通知')
-        self.windows_notice.setToolTip('自动开录和确认下播收尾时发送 Windows 通知。')
+        self.windows_notice.setToolTip('自动开录、确认下播或计划结束时通知。')
         self.windows_notice.setAccessibleDescription(self.windows_notice.toolTip())
         self.windows_notice.toggled.connect(lambda enabled: page.edit(
             'windows_recording_notice', dict.fromkeys(self.editing_rooms, True if enabled else None)))
         capture_form.addRow('录制时发送 Windows 通知', self.windows_notice)
+        capture_form.addRow(self.schedule_hint)
         self.playback, self.recording = SelectControl(), SelectControl()
         for key, label, control, form in (('playback', '默认播放画质', self.playback, playback_form),
                                           ('recording', '录制画质', self.recording, capture_form)):
@@ -229,6 +250,23 @@ class StreamerProfileCard(QFrame):
     def editing_rooms(self):
         return self.members if self.room_id is None else (self.room_id,)
 
+    def _edit_recording_policy(self):
+        policy = self.auto_record.currentData()
+        self.page.edit('recording_policy', dict.fromkeys(self.editing_rooms, policy))
+        self.update_summary()
+
+    def _edit_schedule(self):
+        row = self.page.entries[self.editing_rooms[0]]
+        dialog = RecordingScheduleDialog(self, row.get('recording_schedule', ()),
+                                         row.get('recording_title_keywords', ()))
+        if dialog.exec() == QDialog.Accepted:
+            self.page.edit_fields({
+                'recording_schedule': dict.fromkeys(self.editing_rooms, dialog.schedule() or None),
+                'recording_title_keywords': dict.fromkeys(self.editing_rooms, dialog.title_keywords() or None),
+            })
+            self.update_summary()
+        dialog.deleteLater()
+
     def _edit_volume(self, value):
         if not self._loading:
             self.page.edit('volume', dict.fromkeys(self.editing_rooms, None if value < 0 else value))
@@ -263,7 +301,7 @@ class StreamerProfileCard(QFrame):
             name = ' · '.join(part for part in (room['name'], room.get('platform')) if part)
         self.name.setText(name)
         self.name.setToolTip(name)
-        self.remove_button.setToolTip('移除合并卡片中所有主播的设置' if self.room_id is None else '移除该主播的独立设置')
+        self.remove_button.setToolTip('移除整组主播设置' if self.room_id is None else '移除该主播的独立设置')
         self._loading = True
         self.volume.setValue(self.page.entries[self.editing_rooms[0]].get('volume', -1))
         self._loading = False
@@ -283,8 +321,11 @@ class StreamerProfileCard(QFrame):
     def update_summary(self):
         first = self.editing_rooms[0]
         values = self.page.entries[first]
+        policy = recording_policy(values)
+        schedule = normalize_schedule(values.get('recording_schedule'))
+        keywords = values.get('recording_title_keywords', ())
         monitoring = monitors_live(values)
-        auto_record = bool(values.get('auto_record'))
+        auto_record = policy == 'live' or (policy == 'schedule' and bool(schedule or keywords))
         windows_notice = bool(values.get('windows_recording_notice'))
         live_notice = bool(values.get('windows_live_notice'))
         windows_available = self.page.windows_notice_available
@@ -292,7 +333,10 @@ class StreamerProfileCard(QFrame):
         with QSignalBlocker(self.monitor_live):
             self.monitor_live.setChecked(monitoring)
         with QSignalBlocker(self.auto_record):
-            self.auto_record.setChecked(auto_record)
+            self.auto_record.setCurrentIndex(self.auto_record.findData(policy))
+        self.schedule_edit.setVisible(policy == 'schedule')
+        self.schedule_hint.setVisible(policy == 'schedule')
+        self.schedule_hint.setText(plan_hint(schedule, keywords=keywords))
         with QSignalBlocker(self.windows_notice):
             self.windows_notice.setChecked(windows_notice)
         with QSignalBlocker(self.live_notice):
@@ -305,7 +349,8 @@ class StreamerProfileCard(QFrame):
                 self.auto_record_mode.setCurrentIndex(0 if mode is None else self.auto_record_mode.findData(mode))
         self.monitor_summary.setVisible(monitoring)
         self.auto_record_summary.setVisible(auto_record)
-        self.auto_record_summary.setText('自动录制' if monitoring else '自动录制已暂停')
+        self.auto_record_summary.setText(
+            ('定时录制' if schedule or policy == 'schedule' else '自动录制') if monitoring else '自动录制已暂停')
         self.windows_notice_summary.setVisible(windows_notice or live_notice)
         windows_active = monitoring and windows_available and (live_notice or auto_record and windows_notice)
         self.windows_notice_summary.setEnabled(windows_active)
@@ -365,7 +410,7 @@ class StreamerProfileCard(QFrame):
                     index = control.count() - 1
                 control.setCurrentIndex(index)
         error = next((error for _choices, error in catalogs.values() if error), '')
-        empty = '暂无共同平台档位，可点击头像查看各主播画质。' if self.room_id is None else '暂无平台档位。'
+        empty = '无共有档位。点头像查看。' if self.room_id is None else '暂无平台档位。'
         message = '正在读取平台画质…' if pending else error or ('' if available else empty)
         self.status.setText(message)
         self.status.setVisible(bool(message))

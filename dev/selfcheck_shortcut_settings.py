@@ -16,7 +16,9 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from ddm import theme
 from ddm.dialogs import SettingsDialog
 from ddm.settings_shortcuts import ShortcutSettingsPage
-from ddm.shortcut_actions import DEFAULT_SHORTCUTS, LAYOUT_WHEEL_SHORTCUTS, SHORTCUT_ACTIONS, configured_shortcuts
+from ddm.shortcut_actions import (
+    DEFAULT_SHORTCUTS, LAYOUT_WHEEL_SHORTCUTS, SHORTCUT_ACTIONS, WHEEL_SHORTCUTS, configured_shortcuts
+)
 
 APP = QApplication.instance() or QApplication([])
 QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
@@ -49,6 +51,7 @@ class ShortcutSettingsTests(unittest.TestCase):
         self.assertEqual(set(before), {item[0] for item in SHORTCUT_ACTIONS})
         for query, expected in (('全屏查看', 'focus'), ('quanpingchakan', 'focus'),
                                 ('qpck', 'focus'), ('audio_cycle', 'audio_cycle'),
+                                ('轮换声道', 'audio_cycle'),
                                 ('关闭直播格', 'close_tile'), ('移除弹幕格', 'close_tile'),
                                 ('Ctrl+K', 'focus'), ('画中画 音量', 'pip_volume_up')):
             page.search.setText(query)
@@ -150,6 +153,9 @@ class ShortcutSettingsTests(unittest.TestCase):
         for size in (13, 20):
             theme.configure_appearance({'appearance_font_size': size})
             page = self.page(width=500)
+            header = page.scroll.widget().layout().itemAt(0).layout()
+            self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['快捷键'])
+            self.assertEqual(page.hover_wheel_volume.accessibleName(), '悬停画面时滚轮调音量')
             for width in (500, 1200):
                 page.resize(width, 800)
                 settle()
@@ -161,7 +167,10 @@ class ShortcutSettingsTests(unittest.TestCase):
                     edit, toggle = page._edits[key], page._row_toggles[key]
                     labels = row.findChildren(QLabel)
                     self.assertEqual(len(labels), 1)
-                    self.assertEqual(labels[0].toolTip(), description)
+                    self.assertEqual(labels[0].toolTip(), '' if key == 'restore' else description)
+                    instruction = ('输入滚轮组合键，例如 Shift+WheelUp。' if key in WHEEL_SHORTCUTS else
+                                   '点击输入框，再按下新快捷键。')
+                    self.assertEqual(edit.toolTip(), instruction)
                     self.assertEqual(edit.accessibleDescription(), description)
                     self.assertEqual(edit.width(), 150)
                     reset = row.findChild(QPushButton)
@@ -174,6 +183,17 @@ class ShortcutSettingsTests(unittest.TestCase):
                     self.assertLessEqual(max(widget.geometry().center().y() for widget in (edit, toggle, reset))
                                          - min(widget.geometry().center().y() for widget in (edit, toggle, reset)), 1)
             page.hide()
+
+    def test_picture_in_picture_function_hints_are_concise(self):
+        page = self.page()
+        for key, text in (
+            ('pip_volume_up', '提高当前画面的音量'),
+            ('pip_volume_down', '降低当前画面的音量'),
+            ('pip_mute', '切换鼠标所在画面的静音状态'),
+            ('pip_solo', '只播放鼠标所在画面的声音'),
+        ):
+            label = page._rows[key].findChild(QLabel, 'ShortcutRowTitle')
+            self.assertEqual(label.toolTip(), text)
 
     def test_filtering_does_not_save_and_existing_controls_still_trigger_autosave(self):
         dialog = SettingsDialog({}, {}, preview=True)

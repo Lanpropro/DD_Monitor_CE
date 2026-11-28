@@ -60,6 +60,63 @@ def published(items, etag='first'):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_preview_is_opt_in_and_stable_wins_at_the_same_base(self):
+        versions = ('2.0.3', '2.1-preview.2', '2.1-preview.10')
+        items = [release(version=value, prerelease=index > 0) for index, value in enumerate(versions)]
+        for include_preview, expected in ((False, versions[0]), (True, versions[-1])):
+            with self.subTest(include_preview=include_preview):
+                content = package(version=expected)
+                client = Client([published(items), Response(content)])
+                offer, = online.plugin_catalog(client, '0.9.1', include_preview=include_preview)
+                self.assertEqual(offer['version'], expected)
+                self.assertEqual(offer['prerelease'], include_preview)
+        final_version = '2.1'
+        client = Client([published([*items, release(version=final_version)]), Response(package(version=final_version))])
+        offer, = online.plugin_catalog(client, '0.9.1', include_preview=True)
+        self.assertEqual(offer['version'], final_version)
+        self.assertFalse(offer['prerelease'])
+
+    def test_preview_cache_and_install_then_upgrade_to_stable(self):
+        from ddm import plugin_updates
+        from ddm.plugin_catalog_api import plugin_catalog_path
+        from ddm.plugins import PluginManager
+        from ddm.update_offers import plugin_update_offers
+
+        preview, stable = '2.1-preview.10', '2.1'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cache = plugin_catalog_path(root, True)
+            stable_cache = plugin_catalog_path(root)
+            self.assertNotEqual(cache, stable_cache)
+            client = Client([published([release(version=preview, prerelease=True)]), Response(package(version=preview))])
+            offer, = online.cached_plugin_catalog(client, '0.9.1', cache, include_preview=True)
+            self.assertEqual(offer['version'], preview)
+            self.assertEqual(online.load_plugin_cache(stable_cache), {})
+            self.assertEqual(online.cached_plugin_catalog(Client([]), '0.9.1', cache, include_preview=True), [offer])
+
+            manager = PluginManager(plugins_dir=str(root / 'plugins'))
+            initial = root / 'preview.zip'
+            initial.write_bytes(package(version=preview))
+            manager.install_zip(str(initial))
+            candidate = root / 'stable.zip'
+            candidate.write_bytes(package(version=stable))
+            update = {'id': 'new_plugin', 'version': stable, 'available': True}
+            self.assertEqual(plugin_update_offers(manager, [update]), [update])
+            with patch.object(plugin_updates, 'VERSION', '0.9.1'):
+                plugin_updates.stage(manager, candidate, 'new_plugin', stable)
+                plugin_updates.apply_pending(manager)
+            self.assertEqual(manager.catalog()[0]['version'], stable)
+
+    def test_incompatible_preview_keeps_compatible_stable_update(self):
+        preview = package(version='2.1-preview.1', min_app_version='9.0')
+        stable = package(version='2.0.3')
+        client = Client([published([release(version='2.1-preview.1', content=preview, prerelease=True),
+                                    release(version='2.0.3', content=stable)]),
+                         Response(preview), Response(stable)])
+        offer, = online.plugin_catalog(client, '0.9.1', include_preview=True)
+        self.assertEqual(offer['version'], '2.0.3')
+        self.assertTrue(offer['available'])
+
     def test_new_plugin_metadata_and_compatibility_without_execution(self):
         content = package()
         offer, = online.plugin_catalog(Client([published([release(content=content)]), Response(content)]), '0.7.2')

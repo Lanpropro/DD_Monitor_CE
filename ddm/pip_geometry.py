@@ -11,7 +11,9 @@ from .pip_placement import fit_placement, initial_placement, placement_bounds
 def composition_rows(aspects, columns=0):
     def rows(cols):
         return [aspects[index:index + cols] for index in range(0, len(aspects), cols)]
-    if not columns:
+    if not columns and len(aspects) == 3:
+        columns = 2
+    elif not columns:
         columns = min(range(1, len(aspects) + 1), key=lambda cols:
                       (abs(math.log(composition_aspect(rows(cols)) / (16 / 9))), math.ceil(len(aspects) / cols)))
     return rows(min(len(aspects), columns))
@@ -39,11 +41,15 @@ def _main_parts(aspects, primary):
     return sides, columns, composition_aspect(composition_rows(sides, columns))
 
 
+def _uses_initial_placement(count, columns):
+    return (columns == FREE_LAYOUT and count >= 3) or (columns == 0 and count > 3)
+
+
 def composition_ratio(aspects, columns=0, primary=0, *, placement=()):
     if columns == FREE_LAYOUT and placement:
         bounds = placement_bounds(placement)
         return bounds.width() / bounds.height()
-    if columns in (0, FREE_LAYOUT) and len(aspects) >= 3:
+    if _uses_initial_placement(len(aspects), columns):
         bounds = placement_bounds(initial_placement(aspects))
         return bounds.width() / bounds.height()
     if columns == FOCUS_LAYOUT and len(aspects) == 6:
@@ -77,7 +83,7 @@ def pane_rectangles(count, area, columns=0, aspects=None, primary=0, *, placemen
     aspects = aspects or [16 / 9] * count
     if columns == FREE_LAYOUT and len(placement) == count:
         return fit_placement(placement, area)[0]
-    if columns in (0, FREE_LAYOUT) and count >= 3:
+    if _uses_initial_placement(count, columns):
         return fit_placement(initial_placement(aspects), area)[0]
     aspect = composition_ratio(aspects, columns, primary)
     width = max(1, min(area.width(), round(area.height() * aspect)))

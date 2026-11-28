@@ -1,7 +1,7 @@
 """Interactive viewport-height / content-size curve for SC and video danmaku."""
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from .. import theme
 from ..corner_geometry import continuous_path
@@ -202,37 +202,22 @@ class ScaleCurveControl(QWidget):
         self.graph = ScaleCurveGraph(self)
         self.graph.set_points(points, strength)
         box.addWidget(self.graph)
-        hint = QLabel('横轴为画面高度（px），纵轴为相对大小。拖动线条新增节点，右键删除；720 px / 100% 固定。')
+        hint = QLabel('横轴为画面高度（px），纵轴为相对大小。')
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
         box.addWidget(hint)
-        row = QHBoxLayout()
-        self.example = QLabel()
-        self.example.setObjectName('SettingsHint')
-        self.example.setWordWrap(True)
-        row.addWidget(self.example, 1)
         self.reset_button = ActionButton('重置曲线')
         self.reset_button.clicked.connect(self.reset)
-        row.addWidget(self.reset_button)
-        box.addLayout(row)
-        self.graph.curveChanged.connect(self._changed)
-        self._update_example()
+        box.addWidget(self.reset_button, 0, Qt.AlignRight)
+        box.addStretch(1)
+        self.graph.curveChanged.connect(self.curveChanged)
 
     def curve(self):
         return [list(point) for point in self.graph.points]
 
     def set_curve(self, points=None, strength=35):
         self.graph.set_points(points, strength)
-        self._update_example()
 
     def reset(self):
         self.set_curve()
         self.curveChanged.emit(self.curve())
-
-    def _update_example(self):
-        self.example.setText(' · '.join(
-            f'{height} px {viewport_scale(height, points=self.graph.points):.0%}' for height in (180, 360, 720)))
-
-    def _changed(self, points):
-        self._update_example()
-        self.curveChanged.emit(points)

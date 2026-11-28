@@ -52,7 +52,7 @@ class FunctionalModulesTests(unittest.TestCase):
         sidebar, appearance = Sidebar([], auto_compact=False), AppearanceButton()
         self.widgets += [sidebar, appearance]
         self.assertEqual(vars(sidebar.items_control), {
-            'host': sidebar, '_auto_record_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
+            'host': sidebar, '_monitored_rooms': set(), '_recording_rooms': set(), '_recording_states': {},
         })
         self.assertEqual(vars(sidebar.interaction_control), {'host': sidebar})
         self.assertFalse(hasattr(appearance, 'items_control'))
@@ -176,7 +176,9 @@ class FunctionalModulesTests(unittest.TestCase):
         wall = WallGrid([])
         self.widgets.append(wall)
         for name in ('layout_control', 'presentation_control'):
-            expected = {'host': wall, '_pip_placement': ()} if name == 'presentation_control' else {'host': wall}
+            expected = {'host': wall}
+            if name == 'presentation_control':
+                expected.update(_pip_placement=(), _pip_chat_widgets=())
             self.assertEqual(vars(getattr(wall, name)), expected)
         self.assertIs(wall._resize_timer.parent(), wall)
         self.assertIs(wall._border_drag_timer.parent(), wall._border_interaction)
@@ -243,6 +245,11 @@ class FunctionalModulesTests(unittest.TestCase):
                     self.assertTrue(refresh.isSingleShot())
                     expected.update(_medal_style=None, _loaded_emoticons=set(),
                                     _emoticon_blocks={}, _emoticon_refresh=refresh)
+                if name == 'raster_control':
+                    expected.update(motion_flush_timer=None, pending_motion_damage=None,
+                                    joined_motion_updates=0, standalone_motion_updates=0)
+                if name == 'surface_control':
+                    expected['windowed_occluders'] = None
                 self.assertEqual(vars(control), expected)
         self.assertIs(VideoDanmaku._paint_super_chat, _paint_super_chat)
         self.assertIs(video.timer.parent(), video)
@@ -346,7 +353,7 @@ class FunctionalModulesTests(unittest.TestCase):
         self.assertIsInstance(placement.navigation, RoomNavigation)
         self.assertEqual(vars(placement.catalog), {
             'host': host, '_add_panel': None, '_add_target': None, '_replacement_room': None,
-            'followed_live_only': False,
+            '_add_attempt': None, 'followed_live_only': False,
         })
         self.assertEqual(vars(placement.navigation), {'host': host})
         self.assertEqual(placement.room_browser_url({'room_id': '123'}), 'https://live.bilibili.com/123')

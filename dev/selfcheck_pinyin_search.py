@@ -160,14 +160,14 @@ def main():
             assert imported(query) == ids, query
         imported('cqzb')
         dialog._check_all(True)
-        assert {r['room_id'] for r in dialog.selected()} == {'9101', '9102'}
+        assert {r['room_id'] for r in dialog.selected()} == {'9102'}, 'Only new follows can be imported'
         pixmap = QPixmap(32, 32)
         pixmap.fill(QColor('red'))
         dialog.set_avatar('9102', pixmap)
         imported('XM')
         assert not dialog.list.item(1).icon().isNull()
         imported('')
-        assert {r['room_id'] for r in dialog.selected()} == {'9101', '9102'}
+        assert {r['room_id'] for r in dialog.selected()} == {'9102'}
         dialog.rooms[0]['uname'] = '小红'
         # Resolve the current row data, as asynchronous account updates do.
         room = dialog.list.item(0).data(Qt.UserRole)

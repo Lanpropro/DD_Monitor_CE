@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QTabBar, QVBoxLayout, QWidget)
 
 from .settings_layout import SettingsColumns, SettingsSection
-from .ui import SettingsSlider, SettingsValueLabel, ToggleSwitch
+from .ui import ElidedLabel, SettingsSlider, SettingsValueLabel, ToggleSwitch
 from .skins import AssetImport
 from .folder_icons import IconDropArea
 
@@ -40,12 +40,19 @@ class SkinSettings(QWidget):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setObjectName('SettingsHint')
-        layout.addWidget(self.status)
-        gallery_label = QLabel('本地背景图库（已导入的图片与视频）')
+        self.background_name = ElidedLabel()
+        self.background_name.setObjectName('SettingsTitle')
+        self.background_name.setTextFormat(Qt.PlainText)
+        background_info = QVBoxLayout()
+        background_info.setSpacing(2)
+        background_info.addWidget(self.status)
+        background_info.addWidget(self.background_name)
+        layout.addLayout(background_info)
+        gallery_label = QLabel('背景图库')
         gallery_label.setObjectName('SettingsHint')
         gallery_label.setWordWrap(True)
         layout.addWidget(gallery_label)
-        self.gallery_location = QLabel('这里显示历次导入的本地素材；重复导入会保留多份副本。')
+        self.gallery_location = QLabel('重复导入会保留副本。')
         self.gallery_location.setObjectName('SettingsHint')
         self.gallery_location.setWordWrap(True)
         layout.addWidget(self.gallery_location)
@@ -167,15 +174,24 @@ class SkinSettings(QWidget):
         self.video_toggle.blockSignals(previous)
         self.mask_label.setText(str(value) + '%')
         if self.job is not None:
-            self.status.setText('正在导入背景文件…')
+            self._set_background_status('正在导入背景文件…')
         elif self._pending_image is not None:
-            self.status.setText('正在读取背景图片…')
+            self._set_background_status('正在读取背景图片…')
         elif self.controller is not None and self.controller.error:
-            self.status.setText(('皮肤插件背景错误：' if override else '背景错误：') + self.controller.error)
+            self._set_background_status(('皮肤插件背景错误：' if override else '背景错误：') + self.controller.error)
         elif override and self._locked():
-            self.status.setText('皮肤插件「' + override['name'] + '」接管，自定义选项已锁定。')
+            self._set_background_status('皮肤插件「' + override['name'] + '」接管，自定义选项已锁定。')
+        elif path:
+            self._set_background_status('当前背景', _background_name(path))
         else:
-            self.status.setText('当前：' + _background_name(path))
+            self._set_background_status('当前：默认背景')
+
+    def _set_background_status(self, text, filename=''):
+        self.status.setText(text)
+        self.background_name.setText(filename)
+        self.background_name.setAccessibleName(filename)
+        self.background_name.setToolTip(filename)
+        self.background_name.setVisible(bool(filename))
 
     def _mask_changed(self, value):
         if self._locked():
@@ -217,7 +233,7 @@ class SkinSettings(QWidget):
             asset_file(managed)
         except (OSError, ValueError) as error:
             self.sync()
-            self.status.setText(str(error))
+            self._set_background_status(str(error))
             return
         self._apply_background(path)
 
@@ -243,7 +259,7 @@ class SkinSettings(QWidget):
         self._pending_image = None
         if error:
             self.sync()
-            self.status.setText(error)
+            self._set_background_status(error)
             return
         if self.controller is not None:
             layer = self.controller.layer
@@ -306,7 +322,7 @@ class SkinSettings(QWidget):
         self.gallery.refresh()
         error = getattr(self, '_import_error', '')
         if error:
-            self.status.setText(error)
+            self._set_background_status(error)
             self._import_error = ''
         job.deleteLater()
 

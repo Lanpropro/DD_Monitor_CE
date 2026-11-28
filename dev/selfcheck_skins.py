@@ -212,7 +212,7 @@ def check_parts(app):
                     assert preview_card.geometry().bottom() < controls_card.y()
                 assert appearance.scroll.horizontalScrollBar().maximum() == 0
                 assert embedded.background_controls.isVisible()
-            assert embedded.introduction.text() == '点击预览图中的可修改区域，在选项中自定义样式'
+            assert embedded.introduction.text() == '点击预览图中的彩框编辑样式。'
             forbidden = ('背景皮肤', '颜色模式', '当前：', '立即生效并保存', '主界面入口：', '切换不重连直播')
             assert not any(label.isVisible() and not embedded.isAncestorOf(label) and
                            any(text in label.text() for text in forbidden)

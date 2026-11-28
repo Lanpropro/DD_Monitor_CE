@@ -1,5 +1,5 @@
 """Inline global codec choices; the owning settings page saves the draft."""
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
 
 from .config import DECODE_HINTS, DECODE_MODES, codec_settings
@@ -40,15 +40,14 @@ class InlineCodecEditor(QWidget):
         self.decode_hint.setObjectName('SettingsHint')
         self.decode_hint.setWordWrap(True)
         box.addWidget(self.decode_hint, 3, 0, 1, 2)
-        note = QLabel('作为所有窗口的默认值，修改后自动保存并应用。\n'
-                      'B站未提供所选格式或原画、或探测失败时，保留当前格式。其他平台 AV1 依次尝试 HEVC、H.264；'
-                      'HEVC 不可用时回退 H.264。解码异常时回退 CPU。')
+        note = QLabel('B站未提供所选格式或原画、或探测失败时，保留当前格式。'
+                      '其他平台 AV1 依次尝试 HEVC、H.264；HEVC 不可用时回退 H.264。')
         note.setObjectName('SettingsHint')
         note.setWordWrap(True)
         box.addWidget(note, 4, 0, 1, 2)
         self.set_values(codec_settings(settings))
         self.source_group.buttonClicked.connect(self._changed)
-        self.decode_control.currentIndexChanged.connect(self._changed)
+        self.decode_control.currentIndexChanged.connect(self._decode_changed)
 
     def _update_hint(self):
         value = self.values()['bili_codec']
@@ -59,10 +58,16 @@ class InlineCodecEditor(QWidget):
         self._update_hint()
         self.changed.emit()
 
+    def _decode_changed(self, index):
+        self.decode_hint.show()
+        self._changed(index)
+
     def set_values(self, values):
         self.source_control.setValue(values['bili_codec'])
-        self.decode_control.setCurrentIndex(self.decode_control.findData(values['decode_mode']))
+        with QSignalBlocker(self.decode_control):
+            self.decode_control.setCurrentIndex(self.decode_control.findData(values['decode_mode']))
         self._update_hint()
+        self.decode_hint.hide()
 
     def values(self):
         return {'bili_codec': self.source_control.value(), 'decode_mode': self.decode_control.currentData()}

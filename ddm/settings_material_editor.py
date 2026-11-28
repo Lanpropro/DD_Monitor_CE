@@ -30,10 +30,10 @@ class SettingsMaterialEditor(SettingsSurface):
         self.background_status.setWordWrap(True)
         parameters.addWidget(self.background_status)
         entries = (
-            ('settings_glass_enabled', '启用毛玻璃效果', '设置窗口、公告详情和直播流信息使用系统模糊。'
-             '通知菜单和播放弹窗（含礼物与表情）也随底色不透明度调整。'),
-            ('settings_segment_motion', '滑动分段指示器', '用鼠标点选或拖动选中底片，系统关闭动画时直接切换。'),
-            ('settings_no_shadows', '禁用卡片与控件阴影', '关闭卡片外投影与选择控件的阴影。'),
+            ('settings_glass_enabled', '毛玻璃效果', '设置窗口、公告详情和直播流信息使用系统模糊。'
+             '通知菜单和播放弹窗跟随底色不透明度。'),
+            ('settings_segment_motion', '滑动分段指示器', '点选或拖动时滑动切换。关闭系统动画后直接切换。'),
+            ('settings_no_shadows', '禁用卡片与控件阴影', ''),
         )
         for key, label, hint in entries:
             row = QHBoxLayout()
@@ -41,11 +41,12 @@ class SettingsMaterialEditor(SettingsSurface):
             text.setSpacing(4)
             name = QLabel(label)
             name.setObjectName('SettingsText')
-            description = QLabel(hint)
-            description.setObjectName('SettingsHint')
-            description.setWordWrap(True)
             text.addWidget(name)
-            text.addWidget(description)
+            if hint:
+                description = QLabel(hint)
+                description.setObjectName('SettingsHint')
+                description.setWordWrap(True)
+                text.addWidget(description)
             row.addLayout(text, 1)
             control = ToggleSwitch(label)
             control.toggled.connect(self._changed)

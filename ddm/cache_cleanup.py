@@ -91,9 +91,10 @@ def _historical_log(path, today):
 
 def _files(root, kind):
     if kind == 'plugin-catalog':
-        path = _path(root, 'cache', 'plugin-catalog.json')
-        if path.is_file():
-            yield path
+        for name in ('plugin-catalog.json', 'plugin-catalog-preview.json'):
+            path = _path(root, 'cache', name)
+            if path.is_file():
+                yield path
         return
     directory = _path(root, 'logs') if kind == 'logs' else _path(root, 'cache', 'web-login')
     if not directory.is_dir():

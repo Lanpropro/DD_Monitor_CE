@@ -3,7 +3,7 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap, QRegion, QTransform
 from PySide6.QtWidgets import QApplication, QWidget
 from .window_capture import print_window
 
@@ -45,6 +45,9 @@ class LiveResize:
         from .window_fullscreen import _dwm_set
         self.native_rounding = _dwm_set(int(self.preview.winId()), 33, 2) == 0
         _dwm_set(int(self.preview.winId()), 34, 0xFFFFFFFE)
+        self._source_mask = source.mask() if source._has_pane_gaps else QRegion()
+        self._source_size = source.size()
+        self._update_mask()
         self.dwm = ctypes.windll.dwmapi
         self.dwm.DwmRegisterThumbnail.argtypes = (wintypes.HWND, wintypes.HWND, ctypes.POINTER(wintypes.HANDLE))
         self.dwm.DwmUpdateThumbnailProperties.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ThumbnailProperties))
@@ -127,12 +130,19 @@ class LiveResize:
 
     def set_geometry(self, rect):
         self.preview.setGeometry(rect)
-        if not self.native_rounding:
+        self._update_mask()
+        if not self.sync():
+            self.finish(immediate=True)
+
+    def _update_mask(self):
+        if not self._source_mask.isEmpty():
+            scale = QTransform.fromScale(self.preview.width() / self._source_size.width(),
+                                         self.preview.height() / self._source_size.height())
+            self.preview.setMask(scale.map(self._source_mask))
+        elif not self.native_rounding:
             path = QPainterPath()
             path.addRoundedRect(QRectF(self.preview.rect()), 8, 8)
             self.preview.setMask(QRegion(path.toFillPolygon().toPolygon()))
-        if not self.sync():
-            self.finish(immediate=True)
 
     def finish(self, *, immediate=False):
         if not self.finishing:

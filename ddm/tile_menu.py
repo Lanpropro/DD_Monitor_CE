@@ -60,8 +60,14 @@ class MenuOrderList(QWidget):
     selectedChanged = Signal(str)
     enabledChanged = Signal(str, bool)
 
-    def __init__(self, parent=None, *, items=MENU_ITEMS):
+    _row_detail = None
+
+    def __init__(self, parent=None, *, items=MENU_ITEMS, row_detail=None):
         super().__init__(parent)
+        self._row_detail = row_detail
+        if row_detail is not None:
+            row_detail[1].setParent(self)
+            row_detail[1].hide()
         self.choices = []
         self.selected = ''
         self._labels = dict(items)
@@ -91,8 +97,22 @@ class MenuOrderList(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     def _rects_for(self, keys):
-        height = max(36, self.fontMetrics().height() + 16)
-        return [(key, QRectF(0, index * height, self.width(), height)) for index, key in enumerate(keys)]
+        row_height = max(36, self.fontMetrics().height() + 16)
+        rows, y = [], 0
+        for key in keys:
+            height = row_height * (2 if self._has_detail(key) else 1)
+            rows.append((key, QRectF(0, y, self.width(), height)))
+            y += height
+        return rows
+
+    def _has_detail(self, key):
+        return self._row_detail is not None and key == self._row_detail[0] and self.checks[key].isChecked()
+
+    def _primary_rect(self, key, rect):
+        if self._has_detail(key):
+            rect = QRectF(rect)
+            rect.setHeight(rect.height() / 2)
+        return rect
 
     def rows(self):
         return self._rects_for([entry['id'] for entry in self.choices])
@@ -123,11 +143,18 @@ class MenuOrderList(QWidget):
 
     def _position_switches(self):
         for key, rect in self._display_rows():
+            primary = self._primary_rect(key, rect)
+            visible = not (self._dragging and key == self._pressed)
             if key in self.checks:
                 check = self.checks[key]
                 check.move(self.width() - check.width() - 8,
-                           round(rect.center().y() - check.height() / 2))
-                check.setVisible(not (self._dragging and key == self._pressed))
+                           round(primary.center().y() - check.height() / 2))
+                check.setVisible(visible)
+            if self._row_detail is not None and key == self._row_detail[0]:
+                detail = self._row_detail[1]
+                bounds = rect.toRect().adjusted(0, primary.toRect().height(), 0, 0)
+                detail.setGeometry(bounds)
+                detail.setVisible(visible and not bounds.isEmpty())
 
     def _advance_row_animations(self, *, finish=False):
         advance_row_animations(self, finish=finish or not motion.enabled())
@@ -146,7 +173,7 @@ class MenuOrderList(QWidget):
             self.set_choices(self.choices)
 
     def _hit(self, position):
-        return next((key for key, rect in self.rows() if rect.contains(position)), None)
+        return next((key for key, rect in self.rows() if self._primary_rect(key, rect).contains(position)), None)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -261,6 +288,7 @@ class MenuOrderList(QWidget):
         for key, rect in self._display_rows():
             if self._dragging and key == self._pressed:
                 continue
+            rect = self._primary_rect(key, rect)
             if key == self.selected:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(theme.qcolor(theme.ACCENT_SOFT))
@@ -365,17 +393,17 @@ class TileMenuEditor(QWidget):
     layoutChanged = Signal()
 
     def __init__(self, choices=None, parent=None, *, items=MENU_ITEMS,
-                 normalize=menu_choices, preview_factory=MenuPreview):
+                 normalize=menu_choices, preview_factory=MenuPreview, row_detail=None):
         super().__init__(parent)
         self._normalize = normalize
         self._labels = dict(items)
         box = QVBoxLayout(self)
         box.setContentsMargins(0, 0, 0, 0)
-        hint = QLabel('拖动调整顺序，关闭开关可隐藏功能。')
+        hint = QLabel('拖动排序，关掉开关可隐藏菜单项。')
         hint.setObjectName('SettingsHint')
         hint.setWordWrap(True)
         box.addWidget(hint)
-        self.items = MenuOrderList(self, items=items)
+        self.items = MenuOrderList(self, items=items, row_detail=row_detail)
         self.items.orderChanged.connect(self.move_before)
         self.items.selectedChanged.connect(self.select_item)
         self.items.enabledChanged.connect(self.set_enabled)

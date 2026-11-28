@@ -1,6 +1,7 @@
 """Fullscreen, picture-in-picture and native wall presentation modes; WallGrid retains Qt ownership."""
 import sys
 from PySide6.QtCore import QRect, QSize, QTimer, Qt, Signal
+from .pip_composition import composition_inputs, insert_chat_slots
 from .tile_widgets import Tile
 from .widget_support import TILE_BAR_HEIGHT, _repolish
 
@@ -9,6 +10,7 @@ class WallPresentation:
     def __init__(self, host):
         self.host = host
         self._pip_placement = ()
+        self._pip_chat_widgets = ()
 
     def ensure_quick_danmaku_layer(self):
         host = self.host
@@ -35,7 +37,7 @@ class WallPresentation:
             print(f"[弹幕] Qt Quick原型初始化失败，回退到QPainter：{exc}", file=sys.stderr)
         return host._quick_danmaku_layer
 
-    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0, *, placement=()):
+    def set_picture_in_picture(self, tiles, columns=0, aspects=None, primary=0, *, placement=(), chat_widgets=()):
         host = self.host
         host.set_interactive_resize(False)
         host._clear()
@@ -46,6 +48,7 @@ class WallPresentation:
         host.picture_in_picture_primary = primary
         host.picture_in_picture_aspects = aspects or []
         self._pip_placement = placement
+        self._pip_chat_widgets = chat_widgets
         selected = set(tiles or [])
         for tile in host.tiles:
             tile.setProperty('pictureInPicture', tile in selected)
@@ -56,12 +59,13 @@ class WallPresentation:
                 tile.setMinimumSize(0, 0)
         host._sync_danmaku_controls()
         host.relayout(force=True)
-        for tile in host.tiles:
+        for tile in host.tiles if tiles is None else host.picture_in_picture_tiles:
             tile._layout_areas()
 
     def relayout_picture_in_picture(self):
         host = self.host
         from .pip_geometry import pane_rectangles
+        from .pip_window import PictureInPictureWindow
         host.setMinimumSize(0, 0)
         for widget in host.pane_danmaku.wall_widgets():
             widget.hide()
@@ -69,16 +73,27 @@ class WallPresentation:
         for border in host._pane_borders.values():
             border.hide()
         selected = host.picture_in_picture_tiles
+        if not selected:
+            return
+        widgets = insert_chat_slots(selected, self._pip_chat_widgets)
+        aspects, primary = composition_inputs(host.picture_in_picture_aspects or [16 / 9] * len(selected),
+                                             self._pip_chat_widgets, host.picture_in_picture_primary)
         for tile in host.tiles:
             tile.setVisible(tile in selected)
         window = host._quick_danmaku_layer.window if host._quick_danmaku_layer is not None else None
         if window is not None:
             window.begin_mask_batch()
         try:
-            rectangles = pane_rectangles(len(selected), host.rect(), host.picture_in_picture_columns,
-                    host.picture_in_picture_aspects, host.picture_in_picture_primary, placement=self._pip_placement)
-            for tile, rect in zip(selected, rectangles):
-                tile.setGeometry(rect)
+            rectangles = pane_rectangles(len(widgets), host.rect(), host.picture_in_picture_columns,
+                                         aspects, primary, placement=self._pip_placement)
+            floating = host.window()
+            if isinstance(floating, PictureInPictureWindow):
+                floating.set_pane_rectangles(rectangles)
+            for widget, rect in zip(widgets, rectangles):
+                widget.setGeometry(rect)
+            for _, panel in self._pip_chat_widgets:
+                panel.font_controls.setVisible(panel.width() >= 160)
+                panel.show()
         finally:
             if window is not None:
                 window.end_mask_batch()

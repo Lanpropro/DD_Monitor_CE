@@ -3,7 +3,6 @@ from pathlib import Path
 import time
 from PySide6.QtCore import QEvent, QRunnable, QRectF, Qt, QThreadPool, QUrl, Signal, Slot
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
 from PySide6.QtWidgets import QWidget
 from . import theme
 from .skin_assets import IMAGES, VIDEOS, asset_file, read_image
@@ -80,6 +79,7 @@ class BackgroundLayer(QWidget):
                     self.image = (prepared[1] if prepared is not None and prepared[0] == asset.resolve()
                                   else read_image(asset))
                 else:
+                    from PySide6.QtMultimedia import QMediaPlayer, QVideoSink
                     if self.player is None:
                         self.player = QMediaPlayer(self)
                         self.player.setAudioOutput(None)

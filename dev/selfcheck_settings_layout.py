@@ -228,9 +228,14 @@ class SettingsLayoutTests(unittest.TestCase):
         card = page.sections.section('codecs')
         self.assertTrue(card.isAncestorOf(page.codec_editor))
         self.assertTrue(page.codec_editor.isVisible())
+        self.assertTrue(page.codec_editor.decode_hint.isHidden())
+        self.assertIn('B站未提供所选格式或原画、或探测失败时，保留当前格式。'
+                      '其他平台 AV1 依次尝试 HEVC、H.264；HEVC 不可用时回退 H.264。',
+                      [label.text() for label in page.codec_editor.findChildren(QLabel)])
         self.assertLess(card.height(), page.sections.section('playback').height())
         with patch('ddm.dialogs.CodecSettingsDialog') as factory:
             page.codec_editor.source_buttons['hevc'].click()
+            self.assertTrue(page.codec_editor.decode_hint.isHidden())
             page.codec_editor.decode_control.setCurrentIndex(page.codec_editor.decode_control.findData('none'))
             factory.assert_not_called()
         for width in (760, 1200):
@@ -242,8 +247,13 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(self.dialog.settings()['decode_mode'], 'none')
             select = page.codec_editor.decode_control
             self.assertLessEqual(select.geometry().right(), page.codec_editor.width())
+            self.assertTrue(page.codec_editor.decode_hint.isVisible())
             self.assertEqual(page.codec_editor.decode_hint.text(), config.DECODE_HINTS['none'])
+        select.setCurrentIndex(select.findData('auto'))
+        self.assertTrue(page.codec_editor.decode_hint.isVisible())
+        self.assertEqual(page.codec_editor.decode_hint.text(), config.DECODE_HINTS['auto'])
         self.dialog._reset_current()
+        self.assertTrue(page.codec_editor.decode_hint.isHidden())
         self.assertEqual(page.values()['bili_codec'], config.DEFAULT_SETTINGS['bili_codec'])
         self.assertEqual(page.values()['decode_mode'], config.DEFAULT_SETTINGS['decode_mode'])
 
@@ -261,6 +271,7 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertEqual(restored.settings()['bili_codec'], 'av1')
             self.assertEqual(restored.settings()['decode_mode'], 'dxva2')
             self.assertFalse(restored.general_page.codec_editor.isHidden())
+            self.assertTrue(restored.general_page.codec_editor.decode_hint.isHidden())
         finally:
             for dialog in (draft, restored):
                 if dialog is not None:
@@ -404,6 +415,57 @@ class SettingsLayoutTests(unittest.TestCase):
             else:
                 self.assertLess(theme_card.geometry().bottom(), material_card.y())
             self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+
+    def test_appearance_control_bar_switches_save_and_reload(self):
+        transparent_key = 'windowed_transparent_controls'
+        auto_hide_key = 'windowed_auto_hide_controls'
+        general = self.page(0)
+        self.assertNotIn(transparent_key, general.values())
+        self.assertNotIn(auto_hide_key, general.values())
+        self.dialog.auto_save.start()
+        requests = []
+        self.dialog.auto_save.requested.connect(requests.append)
+        page = self.page(self.dialog.PAGE_INDEX['appearance'])
+        self.assertTrue(self.dialog.auto_save.flush())
+        self.assertEqual(requests, [])
+        card = page.sections.section('controls')
+        transparent = page.windowed_transparent_controls
+        auto_hide = page.windowed_auto_hide_controls
+        self.assertEqual([label.text() for label in card.findChildren(QLabel)],
+                         ['控制栏', '使用透明控制栏', '非全屏时自动收起控制栏'])
+        self.assertFalse(auto_hide.isEnabled())
+        for width in (760, 1200):
+            self.dialog.resize(width, 800)
+            settle()
+            for switch in (transparent, auto_hide):
+                self.assertTrue(card.isAncestorOf(switch))
+                self.assertLessEqual(switch.geometry().right(), card.width())
+            self.assertEqual(page.scroll.horizontalScrollBar().maximum(), 0)
+
+        transparent.click()
+        self.assertTrue(auto_hide.isEnabled())
+        auto_hide.click()
+        self.dialog.auto_save.flush()
+        self.assertEqual(requests[-1], {'settings': {transparent_key: True, auto_hide_key: True}})
+        self.dialog.auto_save.acknowledge()
+        restored = SettingsDialog(self.dialog.settings(), {}, preview=True)
+        try:
+            self.assertTrue(restored.settings()[transparent_key])
+            self.assertTrue(restored.settings()[auto_hide_key])
+            restored_page = restored.appearance_page
+            self.assertTrue(restored_page.windowed_transparent_controls.isChecked())
+            self.assertTrue(restored_page.windowed_auto_hide_controls.isChecked())
+            self.assertTrue(restored_page.windowed_auto_hide_controls.isEnabled())
+        finally:
+            restored.close()
+            restored.deleteLater()
+        transparent.click()
+        self.assertFalse(auto_hide.isEnabled())
+        self.assertTrue(auto_hide.isChecked())
+        transparent.click()
+        self.dialog._reset_current()
+        self.assertEqual(requests[-1], {'settings': {transparent_key: False, auto_hide_key: False}})
+        self.dialog.auto_save.acknowledge()
 
     def test_material_blur_strength_changes_cached_background_pixels(self):
         import tempfile
@@ -586,6 +648,21 @@ class SettingsLayoutTests(unittest.TestCase):
         page = self.page(2)
         self.assertIsInstance(page.font_box, FontSelectControl)
         self.assertIsInstance(page.super_chat_layout_control, SegmentedControl)
+        header = page.scroll.widget().layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['弹幕'])
+        font_card = page.sections.section('font_filter')
+        self.assertEqual([label.text() for label in font_card.findChildren(QLabel) if label.isVisible()],
+                         ['弹幕字体与记录', '弹幕字体', '弹幕格字号', '最多保留'])
+        for row, control, hint in (
+            (0, page.font_box, '字体共用于弹幕格和画面弹幕。'),
+            (1, page.size_spin, '这里的字号仅控制弹幕格，也可在弹幕格底部调整。'),
+            (2, page.keep_spin, '超过保留上限后移除最早的内容。'),
+        ):
+            self.assertEqual(font_card.grid.itemAtPosition(row, 0).widget().toolTip(), hint)
+            self.assertIn(hint, control.toolTip())
+        page.font_box.addItem('Fixture Font')
+        page.font_box.setCurrentIndex(page.font_box.count() - 1)
+        self.assertEqual(page.font_box.toolTip(), 'Fixture Font\n字体共用于弹幕格和画面弹幕。')
         for control in (page.super_chat_enabled, page.super_chat_scale_with_video,
                         page.super_chat_position_sync, page.video_danmaku_scale):
             self.assertIsInstance(control, ToggleSwitch)
@@ -616,6 +693,15 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_danmaku_sc_options_share_one_card_with_the_preview(self):
         page = self.page(2)
+        self.assertIn('屏蔽词', [label.text() for label in
+                                page.sections.section('blocking').findChildren(QLabel)])
+        self.assertEqual(page.block_edit.placeholderText(), '每行输入一个屏蔽词')
+        self.assertEqual([label.text() for label in page.video_parameters.findChildren(QLabel)],
+                         ['弹幕随画面缩放', '随画面高度调整弹幕大小。关闭后保留曲线。'])
+        self.assertEqual([label.text() for label in page.sc_preview.findChildren(QLabel)],
+                         ['同步画面与弹幕栏的 SC 位置'])
+        self.assertEqual(page.super_chat_placement.toolTip(),
+                         '拖动卡片调整位置，拖动右下角调整大小。双击恢复当前布局的默认位置和大小。')
         self.assertEqual([key for key, _card, _wide in page.sections.entries],
                          ['font_filter', 'danmaku_float', 'danmaku_curve', 'danmaku_drag',
                           'blocking', 'sc_placement'])
@@ -648,14 +734,18 @@ class SettingsLayoutTests(unittest.TestCase):
         mode, keep = page.float_cell_mode, page.float_keep_video_slots
         mode_label = card.grid.itemAtPosition(0, 0).widget()
         keep_label = card.grid.itemAtPosition(1, 0).widget()
+        keep_hint = card.grid.itemAtPosition(2, 0).widget()
         self.assertEqual(keep_label.indent(), mode_label.indent())
         self.assertTrue(card.isAncestorOf(mode) and card.isAncestorOf(keep))
         self.assertFalse(keep.isEnabled())
+        self.assertTrue(keep_hint.isHidden())
+        self.assertEqual(page.float_glass.accessibleName(), '浮窗毛玻璃')
         self.dialog.auto_save.start()
         requested = []
         self.dialog.auto_save.requested.connect(requested.append)
         mode.buttons['reuse'].click()
         self.assertTrue(keep.isEnabled())
+        self.assertTrue(keep_hint.isVisible())
         keep.click()
         self.dialog.auto_save.flush()
         self.assertEqual(requested[-1]['settings'], {
@@ -667,6 +757,11 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertLess(mode.geometry().bottom(), keep.y())
             self.assertTrue(card.rect().contains(keep.geometry()))
             self.assertEqual(keep_label.x(), mode_label.x())
+        mode.buttons['reserve'].click()
+        self.assertFalse(keep.isEnabled())
+        self.assertTrue(keep_hint.isHidden())
+        self.dialog.auto_save.flush()
+        self.dialog.auto_save.acknowledge()
 
     def test_danmaku_large_font_and_single_column_keep_controls_in_bounds(self):
         page = self.page(2)
@@ -714,14 +809,43 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_scale_curve_hint_stays_below_graph(self):
         page = self.page(2)
-        control = page.video_danmaku_scale_curve
         self.dialog.resize(1200, 850)
         settle()
-        graph = control.graph
-        hint = next(label for label in control.findChildren(QLabel)
-                    if label.text().startswith('横轴为画面高度'))
-        self.assertGreaterEqual(graph.height(), 220)
-        self.assertGreaterEqual(hint.y(), graph.geometry().bottom())
+        for control in (page.video_danmaku_scale_curve, page.super_chat_scale_curve):
+            graph = control.graph
+            hints = control.findChildren(QLabel)
+            self.assertEqual([hint.text() for hint in hints], ['横轴为画面高度（px），纵轴为相对大小。'])
+            self.assertGreaterEqual(graph.height(), 220)
+            self.assertGreaterEqual(hints[0].y(), graph.geometry().bottom())
+            self.assertIn('拖动线条新增节点', graph.toolTip())
+            self.assertIn('右键删除节点', graph.toolTip())
+            self.assertIn('720 px / 100%', graph.toolTip())
+
+    def test_video_danmaku_curve_can_reset_while_scaling_is_off(self):
+        from ddm.viewport_scale import scale_curve_points
+        page = self.page(2)
+        curve = page.video_danmaku_scale_curve
+        button = curve.reset_button
+        header = page.sections.section('danmaku_curve').layout().itemAt(0).layout()
+        self.assertIs(header.itemAt(1).widget(), button)
+        self.assertEqual(button.text(), '返回默认')
+        page.super_chat_scale_curve.set_curve([[0, .6], [1, 1], [2, 1.4]])
+        requests = []
+        self.dialog.auto_save.requested.connect(requests.append)
+        for enabled in (False, True):
+            page.video_danmaku_scale.setChecked(enabled)
+            curve.set_curve([[0, .4], [1, 1], [2, 1.5]])
+            before = page.values()
+            self.dialog.auto_save.start()
+            requests.clear()
+            self.assertEqual(curve.isEnabled(), enabled)
+            self.assertTrue(button.isVisible() and button.isEnabled())
+            button.click()
+            self.assertEqual(page.values(), {**before, 'video_danmaku_scale_curve': scale_curve_points()})
+            self.dialog.auto_save.flush()
+            self.assertEqual(requests, [{'settings': {'video_danmaku_scale_curve': scale_curve_points()}}])
+            self.dialog.auto_save.acknowledge()
+            self.dialog.auto_save.stop()
 
     def test_recording_state_and_shortcuts_survive_column_changes(self):
         page = self.page(3)
@@ -746,11 +870,15 @@ class SettingsLayoutTests(unittest.TestCase):
         from ddm.ui import SelectControl, StepperControl, ToggleSwitch
         page = self.page(3)
         self.assertEqual(page.values(), {key: config.DEFAULT_SETTINGS[key] for key in page.values()})
+        header = page.scroll.widget().layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['录制与即时回放'])
         for control in (page.recording_enabled, page.lock_quality, page.replay_enabled):
             self.assertIsInstance(control, ToggleSwitch)
         self.assertEqual(page.lock_quality.accessibleName(), '录制时锁定可用最高分辨率')
         self.assertIn('录制时锁定可用最高分辨率', {label.text() for label in page.findChildren(QLabel)})
-        self.assertIn('录制时锁定可用最高分辨率', page.lock_quality.toolTip())
+        self.assertEqual(page.recording_enabled.toolTip(),
+                         '关闭后隐藏底栏和右键菜单中的录制入口。正在录制的内容会正常保存，即时回放不受影响。')
+        self.assertNotIn('录制时锁定可用最高分辨率', page.lock_quality.toolTip())
         self.assertIn('账号权限', page.lock_quality.toolTip())
         self.assertIn('恢复录制前的画质', page.lock_quality.toolTip())
         for control in (page.format, page.codec, page.encoder, page.fps, page.replay_scope):
@@ -764,6 +892,9 @@ class SettingsLayoutTests(unittest.TestCase):
             self.assertIs(stepper.spin, editor)
             self.assertEqual(editor.suffix(), '')
         self.assertEqual(page.codec.currentData(), 'copy')
+        self.assertEqual(page.codec.toolTip(), '直接保存原始流，画质不变、负载低。')
+        self.assertIn('改动码率或帧率会自动切换为 H.264 重编码', page.bitrate.toolTip())
+        self.assertEqual(page.segment_minutes.toolTip(), '每隔设定时长保存一段，继续录制。')
         self.assertFalse(page.encoder.isEnabled())
         page.bitrate_stepper.plus.click()
         self.assertEqual(page.codec.currentData(), 'h264')
@@ -773,8 +904,18 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertEqual(page.codec.currentData(), 'h264')
         page.encoder.setCurrentIndex(page.encoder.findData('cpu'))
         self.assertEqual(page.encoder.currentText(), 'CPU')
-        self.assertIn('libx264', page.encoder.toolTip())
-        self.assertIn('FFmpeg', page.encoder.toolTip())
+        encoder_hints = {
+            'auto': '优先使用可用的显卡编码器。不可用或编码失败时回退 CPU。',
+            'cpu': '使用 libx264 软件编码，兼容性最好。',
+            'nvenc': '使用支持 NVENC 的 NVIDIA 显卡编码。不可用时回退 CPU。',
+            'qsv': '使用 Intel Quick Sync 硬件编码。不可用时回退 CPU。',
+            'amf': '使用支持 AMF 的 AMD 显卡编码。不可用时回退 CPU。',
+        }
+        for key, hint in encoder_hints.items():
+            index = page.encoder.findData(key)
+            page.encoder.setCurrentIndex(index)
+            self.assertEqual(page.encoder.itemData(index, Qt.ToolTipRole), hint)
+            self.assertEqual(page.encoder.toolTip(), hint)
         page.recording_enabled.setChecked(False)
         for control in (page.directory, page.browse, page.format, page.codec, page.encoder,
                         page.bitrate, page.bitrate_stepper.plus, page.fps, page.segment_minutes,
@@ -792,6 +933,7 @@ class SettingsLayoutTests(unittest.TestCase):
         page.replay_enabled.setChecked(True)
         page.replay_scope.setCurrentIndex(page.replay_scope.findData('all'))
         self.assertTrue(page.replay_max.isEnabled())
+        self.assertEqual(page.replay_max.toolTip(), '仅对「所有播放格子」生效。0 表示不限制。')
         page.replay_scope.setCurrentIndex(page.replay_scope.findData('recorded'))
         self.assertFalse(page.replay_max.isEnabled())
         page.reset()
@@ -915,6 +1057,18 @@ class SettingsLayoutTests(unittest.TestCase):
 
     def test_tray_retains_menu_order_and_visibility(self):
         page = self.page(self.dialog.PAGE_INDEX['tray'])
+        header = page.layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(i).widget().text() for i in range(header.count())], ['托盘行为'])
+        close_card = page.sections.section('close')
+        self.assertEqual(close_card.grid.itemAtPosition(1, 0).widget().text(), '右键打开托盘菜单，双击显示或隐藏窗口。')
+        self.assertIsNone(close_card.grid.itemAtPosition(3, 0))
+        pause_hint = '仅隐藏到托盘时暂停播放。恢复窗口后继续播放，录制不受影响。'
+        self.assertEqual(page.pause_playback.toolTip(), pause_hint)
+        self.assertEqual(close_card.grid.itemAtPosition(2, 0).widget().toolTip(), pause_hint)
+        self.assertEqual(page.tray_menu.checks['toggle'].toolTip(), '在托盘菜单中提供显示和隐藏窗口的入口。')
+        self.assertEqual(page.preview_audio.toolTip(), '点击直播格调节音量或静音。')
+        for menu_editor in (page.tile_menu, page.tray_menu):
+            self.assertEqual(menu_editor.layout().itemAt(0).widget().text(), '拖动排序，关掉开关可隐藏菜单项。')
         editor = page.tile_menu
         editor.move_before('reload', 'mute')
         editor.checks['reload'].setChecked(False)
@@ -1010,7 +1164,8 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertTrue(self.dialog.auto_save.timer.isActive())
         self.dialog.auto_save.flush()
         self.assertEqual(requested[-1]['settings'], {
-            key: value for key, value in page.values().items() if key != 'tray_context_menu'})
+            key: value for key, value in page.values().items()
+            if key not in ('tray_context_menu', 'tray_preview_audio')})
         saved = page.values()
         self.dialog.auto_save.acknowledge()
 
@@ -1040,18 +1195,22 @@ class SettingsLayoutTests(unittest.TestCase):
         self.assertTrue(page.tile_menu.isVisible())
         self.dialog.auto_save.flush()
         self.assertFalse(requested, 'Opening both menu sections must not save a preference')
+        page.preview_audio.click()
+        page.tray_menu.checks['layout_pip'].click()
         page.tray_menu.checks['layout_preview'].click()
         page.tray_menu.move_before('exit', 'pip')
         expected = page.tray_menu.values()
         self.dialog.auto_save.flush()
-        self.assertEqual(requested[-1]['settings'], {'tray_context_menu': expected})
+        self.assertEqual(requested[-1]['settings'], {'tray_context_menu': expected, 'tray_preview_audio': True})
         self.dialog.auto_save.acknowledge()
         self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
         self.assertEqual(page.tray_menu.values(), expected)
         reopened = TraySettingsPage(page.values())
         self.assertEqual(reopened.tray_menu.values(), expected)
+        self.assertTrue(reopened.preview_audio.isChecked())
         reopened.deleteLater()
         page.reset()
+        self.assertFalse(page.preview_audio.isChecked())
         self.assertEqual(page.tray_menu.values(), tray_menu_choices(None))
         self.assertEqual(page.tile_menu.values(), before['tile_context_menu'])
 

@@ -97,7 +97,7 @@ class Avatar(QLabel):
 
 
 class FollowAvatar(Avatar):
-    """Paint the recording ring outside the visible portrait."""
+    """Paint the monitoring or recording ring outside the visible portrait."""
 
     RIPPLE_MS = 1600
     RING_MARGIN = 10
@@ -117,7 +117,7 @@ class FollowAvatar(Avatar):
         self.recording_state = state
         if self._source is None:
             self._update_placeholder_style()
-        self.setAccessibleDescription({'ready': '已启用自动录制', 'recording': '正在录制'}.get(state, ''))
+        self.setAccessibleDescription({'monitoring': '监控中', 'recording': '正在录制'}.get(state, ''))
         self._sync_ripple()
         self.update()
 
@@ -129,7 +129,7 @@ class FollowAvatar(Avatar):
             super()._update_placeholder_style()
 
     def _sync_ripple(self):
-        if self.recording_state == 'recording' and self.isVisible() and motion.enabled():
+        if self.recording_state in ('monitoring', 'recording') and self.isVisible() and motion.enabled():
             if self._ripple_timer is None:
                 self._ripple_timer = QTimer(self)
                 self._ripple_timer.setInterval(32)

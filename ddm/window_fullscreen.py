@@ -26,9 +26,9 @@ def set_window_topmost(widget, pinned):
         widget.windowHandle().setFlag(Qt.WindowStaysOnTopHint, pinned)
 
 
-def raise_below_native_windows(widget, anchors):
+def raise_below_native_windows(widget, anchors, *, owner=None):
     """Raise an overlay just behind its lowest anchor in the same topmost group."""
-    if not anchors:
+    if not anchors and owner is None:
         return False
     user32 = ctypes.windll.user32
     user32.GetTopWindow.argtypes = (wintypes.HWND,)
@@ -37,9 +37,26 @@ def raise_below_native_windows(widget, anchors):
     user32.GetWindow.restype = wintypes.HWND
     user32.GetWindowLongW.argtypes = (wintypes.HWND, ctypes.c_int)
     user32.GetWindowLongW.restype = ctypes.c_long
+    user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+    user32.IsIconic.argtypes = (wintypes.HWND,)
     hwnd = int(widget.winId())
+    if owner is not None:
+        owner_hwnd = int(owner.winId())
+        # A rebuilt tool window may lose its native owner and stay topmost.
+        # Restore ownership and the owner's stacking group before sorting the bar.
+        if user32.GetWindow(hwnd, 4) != owner_hwnd:  # GW_OWNER
+            widget.windowHandle().setTransientParent(owner.windowHandle())
+            set_owner = getattr(user32, 'SetWindowLongPtrW', user32.SetWindowLongW)
+            set_owner.argtypes = (wintypes.HWND, wintypes.INT, ctypes.c_ssize_t)
+            set_owner.restype = ctypes.c_ssize_t
+            set_owner(hwnd, -8, owner_hwnd)  # GWLP_HWNDPARENT
+        owner_topmost = bool(user32.GetWindowLongW(owner_hwnd, -20) & 0x8)
+        if bool(user32.GetWindowLongW(hwnd, -20) & 0x8) != owner_topmost:
+            set_window_topmost(widget, owner_topmost)
     topmost = user32.GetWindowLongW(hwnd, -20) & 0x8  # GWL_EXSTYLE / WS_EX_TOPMOST
-    remaining = {anchor for anchor in anchors if (user32.GetWindowLongW(anchor, -20) & 0x8) == topmost}
+    remaining = {anchor for anchor in anchors
+                 if user32.IsWindowVisible(anchor) and not user32.IsIconic(anchor)
+                 and (user32.GetWindowLongW(anchor, -20) & 0x8) == topmost}
     if not remaining:
         return False
     anchor = user32.GetTopWindow(None)

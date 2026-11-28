@@ -53,7 +53,8 @@ async def check_tools(pid, root):
         await session.initialize()
         tools = await session.list_tools()
         assert {'list_settings_pages', 'get_settings_state', 'open_settings_page', 'close_settings',
-                'measure_sidebar_interactions', 'capture_diagnostics',
+                'measure_sidebar_interactions', 'capture_diagnostics', 'capture_wall_buffers',
+                'remove_wall_slots', 'undo_wall_removal',
                 'list_startup_diagnostics', 'prepare_startup_diagnostics'} <= {
             tool.name for tool in tools.tools}
 
@@ -81,6 +82,10 @@ async def check_tools(pid, root):
         sidebar = await call('measure_sidebar_interactions', pid=pid, seconds=1)
         assert sidebar['pid'] == pid and sidebar['heartbeat']['idle']['intervals'] > 0
         assert not sidebar['phases'] and not sidebar['scroll'] and not any(sidebar['drag_outcomes'].values())
+        assert (await call('set_pip_picker_visible', pid=pid, visible=True))['visible']
+        assert (await call('set_pip_picker_visible', pid=pid, visible=True))['visible']
+        assert not (await call('set_pip_picker_visible', pid=pid, visible=False))['visible']
+        assert not (await call('get_state', pid=pid))['picture_in_picture']
         assert (await call('get_state', pid=pid))['slots'][0]['occupied']
         assert '2x2' in (await call('list_layouts', pid=pid))['builtin']
         assert (await call('set_layout', pid=pid, layout='2x2'))['state']['orientation'] == 'landscape'
@@ -98,7 +103,7 @@ async def check_tools(pid, root):
                         return
                     await asyncio.sleep(.05)
 
-        for entry, window, page in (('monitor', 'local', 'streamer_defaults'), ('sidebar', 'worker', 'general')):
+        for entry, window, page in (('monitor', 'worker', 'streamer_defaults'), ('sidebar', 'worker', 'general')):
             try:
                 assert (await call('open_settings_page', pid=pid, page=page, entry=entry))['accepted']
                 await wait_for(window, page)

@@ -59,6 +59,7 @@ def main():
                 skin_styles = {widget: widget.styleSheet() for widget in window.findChildren(QWidget)
                               if widget.objectName() in ('Sidebar', 'WallGrid', 'Tile', 'TileVideo', 'TileBottom', 'DanmakuPanel')}
                 def styled(widget, source):
+                    assert not widget.property('tileButton'), 'Theme switches must reuse playback control QSS'
                     record['stylesheet_resets'] += 1
                     original_style(widget, source)
                 def snapshot(widget, *args):

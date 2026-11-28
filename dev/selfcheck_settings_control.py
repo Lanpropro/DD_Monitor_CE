@@ -80,6 +80,7 @@ class UpdatePage(QObject):
     def __init__(self, settings, parent):
         super().__init__(parent)
         self.auto = Mock()
+        self.plugin_preview = Mock()
 
 
 class Host(QObject):
@@ -157,15 +158,16 @@ class SettingsControlTests(unittest.TestCase):
         self.assertEqual((room['name'], room['followed']), ('主播', True))
         self.assertTrue(room['clip_recording_available'])
 
-    def test_update_notice_entry_reuses_the_settings_worker(self):
+    def test_update_and_monitor_entries_open_the_requested_worker_page(self):
         host = self.host
         with patch('ddm.settings_process.SettingsProcess', Process), \
                 patch.object(host, '_create_settings_dialog') as modal, \
                 patch.object(host, '_sc_preview_context', return_value={}), \
                 patch.dict('os.environ', {'DDM_SETTINGS_PROCESS': '1'}):
-            self.assertFalse(host.open_settings('updates'))
+            for page in ('updates', 'streamer_defaults'):
+                self.assertFalse(host.open_settings(page))
+                self.assertEqual(host._settings_process.open.call_args.kwargs['page'], page)
         modal.assert_not_called()
-        self.assertEqual(host._settings_process.open.call_args.kwargs['page'], 'updates')
 
     def test_all_entries_reuse_the_local_settings_window(self):
         host = self.host
@@ -359,11 +361,13 @@ class SettingsControlTests(unittest.TestCase):
     def test_update_page_is_reused_and_release_signal_keeps_old_target(self):
         host = self.host
         with patch('ddm.online_ui.AppUpdatePage', UpdatePage):
-            page = host._get_update_page({'auto_update': True})
+            page = host._get_update_page({'auto_update': True, 'plugin_preview_updates': True})
             self.assertIs(page.parent(), host)
             page.auto.setChecked.assert_called_with(True)
+            page.plugin_preview.setChecked.assert_called_with(True)
             self.assertIs(host._get_update_page({'auto_update': False}), page)
             page.auto.setChecked.assert_called_with(False)
+            page.plugin_preview.setChecked.assert_called_with(False)
             page.releaseChecked.emit({'version': 'fixture'})
             host._set_app_update.assert_called_once_with({'version': 'fixture'})
 

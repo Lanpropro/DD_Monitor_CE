@@ -78,7 +78,14 @@ class UpdateSettingsTests(unittest.TestCase):
         for button in (page.check, page.action, page.release_button):
             self.assertIsInstance(button, ActionButton)
         self.assertTrue(page.auto.isChecked())
-        self.assertEqual(page.values(), {'auto_update': True})
+        self.assertEqual(page.values(), {'auto_update': True, 'plugin_preview_updates': False})
+        labels = page.version_section.findChildren(QLabel)
+        self.assertNotIn('发现新版时提醒，由你决定何时下载和安装。', [label.text() for label in labels])
+        for switch, tip in ((page.auto, '发现新版时只提醒，下载和安装由你决定。'),
+                            (page.plugin_preview, '开启后，插件商店和启动检查也会查找 Preview。')):
+            self.assertEqual(switch.toolTip(), tip)
+            label = next(label for label in labels if label.buddy() is switch)
+            self.assertEqual(label.toolTip(), tip)
         self.assertIsInstance(page.data_page, DataSettingsPage)
         self.assertTrue(page.data_page.isAncestorOf(page.data_page.image_cache))
         self.assertEqual(page.data_page.path.text(), str(self.root / 'data'))
@@ -87,8 +94,10 @@ class UpdateSettingsTests(unittest.TestCase):
         self.assertTrue(page.notes.openExternalLinks())
         self.assertEqual(page.notes.height(), 240)
         self.assertLess(page.notes.height(), page.height() // 2)
-        header = next(label for label in page.findChildren(QLabel)
-                      if label.text() == '软件更新')
+        heading = page.layout().itemAt(0).layout()
+        self.assertEqual(heading.count(), 1)
+        header = heading.itemAt(0).widget()
+        self.assertEqual(header.text(), '软件更新')
         self.assertFalse(page.scroll.isAncestorOf(header))
         top = header.mapTo(page, QPoint())
         page.scroll.verticalScrollBar().setValue(page.scroll.verticalScrollBar().maximum())
@@ -101,7 +110,7 @@ class UpdateSettingsTests(unittest.TestCase):
 
     def test_source_and_exe_idle_busy_and_release_states(self):
         source = self.page(frozen=False)
-        self.assertIn('源码', source.status.text())
+        self.assertEqual(source.status.text(), '源码版可检查更新，需从仓库获取新版。')
         self.assertFalse(source.action.isEnabled())
         source._release_ready(self.offer())
         self.assertIn('源码', source.status.text())
@@ -110,6 +119,7 @@ class UpdateSettingsTests(unittest.TestCase):
             source.download_update()
             start.assert_not_called()
         exe = self.page()
+        self.assertEqual(exe.status.text(), '')
         self.assertFalse(exe.action.isEnabled())
         self.assertTrue(exe.check.isEnabled())
         exe._busy(True)
@@ -164,7 +174,8 @@ class UpdateSettingsTests(unittest.TestCase):
         self.assertEqual(page.action.text(), '重启并更新')
         self.assertTrue(page.action.property('updateReady'))
         self.assertFalse(page.action.icon().isNull())
-        self.assertIn('管理员授权', page.status.text())
+        self.assertEqual(page.status.text(), '更新包已就绪。重启前会保存设置并结束录制。'
+                         ' 更新程序文件时将请求管理员授权；取消授权会保留原版本。')
         saved.assert_not_called()
         self.assertFalse(page.install_requested)
         page.download_update()

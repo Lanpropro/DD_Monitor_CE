@@ -27,7 +27,16 @@ def check_gallery_vectors():
     rail_path = "ddm/sidebar_navigation.py"
     settings_path = "ddm/settings_navigation.py"
     folder_path = "ddm/folder_icons.py"
-    rail = ast.literal_eval(assignment(rail_path, "PATHS"))
+    rail_nodes = assignment(rail_path, "PATHS")
+    shared = {"REPLAY_ICON_PATH": ast.literal_eval(assignment("ddm/widget_support.py", "REPLAY_ICON_PATH"))}
+    rail = {}
+    for key, value in zip(rail_nodes.keys, rail_nodes.values):
+        if isinstance(value, ast.JoinedStr):
+            svg = "".join(part.value if isinstance(part, ast.Constant) else shared[part.value.id]
+                          for part in value.values)
+        else:
+            svg = ast.literal_eval(value)
+        rail[key.value] = svg
     settings = assignment(settings_path, "ICONS")
     names = ast.literal_eval(assignment("ddm/follow_folders.py", "ICON_NAMES"))
     folders = ast.literal_eval(assignment(folder_path, "PATHS"))

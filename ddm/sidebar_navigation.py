@@ -9,6 +9,7 @@ from shiboken6 import isValid
 
 from . import motion, theme
 from .dock_feedback import active, attach, icon_color
+from .widget_support import REPLAY_ICON_PATH
 
 
 RAIL_WIDTH = 48
@@ -19,6 +20,7 @@ PATHS = {
     'clear': '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>',
     'wall_settings': '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 10h12M6 15h12M9 8v4M15 13v4"/>',
     'pip': '<rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="8" height="6" rx="1"/>',
+    'replay': f'<path d="{REPLAY_ICON_PATH}"/>',
     'monitor': '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M5 12h4l2-4 3 8 2-4h3"/>',
     'settings': '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/>',
     'import': '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
@@ -26,6 +28,7 @@ PATHS = {
     'tv': '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m8 3 4 4 4-4"/>',
     'open_folder': '<path d="M3 19V6a1 1 0 0 1 1-1h5l2 3h8a1 1 0 0 1 1 1v2M3 19l3-8h16l-3 8Z"/>',
     'plus': '<path d="M12 5v14M5 12h14"/>',
+    'danmaku': '<path d="M4 4h16v14h-8l-5 3v-3H4ZM8 9h8M8 13h5"/>',
     'replace': '<path d="M4 8h16m-4-4 4 4-4 4m4 4H4m4-4-4 4 4 4"/>',
     'reset': '<path d="M4 5v5h5M4 10a8 8 0 1 1 1.5 7"/>',
     'more': '<circle cx="5" cy="12" r=".8"/><circle cx="12" cy="12" r=".8"/><circle cx="19" cy="12" r=".8"/>',
@@ -60,10 +63,10 @@ class NavigationButton(QPushButton):
         self._label = text
         super().setText('' if self._navigation_mode else text)
 
-    def set_navigation_mode(self, enabled):
+    def set_navigation_mode(self, enabled, width=34):
         if (enabled and self._navigation_mode and self.objectName() == 'NavigationButton'
                 and getattr(self, '_navigation_dock_rail', None) == self.property('dockRail')
-                and self.minimumSize() == self.maximumSize() == QSize(34, 34)
+                and self.minimumSize() == self.maximumSize() == QSize(width, 34)
                 and self.sizePolicy().horizontalPolicy() == QSizePolicy.Fixed
                 and self.sizePolicy().verticalPolicy() == QSizePolicy.Fixed
                 and not self.text()):
@@ -73,7 +76,7 @@ class NavigationButton(QPushButton):
         self.setMinimumSize(0, 0)
         self.setMaximumSize(16777215, 16777215)
         if enabled:
-            self.setFixedSize(34, 34)
+            self.setFixedSize(width, 34)
         self.setSizePolicy(QSizePolicy.Fixed if enabled else QSizePolicy.Preferred, QSizePolicy.Fixed)
         super().setText('' if enabled else self._label)
         self.style().unpolish(self)
@@ -120,7 +123,7 @@ class AddRoomButton(NavigationButton):
         self._turn.setDuration(motion.CONTROL_FEEDBACK_MS)
         self._turn.setEasingCurve(motion.THEME_WAVE_EASING)
         self._turn.valueChanged.connect(self._set_angle)
-        self._turn.finished.connect(self._finish_open)
+        self._turn.finished.connect(self.cancel_open)
         self.clicked.connect(self._toggle_panel)
 
     def mousePressEvent(self, event):
@@ -137,20 +140,13 @@ class AddRoomButton(NavigationButton):
             self._pointer_click = False
 
     def _toggle_panel(self):
+        if self._opening and self._pointer_click:
+            return
         if self.panel_open:
             self.closeRequested.emit()
             return
-        if self._opening and self._pointer_click:
-            return
-        self._opening = True
         self._rotate_to(self._OPEN_ANGLE, animate=self._pointer_click)
-        if self._turn.state() == QAbstractAnimation.Stopped:
-            self._finish_open()
-
-    def _finish_open(self):
-        if not self._opening:
-            return
-        self._opening = False
+        self._opening = self._turn.state() != QAbstractAnimation.Stopped
         self.panel_open = True
         self.openRequested.emit()
 
@@ -168,12 +164,11 @@ class AddRoomButton(NavigationButton):
             self._set_angle(angle)
 
     def cancel_open(self):
-        if self._opening:
-            self._opening = False
-            self._rotate_to(0.0, animate=False)
+        self._opening = False
 
     def panel_dismissed(self):
         if self.panel_open:
+            self.cancel_open()
             self.panel_open = False
             self._rotate_to(0.0, animate=True)
 
@@ -317,7 +312,7 @@ class SidebarNavigation(QObject):
     def movable_tools(self):
         fixed = (self.fixed_divider, self.monitor_button, self.sidebar.notification_button,
                  self.sidebar.appearance_button, self.sidebar.settings_button,
-                 self.sidebar.wall_settings_button)
+                 self.sidebar.wall_settings_button, self.sidebar.replay_button)
         return [self.bottom.itemAt(index).widget() for index in range(self.bottom.count())
                 if self.bottom.itemAt(index).widget() not in fixed]
 
@@ -340,7 +335,8 @@ class SidebarNavigation(QObject):
         keys.extend(key for key in tools if key not in keys)
         ordered = [tools[key] for key in keys] + [self.fixed_divider, self.monitor_button, self.sidebar.notification_button,
                                                 self.sidebar.appearance_button, self.sidebar.settings_button]
-        ordered.insert(ordered.index(self.sidebar.picture_in_picture_button), self.sidebar.wall_settings_button)
+        pip_index = ordered.index(self.sidebar.picture_in_picture_button)
+        ordered[pip_index:pip_index] = (self.sidebar.wall_settings_button, self.sidebar.replay_button)
         for index, widget in enumerate(ordered):
             if self.bottom.indexOf(widget) != index:
                 # Explicit removal invalidates PySide's old QWidgetItem wrapper.
@@ -475,7 +471,7 @@ class SidebarNavigation(QObject):
         if not self.in_rail:
             return
         sidebar._detach_from_rows(sidebar.workspace_controls.launcher)
-        for button in (sidebar.layout_button, sidebar.wall_settings_button, sidebar.picture_in_picture_button,
+        for button in (sidebar.layout_button, sidebar.wall_settings_button, sidebar.replay_button, sidebar.picture_in_picture_button,
                        sidebar.settings_button):
             sidebar._detach_from_rows(button)
             button.setProperty('dockRail', False)
@@ -529,7 +525,7 @@ class SidebarNavigation(QObject):
             button.setVisible(not sidebar.collapsed)
         if not self.in_rail:
             for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
-                           sidebar.picture_in_picture_button,
+                           sidebar.picture_in_picture_button, sidebar.replay_button,
                            self.monitor_button, sidebar.notification_button, sidebar.appearance_button,
                            sidebar.settings_button):
                 sidebar._detach_from_rows(button)
@@ -541,7 +537,7 @@ class SidebarNavigation(QObject):
             sidebar.toggle_button.setParent(self.header)
             self.header.layout().insertWidget(self.header.layout().count() - 1, sidebar.toggle_button)
         for button in (sidebar.layout_button, sidebar.clear_wall_button, sidebar.wall_settings_button,
-                       sidebar.picture_in_picture_button, sidebar.settings_button):
+                       sidebar.picture_in_picture_button, sidebar.replay_button, sidebar.settings_button):
             button.setProperty('dockRail', True)
             button.set_navigation_mode(True)
             button.show()

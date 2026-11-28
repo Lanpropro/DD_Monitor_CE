@@ -25,8 +25,8 @@ from .fullscreen_bar import FullscreenBar
 from .fullscreen_cursor import set_native_cursor
 from .playback_badges import LoadingIndicator, PauseIndicator, StreamBadge, TimeBadge, TitleBadge
 from .playback_controls import (
-    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, TileButton, VolumeButton,
-    VolumePopup
+    DanmakuSettingsButton, DanmakuToggleButton, PauseButton, RecordingButton, RefreshButton, ReplayButton, TileButton,
+    VolumeButton, VolumePopup
 )
 from .sidebar_drag import ROOM_MIME
 from .sidebar_navigation import NavigationButton
@@ -67,6 +67,7 @@ class Tile(QFrame):
     audioChannelChanged = Signal(dict, int)
     pauseToggled = Signal(dict)
     recordingRequested = Signal()
+    replayRequested = Signal()
     roomChanged = Signal()
     codecSettingsRequested = Signal()
     streamInfoRequested = Signal()
@@ -85,6 +86,7 @@ class Tile(QFrame):
         self.setObjectName("Tile")
         #: 插件往本格右键菜单加的项目：[(显示文字, 回调), …]，由外层填
         self.plugin_actions: list = []
+        self._replay_view = None
         self.open_danmaku_float = None
         #: 当前这一路的取流结果，插件（录像等）从这里拿
         self.stream_url = ""
@@ -282,6 +284,10 @@ class Tile(QFrame):
         _ignore_mouse(self.volume_label)
         bottom_layout.addWidget(self.volume_label)
         bottom_layout.addWidget(self.status_label, 1)
+        self.replay_button = ReplayButton()
+        self.replay_button.clicked.connect(self.replayRequested.emit)
+        bottom_layout.addWidget(self.replay_button, 0, Qt.AlignVCenter)
+        self.replay_button.hide()
         bottom_layout.addWidget(self.danmaku_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.danmaku_settings_button, 0, Qt.AlignVCenter)
         bottom_layout.addWidget(self.recording_button, 0, Qt.AlignVCenter)
@@ -289,7 +295,7 @@ class Tile(QFrame):
         bottom_layout.addWidget(self.fullscreen_button, 0, Qt.AlignVCenter)
         self.bottom.contrast_groups = (
             (self.pause_button, self.volume_button, self.volume_slider, self.volume_label),
-            (self.danmaku_button, self.danmaku_settings_button, self.recording_button,
+            (self.replay_button, self.danmaku_button, self.danmaku_settings_button, self.recording_button,
              self.recording_time, self.fullscreen_button),
         )
 
@@ -310,7 +316,7 @@ class Tile(QFrame):
             button.setParent(self.controls)
         for button in (self.quality_button, self.reload_button, self.close_button,
                        self.pause_button, self.volume_button, self.fullscreen_button,
-                       self.danmaku_button, self.danmaku_settings_button, self.recording_button):
+                       self.replay_button, self.danmaku_button, self.danmaku_settings_button, self.recording_button):
             button.setFocusPolicy(Qt.TabFocus)
             button.setProperty('tileButton', True)
             button.setCursor(Qt.PointingHandCursor)

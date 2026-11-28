@@ -3,7 +3,7 @@ import ctypes
 import sys
 
 from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPointF, QRectF, QPropertyAnimation, Qt, QVariantAnimation
-from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPixmap, QPolygonF, QTransform
+from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QPainterPath, QPixmap, QPolygonF, QTransform
 from PySide6.QtWidgets import QApplication, QDialog, QGraphicsOpacityEffect, QMenu, QStackedWidget, QTabBar, QTabWidget
 from .corner_geometry import continuous_path
 
@@ -186,6 +186,17 @@ class _SegmentTabBar(QTabBar):
             self.initStyleOption(option, index)
             if self._selection.dragging():
                 option.state &= ~QStyle.State_MouseOver
+            if option.state & QStyle.State_MouseOver and not option.state & QStyle.State_Selected:
+                # Qt's tab hover fill can ignore the QSS radius. Clip it to the selection pill.
+                rect = QRectF(option.rect).adjusted(2, 2, -2, -2)
+                path = QPainterPath()
+                path.addRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+                painter.save()
+                painter.setRenderHint(QPainter.Antialiasing)
+                painter.setClipPath(path, Qt.IntersectClip)
+                painter.drawControl(QStyle.CE_TabBarTab, option)
+                painter.restore()
+                continue
             painter.drawControl(QStyle.CE_TabBarTab, option)
         painter.end()
 

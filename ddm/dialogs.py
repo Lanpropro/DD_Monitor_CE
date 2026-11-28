@@ -2,7 +2,7 @@
 import sys
 import time
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QDialog, QFileDialog, QFrame, QHBoxLayout, QMessageBox, QPushButton,
     QScrollArea, QVBoxLayout, QWidget, QLabel
@@ -34,6 +34,7 @@ class SettingsDialog(SettingsWindow):
     appearanceChanged = Signal(str)
     pageCreated = Signal(int, object)
     streamerQualityRequested = Signal(str, str)
+    recordingSettingsOpenRequested = Signal(object)
     """设置总窗口：左边选类别，右边改内容，不再弹二级菜单。"""
 
     PAGES = settings_pages.SETTINGS_PAGES
@@ -55,6 +56,13 @@ class SettingsDialog(SettingsWindow):
                                   and key not in ('skin_parts', 'danmaku_retention_version')}
         self._initial_shortcuts = configured_shortcuts(shortcuts)
         self._plugin_manager = plugin_manager
+        self._recording_access = getattr(plugin_manager, 'recording_settings_access', None)
+        if self._recording_access is not None:
+            self._recording_access.changed.connect(self._sync_recording_management)
+        self._recording_settings_entry = None
+        if not hosted:
+            self.recordingSettingsOpenRequested.connect(self._close_for_recording_settings)
+            self.finished.connect(self._open_recording_settings_after_close)
         self._preview_only = preview
         self._update_page_factory = update_page_factory
         self.setWindowTitle("设置")
@@ -99,7 +107,8 @@ class SettingsDialog(SettingsWindow):
             4: lambda: NotificationSettingsPage(settings),
             5: lambda: ShortcutSettingsPage(self._initial_shortcuts, settings=settings),
             PAGE_INDEX['tray']: lambda: TraySettingsPage(settings),
-            PAGE_INDEX['plugins']: lambda: PluginSettingsPage(plugin_manager),
+            PAGE_INDEX['plugins']: lambda: PluginSettingsPage(
+                plugin_manager, include_preview=bool(settings.get('plugin_preview_updates', False))),
             PAGE_INDEX['updates']: lambda: update_page_factory(settings) if update_page_factory else AppUpdatePage(settings),
         }
         self._loaded_pages = {}
@@ -163,7 +172,22 @@ class SettingsDialog(SettingsWindow):
 
     def _recording_settings_page(self, settings):
         page = RecordingSettingsPage(settings)
+        if self._recording_access is not None and self._recording_access.managed:
+            page.set_values(self._recording_access.values())
+            name, open_settings = self._recording_access.settings_entry()
+            page.set_managed(True, name, shortcut=open_settings is not None)
+            if open_settings is not None:
+                page.management_open_requested.connect(lambda: self.recordingSettingsOpenRequested.emit(open_settings))
+            return page
+        page.presentation_refresh_requested.connect(self._refresh_recording_settings_page, Qt.QueuedConnection)
         if self._plugin_manager is not None:
+            for plugin in self._plugin_manager.plugins:
+                create_view = getattr(plugin, 'recording_settings_view', None)
+                if create_view is not None:
+                    view = create_view(page, page.recording_controls())
+                    if view is not None:
+                        page.use_recording_view(view)
+                        return page
             from .settings_layout import SettingsSection
             for plugin in self._plugin_manager.plugins:
                 widget = plugin.recording_settings(page)
@@ -173,6 +197,36 @@ class SettingsDialog(SettingsWindow):
                     page.sections.entries.append(('plugin_' + plugin.context.name, card, True))
             page.sections._arrange()
         return page
+
+    def _refresh_recording_settings_page(self):
+        previous = self._loaded_pages.get(PAGE_INDEX['recording'])
+        if previous is None or previous is not self.sender():
+            return
+        self._replace_recording_settings_page(previous, previous.values())
+
+    def _sync_recording_management(self):
+        values = self._recording_access.values()
+        self._initial_settings.update(values)
+        previous = self._loaded_pages.get(PAGE_INDEX['recording'])
+        if previous is not None:
+            if previous.managed != self._recording_access.managed:
+                self._replace_recording_settings_page(previous, values)
+            elif previous.managed:
+                previous.set_values(values)
+        self.auto_save.adopt('settings', values)
+
+    def _replace_recording_settings_page(self, previous, values):
+        index = PAGE_INDEX['recording']
+        page = self._recording_settings_page(values)
+        self._loaded_pages[index] = page
+        self.stack.insertWidget(index, page)
+        if self.stack.currentWidget() is previous:
+            self.stack.setCurrentWidget(page)
+        self.stack.removeWidget(previous)
+        previous.deleteLater()
+        if self.auto_save.active:
+            self.auto_save.watch(page)
+            self.auto_save.schedule()
 
     def _update_window_heading(self, index):
         title = self.PAGES[index][1] if 0 <= index < len(self.PAGES) else ''
@@ -317,6 +371,16 @@ class SettingsDialog(SettingsWindow):
     def done(self, result):
         if self.auto_save.request_close(result):
             self._finish_done(result)
+
+    def _close_for_recording_settings(self, open_settings):
+        if self._recording_settings_entry is None:
+            self._recording_settings_entry = open_settings
+            self.reject()
+
+    def _open_recording_settings_after_close(self, _result):
+        open_settings, self._recording_settings_entry = self._recording_settings_entry, None
+        if open_settings is not None:
+            QTimer.singleShot(0, open_settings)
 
     def _finish_done(self, result):
         self.auto_save.stop()

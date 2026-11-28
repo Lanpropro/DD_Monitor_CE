@@ -529,6 +529,14 @@ class WallGrid(QWidget):
     def visible_tiles(self) -> list[Tile]:
         return [tile for tile in self.tiles if tile.isVisible()]
 
+    def video_slots(self) -> list[Tile]:
+        """当前布局分配的画面格，包含因窗口状态暂时隐藏的空位。"""
+        if not self._capacity():
+            return self.tiles
+        panes = self.pane_danmaku
+        chat_cells = panes.bindings()
+        return [tile for cell, tile in panes.cell_tiles().items() if cell not in chat_cells]
+
     def hidden_count(self) -> int:
         return sum(1 for tile in self.tiles if not tile.isVisible())
 

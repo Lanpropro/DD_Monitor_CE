@@ -2,7 +2,7 @@
 import unittest
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtGui import QFontMetricsF
+from PySide6.QtGui import QColor, QFontMetricsF
 from PySide6.QtWidgets import QApplication, QWidget
 from ddm.caption_geometry import caption_rect
 from ddm.caption_preview import CaptionPlacementPreview
@@ -76,6 +76,7 @@ class CaptionInteractionChecks(unittest.TestCase):
         self.assertTrue(toolbar.isVisible())
         self.assertEqual(caption.geometry(), before)
         self.assertLessEqual(toolbar.geometry().bottom(), caption.geometry().top())
+        self.assertLessEqual(abs(toolbar.geometry().center().x() - before.center().x()), 1)
         self.assertTrue(all(button.toolTip() and button.accessibleName() and button.text() == ''
                             for button in toolbar.buttons.values()))
         toolbar.buttons['larger'].click()
@@ -86,6 +87,17 @@ class CaptionInteractionChecks(unittest.TestCase):
         self.assertTrue(caption._style.locked)
         self.assertFalse(toolbar.isVisible())
         self.assertTrue(caption.testAttribute(Qt.WA_TransparentForMouseEvents))
+
+    def test_toolbar_tracks_caption_center_and_uses_its_background_opacity(self):
+        caption = self.caption
+        toolbar = caption._interaction.toolbar
+        toolbar.reveal()
+        for opacity in (35, 75):
+            caption.set_caption('こんにちは', '你好', style={'x': 30, 'y': 70, 'width': 50, 'opacity': opacity})
+            APP.processEvents()
+            self.assertLessEqual(abs(toolbar.geometry().center().x() - caption.geometry().center().x()), 1)
+            color = toolbar.grab().toImage().pixelColor(toolbar.width() // 2, 2)
+            self.assertEqual(color, QColor(0, 0, 0, round(255 * opacity / 100)))
 
     def test_toolbar_hides_with_caption_and_preview_remains_embedded(self):
         toolbar = self.caption._interaction.toolbar

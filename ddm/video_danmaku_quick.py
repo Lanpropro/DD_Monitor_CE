@@ -21,6 +21,11 @@ def _owned_by(widget, owner):
     return False
 
 
+def _native_occluder(layer, widget):
+    return widget.property('floatingDanmaku') or (
+        widget.property('settingsGlassWindow') and layer.property('matchWindowedDanmaku'))
+
+
 def _stack_below(window, anchors):
     """Leave an owned overlay behind the lowest of its native occluders."""
     import ctypes
@@ -331,6 +336,7 @@ class QuickDanmakuLayer(QObject):
         self._occlusion_timer.setSingleShot(True)
         self._occlusion_timer.timeout.connect(self.show)
         self._floating_stacked = False
+        self._child_occlusion = QRegion()
         QApplication.instance().installEventFilter(self)
         parent.window().windowHandle().screenChanged.connect(self.reset_surface)
 
@@ -366,7 +372,7 @@ class QuickDanmakuLayer(QObject):
                     and _owned_by(watched, self.parent.window())
                     and (kind in (QEvent.Show, QEvent.Hide, QEvent.Move, QEvent.Resize, QEvent.Close)
                          or (kind == QEvent.DynamicPropertyChange and bytes(event.propertyName()) == b'behindFullscreen'))):
-                if not (self._floating_stacked and watched.property('floatingDanmaku')
+                if not (self._floating_stacked and _native_occluder(self, watched)
                         and kind in (QEvent.Move, QEvent.Resize)):
                     self._occlusion_timer.start(0)
             return False
@@ -428,6 +434,12 @@ class QuickDanmakuLayer(QObject):
             self.window.show()
             self.raise_()
 
+    def set_child_occlusion(self, region):
+        """Clip native children using a region in the layer parent's coordinates."""
+        if region != self._child_occlusion:
+            self._child_occlusion = QRegion(region)
+            self.show()
+
     def _update_occlusion(self):
         # Owned native windows can be raised above sibling dialogs and notices.
         # Clip their regions out so comments cannot paint over application UI.
@@ -439,11 +451,13 @@ class QuickDanmakuLayer(QObject):
         clip = clip_owner.property('presentationMask') or clip_owner.mask()
         if not clip.isEmpty():
             region &= clip.translated(clip_owner.mapToGlobal(QPoint()) - origin)
+        if not self._child_occlusion.isEmpty():
+            region -= self._child_occlusion.translated(self.parent.mapToGlobal(QPoint()) - origin)
         widgets = self._occluding_widgets()
         settings = getattr(owner, '_settings_process', None)
         self._floating_stacked = self._stack_below_floats(widgets, settings)
         for widget in widgets:
-            if self._floating_stacked and widget.property('floatingDanmaku'):
+            if self._floating_stacked and _native_occluder(self, widget):
                 continue
             geometry = widget.frameGeometry()
             region -= QRegion(QRect(geometry.topLeft() - origin, geometry.size()))
@@ -462,12 +476,14 @@ class QuickDanmakuLayer(QObject):
         return [widget for widget in QApplication.topLevelWidgets()
                 if widget is not owner and widget is not self._presentation_window
                 and not widget.property('behindFullscreen')
-                and widget.isVisible() and not widget.isMinimized() and _owned_by(widget, owner)]
+                and widget.isVisible() and not widget.isMinimized()
+                and not widget.testAttribute(Qt.WA_DontShowOnScreen)
+                and _owned_by(widget, owner)]
 
     def _stack_below_floats(self, widgets, settings):
         if QApplication.platformName() != 'windows':
             return False
-        anchors = [int(widget.winId()) for widget in widgets if widget.property('floatingDanmaku')]
+        anchors = [int(widget.winId()) for widget in widgets if _native_occluder(self, widget)]
         if not anchors:
             return False
         if settings is not None and settings.visible and not settings.closing and settings.window_hwnd:
@@ -547,7 +563,12 @@ class QuickDanmakuLayer(QObject):
             old = QRect(int(group.x()), int(group.y()), int(group.width()), int(group.height()))
             target = QRect(x, y, width, height)
             if old != target:
-                self.window.begin_move(identifier, QRegion(old) | QRegion(target))
+                covered = QRegion(old) | QRegion(target)
+                if (self.property('matchWindowedDanmaku') and old.topLeft() == target.topLeft()
+                        and old.width() == target.width()):
+                    # A vertical splitter resize leaves the shared upper lanes in place.
+                    covered -= QRegion(old.intersected(target))
+                self.window.begin_move(identifier, covered)
 
     def set_group_visible(self, identifier, visible):
         group = self.groups.get(identifier)
@@ -564,6 +585,13 @@ class QuickDanmakuLayer(QObject):
         group = self.groups.get(identifier)
         if group is not None:
             group.setProperty("rounded", bool(rounded))
+
+    def clips_sc_window(self, overlay):
+        # _update_occlusion already cuts owned top-level windows out of the
+        # entire Quick surface. Other presentation owners need a per-tile hole.
+        return (overlay.isWindow() and not overlay.testAttribute(Qt.WA_DontShowOnScreen)
+                and not overlay.property('behindFullscreen')
+                and _owned_by(overlay, self.parent.window()))
 
     def set_group_mask(self, identifier, image):
         group = self.groups.get(identifier)

@@ -67,12 +67,17 @@ class AppNotices:
         if not room_defaults(host.settings, room['room_id']).get('windows_recording_notice'):
             return
         from .windows_recording_notifications import send_recording_notification
-        title = ('开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制')
+        if event == 'stopped_schedule':
+            title = '时段已结束 · 已停止定时录制'
+        elif event == 'started' and room.get('scheduled_recording'):
+            title = '已开启定时录制'
+        else:
+            title = '开播 · 已开启自动录制' if event == 'started' else '下播 · 已停止自动录制'
         room_id = str(room['room_id'])
         name = str(room.get('uname') or room_id)
         _, live_tag = self._windows_live.get(room_id, (None, None))
         # Update the existing opening toast without popping it up a second time.
-        tag = live_tag if event == 'started' else None
+        tag = live_tag if event == 'started' and not room.get('scheduled_recording') else None
         send_recording_notification(title, name, room_id=room_id, room_title=room.get('title') or '',
                                     tag=tag, suppress_popup=tag is not None)
 

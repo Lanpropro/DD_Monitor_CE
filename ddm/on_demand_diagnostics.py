@@ -182,6 +182,12 @@ class DiagnosticEndpoint(QObject):
                 return
             keys = {'protocol', 'mode'}
             seconds = 60
+            first_slot = None
+            if isinstance(request, dict) and request.get('mode') == 'playback' and 'first_slot' in request:
+                keys.add('first_slot')
+                first_slot = request['first_slot']
+                if type(first_slot) is not int or not 1 <= first_slot <= len(self.window.wall.tiles):
+                    raise ValueError('invalid-request')
             if isinstance(request, dict) and request.get('mode') in TIMED_MODES and 'seconds' in request:
                 keys.add('seconds')
                 seconds = request['seconds']
@@ -232,7 +238,7 @@ class DiagnosticEndpoint(QObject):
             else:
                 if request['mode'] == 'playback':
                     from .playback_capture import PlaybackCapture
-                    observer = PlaybackCapture(self.window, emit, done, seconds=seconds)
+                    observer = PlaybackCapture(self.window, emit, done, seconds=seconds, first_slot=first_slot)
                 elif request['mode'] == 'dock-hover':
                     from .dock_hover_diagnostics import DockHoverTrace
                     observer = DockHoverTrace(self.window, emit, done)

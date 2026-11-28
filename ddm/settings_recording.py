@@ -1,5 +1,5 @@
 """Settings recording; owned page implementations with legacy exports in dialogs."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QScrollArea, QSizePolicy,
     QSpinBox, QVBoxLayout, QWidget
@@ -13,9 +13,14 @@ from .encoders import ENCODER_CHOICES
 class RecordingSettingsPage(QWidget):
     """录像参数；修改码率/帧率时自动切到重编码。"""
 
+    presentation_refresh_requested = Signal()
+    settings_edited = Signal()
+    management_open_requested = Signal()
+
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
         self.setObjectName("SettingsPage")
+        self.managed = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         self.scroll = QScrollArea(self)
@@ -28,7 +33,20 @@ class RecordingSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 6, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("录制与即时回放", "每个格子独立录制直播流；画面墙控件和弹幕不会进入文件。"))
+        layout.addLayout(_page_head("录制与即时回放", ""))
+        self.management_card = SettingsSection('')
+        self.management_title = self.management_card.findChild(QLabel, 'SettingsSectionTitle')
+        self.management_title.setWordWrap(True)
+        self.management_note = QLabel('此页显示当前参数。请在插件设置中修改。', objectName='SettingsHint')
+        self.management_note.setWordWrap(True)
+        self.management_card.grid.addWidget(self.management_note, 0, 0, 1, 2)
+        self.management_button = ActionButton('打开插件录制设置')
+        self.management_button.setObjectName('PrimaryButton')
+        self.management_button.setAutoDefault(False)
+        self.management_button.clicked.connect(self.management_open_requested)
+        self.management_card.grid.addWidget(self.management_button, 1, 0, 1, 2, Qt.AlignLeft)
+        self.management_card.hide()
+        layout.addWidget(self.management_card)
         self.recording_mode_layout = QVBoxLayout()
         layout.addLayout(self.recording_mode_layout)
         self.sections = SettingsColumns(content)
@@ -54,12 +72,9 @@ class RecordingSettingsPage(QWidget):
         storage.grid.addLayout(directory_row, 0, 1, 1, 2)
         self.recording_enabled = ToggleSwitch("启用录制功能")
         self.recording_enabled.setToolTip(
-            "录制功能的总开关。关掉之后：\n"
-            "  1) 每格底栏不再有「● 录制」按钮，右键菜单里也没有开始/停止录制；\n"
-            "  2) 正在录制的会话会正常收尾并导出（已经录到的部分不丢）；\n"
-            "  3) 本体录制参数一起置灰。即时回放是另一个开关，不受影响。")
+            "关闭后隐藏底栏和右键菜单中的录制入口。正在录制的内容会正常保存，即时回放不受影响。")
         self.lock_quality = ToggleSwitch('录制时锁定可用最高分辨率')
-        self.lock_quality.setToolTip('录制时锁定可用最高分辨率；实际可用档位由直播源、平台和账号权限决定，结束后恢复录制前的画质。')
+        self.lock_quality.setToolTip('可用档位由直播源、平台和账号权限决定。录制结束后恢复录制前的画质。')
         self._field(storage.grid, 1, '格子录制按钮', self.recording_enabled)
         self._field(storage.grid, 2, '录制时锁定可用最高分辨率', self.lock_quality)
         self.min_free = QSpinBox()
@@ -77,18 +92,22 @@ class RecordingSettingsPage(QWidget):
             self.format.setItemData(self.format.count() - 1, hint, Qt.ToolTipRole)
         self.codec = SelectControl()
         for label, value, hint in (
-                ('原始流直存', 'copy', '直接保存原始流，画质不变、负载低；改动码率或帧率会自动切换为 H.264 重编码。'),
+                ('原始流直存', 'copy', '直接保存原始流，画质不变、负载低。'),
                 ('H.264 重编码', 'h264', '重新编码为 H.264 视频和 AAC 音频；下方码率、帧率与编码器设置生效。')):
             self.codec.addItem(label, value)
             self.codec.setItemData(self.codec.count() - 1, hint, Qt.ToolTipRole)
         self.encoder = SelectControl()
-        short_encoders = {'auto': '自动', 'cpu': 'CPU', 'nvenc': 'NVIDIA NVENC',
-                          'qsv': 'Intel QSV', 'amf': 'AMD AMF'}
+        encoder_options = {
+            'auto': ('自动', '优先使用可用的显卡编码器。不可用或编码失败时回退 CPU。'),
+            'cpu': ('CPU', '使用 libx264 软件编码，兼容性最好。'),
+            'nvenc': ('NVIDIA NVENC', '使用支持 NVENC 的 NVIDIA 显卡编码。不可用时回退 CPU。'),
+            'qsv': ('Intel QSV', '使用 Intel Quick Sync 硬件编码。不可用时回退 CPU。'),
+            'amf': ('AMD AMF', '使用支持 AMF 的 AMD 显卡编码。不可用时回退 CPU。'),
+        }
         for value, label in ENCODER_CHOICES:
-            self.encoder.addItem(short_encoders.get(value, label), value)
-            self.encoder.setItemData(self.encoder.count() - 1, label + '\n'
-                '重编码时自动模式优先显卡编码，不可用或失败时回退 CPU。硬件方案要求显卡、驱动和 FFmpeg 支持；'
-                '后台会编码一帧进行探测。H.264 重编码统一使用 8-bit YUV420 输出。', Qt.ToolTipRole)
+            title, hint = encoder_options.get(value, (label, label))
+            self.encoder.addItem(title, value)
+            self.encoder.setItemData(self.encoder.count() - 1, hint, Qt.ToolTipRole)
         self.bitrate = QSpinBox()
         self.bitrate.setRange(500, 50000)
         self.bitrate.setAccessibleName('视频码率')
@@ -99,7 +118,7 @@ class RecordingSettingsPage(QWidget):
         self.segment_minutes = QSpinBox()
         self.segment_minutes.setRange(1, 1440)
         self.segment_minutes.setAccessibleName('自动分段时长')
-        self.segment_minutes.setToolTip('达到设定时长后保存当前文件，并继续录制下一个文件。')
+        self.segment_minutes.setToolTip('每隔设定时长保存一段，继续录制。')
         self.segment_stepper = StepperControl(self.segment_minutes)
         for row, (title, control, unit) in enumerate((
                 ('输出格式', self.format, ''), ('编码方式', self.codec, ''),
@@ -120,7 +139,7 @@ class RecordingSettingsPage(QWidget):
         self.replay_max.setRange(0, 99)
         self.replay_max.setSpecialValueText('不限制')
         self.replay_max.setAccessibleName('缓存格子数上限')
-        self.replay_max.setToolTip('所有播放格子模式下最多创建几个缓存；0 表示不限制。每格额外拉取一路直播流，手动开启模式不使用此上限。')
+        self.replay_max.setToolTip('仅对「所有播放格子」生效。0 表示不限制。')
         self.replay_max_stepper = StepperControl(self.replay_max)
         self.replay_minutes = QSpinBox()
         self.replay_minutes.setRange(1, 60)
@@ -143,6 +162,13 @@ class RecordingSettingsPage(QWidget):
         self._update_choice_hints()
         self.bitrate.valueChanged.connect(self._enable_transcode)
         self.fps.currentIndexChanged.connect(self._enable_transcode)
+        self.directory.textChanged.connect(self.settings_edited)
+        for control in (self.recording_enabled, self.lock_quality, self.replay_enabled):
+            control.toggled.connect(self.settings_edited)
+        for control in (self.format, self.codec, self.encoder, self.fps, self.replay_scope):
+            control.currentIndexChanged.connect(self.settings_edited)
+        for control in (self.bitrate, self.segment_minutes, self.min_free, self.replay_max, self.replay_minutes):
+            control.valueChanged.connect(self.settings_edited)
         layout.addStretch(1)
 
     @staticmethod
@@ -168,6 +194,27 @@ class RecordingSettingsPage(QWidget):
     def add_recording_mode(self, widget):
         """Place plugin-owned capture routing above the native settings."""
         self.recording_mode_layout.addWidget(widget)
+
+    def set_managed(self, managed, plugin_name='', *, shortcut=False):
+        self.managed = managed
+        self.sections.setEnabled(not managed)
+        owner = f'「{plugin_name}」' if plugin_name else '插件'
+        self.management_title.setText(f'录制设置已由{owner}接管')
+        self.management_button.setVisible(managed and shortcut)
+        self.management_card.setVisible(managed)
+
+    def recording_controls(self):
+        names = ('directory', 'browse', 'recording_enabled', 'lock_quality', 'min_free_stepper',
+                 'format', 'codec', 'encoder', 'bitrate_stepper', 'fps', 'segment_stepper',
+                 'replay_enabled', 'replay_scope', 'replay_max_stepper', 'replay_minutes_stepper')
+        return {name: getattr(self, name) for name in names}
+
+    def use_recording_view(self, widget):
+        previous = self.scroll
+        self.layout().replaceWidget(previous, widget)
+        self.scroll = widget if isinstance(widget, QScrollArea) else widget.findChild(QScrollArea)
+        previous.hide()
+        previous.deleteLater()
 
     def _browse(self) -> None:
         value = QFileDialog.getExistingDirectory(self, "选择录制保存目录",
@@ -230,11 +277,12 @@ class RecordingSettingsPage(QWidget):
 
     def reset(self) -> None:
         from .config import DEFAULT_SETTINGS
-        self.bitrate.blockSignals(True)
-        self.fps.blockSignals(True)
-        self._load(DEFAULT_SETTINGS)
-        self.bitrate.blockSignals(False)
-        self.fps.blockSignals(False)
+        if not self.managed:
+            self.set_values(DEFAULT_SETTINGS)
+
+    def set_values(self, values):
+        with QSignalBlocker(self), QSignalBlocker(self.bitrate), QSignalBlocker(self.fps):
+            self._load(values)
 
     def values(self) -> dict:
         return {

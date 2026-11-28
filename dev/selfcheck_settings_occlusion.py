@@ -222,6 +222,14 @@ def main():
                     centre = client.occlusion.center() - tile.mapToGlobal(QPoint())
                     assert layer.window.mask().contains(centre)
                     assert above(client.window_hwnd, int(layer.window.winId()))
+                    bar = tile.bottom
+                    bar.set_fullscreen(True)
+                    bar.set_tile_geometry(0, centre.y(), tile.width(), 35)
+                    bar.show()
+                    assert bar.geometry().intersects(client.occlusion)
+                    bar.raise_()
+                    assert above(client.window_hwnd, int(bar.winId())), 'Fullscreen controls must stay below settings'
+                    bar.set_fullscreen(False)
                     layer.set_presentation_window(None)
                     if ending == 'cancel':
                         client._send({'kind': 'host-cancel'})

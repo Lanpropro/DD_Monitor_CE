@@ -1,15 +1,16 @@
 """Plugin catalog browsing, details and install/update actions."""
-from pathlib import Path
 import time
 from PySide6.QtCore import QEvent, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPixmap
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 from .plugin_card_layout import PluginCardLayout
+from .plugin_catalog_api import plugin_catalog_path
 from .plugin_icons import decode_catalog_icon
 from . import config, online, plugin_updates, theme, version
 from .ui import ActionButton, SelectControl, SettingsSurface, DisclosureButton, ElidedLabel
 from .update_notice import set_update_dot
-from .update_offers import plugin_update_offers
+from .update_offers import available_plugin_updates
+from .update_version import plugin_version_key
 from .online_tasks import OnlinePage
 from .plugin_details_ui import PluginDetailsPanel
 from .search import matches_query
@@ -76,7 +77,7 @@ class PluginStorePage(OnlinePage):
     offersChanged = Signal(object)
     controlsChanged = Signal()
 
-    def __init__(self, manager, parent=None):
+    def __init__(self, manager, parent=None, *, include_preview=False):
         super().__init__(parent)
         self.manager = manager
         from .plugin_downloads import PluginDownloads
@@ -94,7 +95,8 @@ class PluginStorePage(OnlinePage):
         self._installed_ids = set()
         self._update_ids = set()
         self.seen_versions = {}
-        self.cache_path = Path(config.data_root()) / 'cache' / 'plugin-catalog.json'
+        self.include_preview = include_preview
+        self.cache_path = plugin_catalog_path(config.data_root(), include_preview)
         self._checked_at = 0
         self._opened = False
         layout = QVBoxLayout(self)
@@ -218,16 +220,20 @@ class PluginStorePage(OnlinePage):
             self.status.setText('正在读取官方插件仓库…')
         def read(cancelled, progress):
             with online.session() as client:
+                if self.include_preview:
+                    return online.cached_plugin_catalog(client, version.VERSION, self.cache_path, force, include_preview=True)
                 return online.cached_plugin_catalog(client, version.VERSION, self.cache_path, force)
         self.start(read, self._catalog_ready)
 
     def _catalog_ready(self, offers):
+        if not self.include_preview:
+            offers = [offer for offer in offers if not offer.get('prerelease')]
         if offers != self.offers or not self.buttons:
             self.offers = [dict(offer) for offer in offers]
             self.show_offers(offers)
         self._checked_at = online.load_plugin_cache(self.cache_path).get('checked_at', self._checked_at)
-        self.status.setText('暂时无法查询最新版本，显示已缓存的官方插件目录。' if any(
-            offer.get('cached') for offer in offers) else '选择插件即可下载安装，重启后启用。')
+        self.status.setText('暂时无法刷新，正在显示缓存目录。' if any(
+            offer.get('cached') for offer in offers) else '')
         self.offersChanged.emit(self.offers)
 
     def show_offers(self, offers):
@@ -245,7 +251,7 @@ class PluginStorePage(OnlinePage):
         installed = {entry['id']: entry for entry in self.manager.catalog()} if self.manager else {}
         self._installed_ids = set(installed)
         pending = plugin_updates.pending_versions(self.manager) if self.manager else {}
-        self._update_ids = {offer['id'] for offer in plugin_update_offers(self.manager, offers)}
+        self._update_ids = {offer['id'] for offer in available_plugin_updates(installed, pending, offers)}
         for offer in offers:
             card = SettingsSurface()
             card.setObjectName('PluginCard')
@@ -262,7 +268,8 @@ class PluginStorePage(OnlinePage):
             header.addWidget(PluginStoreLogo(offer, card), 0, Qt.AlignTop)
             header.addLayout(summary, 1)
             body.addLayout(header)
-            title = ElidedLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else ''))
+            title = ElidedLabel(offer['name'] + ('  v' + offer['version'] if offer['version'] else '')
+                                + (' · Preview' if offer.get('prerelease') else ''))
             title.setObjectName('PluginName')
             title.setTextFormat(Qt.PlainText)
             title.setToolTip(offer['name'])
@@ -278,11 +285,11 @@ class PluginStorePage(OnlinePage):
             existing = installed.get(offer['id'])
             if offer['id'] in pending:
                 button.setText('待重启')
-                note = '新版本已下载，点击“重启以应用”后生效'
+                note = '新版本已下载'
                 allowed = False
             elif existing:
                 try:
-                    newer = bool(offer['version']) and online.version_key(offer['version']) > online.version_key(existing['version'])
+                    newer = bool(offer['version']) and plugin_version_key(offer['version']) > plugin_version_key(existing['version'])
                 except ValueError:
                     newer = False
                 button.setText('更新' if newer else '已安装')
@@ -390,8 +397,8 @@ class PluginStorePage(OnlinePage):
             panel.updateGeometry()
 
     def update_dots(self):
-        unread = {offer['id'] for offer in plugin_update_offers(self.manager, self.offers)
-                  if self.seen_versions.get(offer['id']) != offer['version']}
+        unread = {offer['id'] for offer in self.offers
+                  if offer['id'] in self._update_ids and self.seen_versions.get(offer['id']) != offer['version']}
         for plugin_id, button in self.buttons.items():
             set_update_dot(button, plugin_id in unread)
         self._busy(bool(self.jobs))
@@ -419,5 +426,5 @@ class PluginStorePage(OnlinePage):
         self.update_dots()  # Keep the cards and their scroll position while changing the completed action.
         self._filter_offers(reset_scroll=False)
         self.offersChanged.emit(self.offers)
-        self.status.setText('安装包已校验，点击“重启以应用”后生效。')
-        show_result(self.window(), '插件已安装，点击“重启以应用”后生效')
+        self.status.clear()
+        show_result(self.window(), '插件已安装')

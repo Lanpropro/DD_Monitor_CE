@@ -1,7 +1,9 @@
 """Recording/replay policy and tile state; the host owns sessions and shutdown."""
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from . import bili
+from .recording_schedule import WEEKDAYS, plan_hint
 from .recording_session import BackgroundRecordingSource
 from .room_artwork import room_platform
 from .streamer_defaults import (QUALITY_LABELS, monitored_streamers, quality_tiers, room_defaults, source_quality_option,
@@ -22,6 +24,7 @@ class MonitorEntry:
     started_at: float = 0.0
     profile_group: tuple | None = None
     live: bool | None = None
+    schedule_hint: str = ''
 
 
 class CaptureControl:
@@ -51,7 +54,7 @@ class CaptureControl:
         auto_recording = getattr(host, 'auto_recording', None)
         if auto_recording is not None:
             auto_recording.settings_changed()
-            host.sidebar.items_control.set_auto_record_rooms(auto_recording.configured_rooms())
+            self.sync_follow_monitored_rooms()
         if not enabled:
             pending = list(host._pending_capture)
             host._pending_capture.clear()
@@ -274,6 +277,10 @@ class CaptureControl:
             if tile.room.get("live") and tile.isVisible() and not host._closing:
                 host.start_tile(tile)
 
+    def sync_follow_monitored_rooms(self) -> None:
+        host = self.host
+        host.sidebar.items_control.set_monitored_rooms(monitored_streamers(host.settings))
+
     def sync_follow_recording_states(self) -> None:
         host = self.host
         host.sidebar.items_control.set_recording_rooms(
@@ -283,23 +290,34 @@ class CaptureControl:
     def monitor_rows(self):
         """Read the current manual recordings and opt-in background monitoring by room."""
         host = self.host
-        monitored = monitored_streamers(host.settings)
+        planned = host.auto_recording.planned_rooms
+        monitored = {**planned, **monitored_streamers(host.settings)}
         followed = {str(room.get('room_id')): room for room in host.sidebar.rooms()}
         saved = host.settings.get('streamer_defaults')
         profiles = saved if isinstance(saved, dict) else {}
         entries = {}
 
-        def entry(room_id, name, state, room, started_at=0.0):
+        def entry(room_id, name, state, room, started_at=0.0, scheduled_end=None, scheduled_start=None):
             observed = host.auto_recording.room_details.get(room_id, {})
             details = {**room, **observed}
             details.update({key: value for key, value in followed.get(room_id, {}).items() if value})
             details['room_id'] = room_id
             group = (streamer_profile_group(room_defaults(host.settings, room_id))
                      if isinstance(profiles.get(room_id), dict) else None)
+            hint = ''
+            plan = planned.get(room_id, {})
+            if scheduled_start is not None:
+                hint = '计划录制至下播'
+            elif scheduled_end == datetime.max:
+                hint = '按标题录制中' if plan and not plan.get('recording_schedule') else '计划录制中'
+            elif scheduled_end is not None:
+                hint = f'计划录制至 {WEEKDAYS[scheduled_end.weekday()]} {scheduled_end:%H:%M}'
+            elif state in ('monitoring', 'failed') and room_id in planned:
+                hint = plan_hint(plan.get('recording_schedule', ()), keywords=plan.get('recording_title_keywords', ()))
             return MonitorEntry(room_id, str(details.get('uname') or name or room_id), state,
                                 room_platform(details), str(details.get('anchor_uid') or details.get('uid') or ''),
                                 str(details.get('display_room_id') or room_id.split(':', 1)[-1]), started_at,
-                                group, observed.get('live'))
+                                group, observed.get('live'), hint)
 
         for session in host.recorder.sessions.values():
             if not session.recording or not session.room_id:
@@ -313,7 +331,9 @@ class CaptureControl:
             previous = entries.get(session.room_id)
             if previous is None or MONITOR_STATES.index(state) < MONITOR_STATES.index(previous.state):
                 started = (session.recording_started_at or session.started_at) if state == 'recording' else 0.0
-                entries[session.room_id] = entry(session.room_id, session.name, state, session.room, started)
+                entries[session.room_id] = entry(session.room_id, session.name, state, session.room, started,
+                                                 getattr(session.tile, 'scheduled_end', None),
+                                                 getattr(session.tile, 'scheduled_start', None))
 
         for tile, recording in host._pending_capture.items():
             room_id = str(tile.room.get('room_id') or '')

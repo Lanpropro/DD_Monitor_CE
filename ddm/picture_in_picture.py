@@ -11,7 +11,8 @@ from PySide6.QtWidgets import (
 
 from . import follow_folders, theme
 from .search import matches_text
-from .pip_composition import FREE_LAYOUT, MAIN_LAYOUT
+from .pip_composition import FREE_LAYOUT, MAIN_LAYOUT, PipChat, composition_inputs, read_chat_slots
+from .danmaku_sources import is_live_danmaku_source
 from .pip_placement import validate_placement
 from .pip_parallel import ParallelPictureInPicture
 from .ui import ActionButton, Avatar, ElidedLabel, page_header
@@ -47,6 +48,9 @@ class PictureInPicture(QObject):
         self._extra_tiles = {}
         self._parallel = None
         self.parallel_preference = bool(saved.get('parallel', False))
+        self.chat_slots = read_chat_slots(saved['chat_slots']) if 'chat_slots' in saved else None
+        self._legacy_chat = bool(saved.get('show_danmaku', False))
+        self.move_wall_streams = bool(saved.get('move_wall_streams', True))
         self._start_serial = 0
         self._pending_start = None
         self.pinned = bool(saved.get('pinned', True))
@@ -89,6 +93,56 @@ class PictureInPicture(QObject):
     def parallel_tiles(self):
         return self._parallel.wall.tiles if self._parallel is not None else ()
 
+    @property
+    def danmaku_panels(self):
+        return self.floating.danmaku_panels if self.active else {}
+
+    def danmaku_targets(self):
+        wall = self.display_wall
+        tiles = wall.picture_in_picture_tiles or ()
+        primary = tiles[wall.picture_in_picture_primary].room if tiles else {}
+        targets = {}
+        for _, chat in self.chat_slots or ():
+            panel = self.danmaku_panels.get(chat.key)
+            if panel is None:
+                continue
+            room = primary if chat.source is None else {'room_id': chat.source, 'uname': chat.name}
+            targets[panel] = room if is_live_danmaku_source(room) else {}
+        return targets
+
+    def picker_chat_slots(self, selection):
+        if self.chat_slots is not None:
+            return self.chat_slots
+        wall = self.host.wall
+        panes = wall.pane_danmaku
+        video_cells = {tile: cell for cell, tile in panes.cell_tiles().items()}
+        positions = [video_cells.get(wall.tiles[key], float('inf')) for key in selection
+                     if type(key) is int and 0 <= key < len(wall.tiles)]
+        slots = []
+        for cell in sorted(panes.groups or panes.bindings()):
+            panel = panes.panels.get(cell)
+            if panel in panes.floating:
+                continue
+            source = panes.target(panel) if panel is not None else None
+            if source is None and panes.bindings().get(cell) is None:
+                source = panes.automatic_target()
+            room = source.room if source is not None else {}
+            position = sum(video_cell < cell for video_cell in positions) + len(slots)
+            slots.append((position, PipChat(f'wall:{cell}', str(room.get('room_id') or ''),
+                                            str(room.get('uname') or ''))))
+        if not slots and self._legacy_chat:
+            slots.append((len(selection), PipChat('legacy', None)))
+        return tuple(slots)
+
+    @property
+    def moved_room_ids(self):
+        return self._parallel.moved.keys() if self._parallel is not None else ()
+
+    @property
+    def moved_tiles(self):
+        moved = self.moved_room_ids
+        return tuple(tile for tile in self.parallel_tiles if str(tile.room.get('room_id')) in moved)
+
     def audio_tiles(self):
         if self._parallel is not None:
             return list(self.display_wall.picture_in_picture_tiles or ())
@@ -97,6 +151,8 @@ class PictureInPicture(QObject):
     def _refresh_theme(self, *_args):
         if self.active:
             self.floating.tools.update()
+            for panel in self.danmaku_panels.values():
+                panel.refresh_theme()
             for button in self.floating.tools.findChildren(PictureInPictureButton):
                 button.update()
 
@@ -119,8 +175,8 @@ class PictureInPicture(QObject):
             return
         if not self.active:
             choices = self.selected_choices()
-            if self._first_picker or not any(key in choices for _title, entries in self.candidate_groups()
-                                             for key, _room in entries):
+            has_choices = any(key in choices for _, entries in self.candidate_groups() for key, _ in entries)
+            if (self._first_picker and self.chat_slots is None) or not has_choices:
                 capacity = self.host.wall._capacity() or len(self.host.wall.tiles)
                 wall_selection = [index for index, _room in self._wall_candidates() if index < capacity]
                 saved_positions = dict(zip(choices, self.placement)) if len(choices) == len(self.placement) else {}
@@ -131,7 +187,8 @@ class PictureInPicture(QObject):
                 self.external_primary = ''
                 self._choice_order = []
                 self.placement = (tuple(saved_positions[key] for key in wall_selection)
-                                  if all(key in saved_positions for key in wall_selection) else ())
+                                  if not self.chat_slots and all(key in saved_positions for key in wall_selection)
+                                  else ())
         self._first_picker = False
         self.dialog = PictureInPictureDialog(self, compact=True) if anchor is not None else PictureInPictureDialog(self)
         self.dialog.finished.connect(self._finish_manage)
@@ -268,7 +325,8 @@ class PictureInPicture(QObject):
         if aspects == wall.picture_in_picture_aspects:
             return
         wall.picture_in_picture_aspects = aspects
-        self.floating.set_composition(aspects, self.columns, primary)
+        mixed, main = composition_inputs(aspects, self.chat_slots or (), primary)
+        self.floating.set_composition(mixed, self.columns, main)
         wall.relayout(force=True)
 
     def swap_positions(self, source, target):
@@ -289,7 +347,8 @@ class PictureInPicture(QObject):
             self.primary = self.selection[primary]
         self.start(self.selection, self.columns, self.primary, placement=self.placement)
 
-    def start(self, selection, columns=0, primary=None, *, parallel=False, placement=()):
+    def start(self, selection, columns=0, primary=None, *, parallel=False, placement=(),
+              chat_slots=None, move_wall_streams=None):
         wall = self.host.wall
         candidates = {key: room for _title, entries in self.candidate_groups() for key, room in entries}
         if not selection:
@@ -297,15 +356,26 @@ class PictureInPicture(QObject):
         for key in selection:
             if self.choice_for_index(key) not in candidates:
                 return False
-        if columns == FOCUS_LAYOUT and len(selection) != 6:
-            columns = MAIN_LAYOUT if len(selection) >= 3 else 0
-        placement = validate_placement(placement, len(selection)) if columns == FREE_LAYOUT else ()
+        chats = (self.chat_slots or ()) if chat_slots is None else read_chat_slots(chat_slots)
+        count = len(selection) + len(chats)
+        if columns == FOCUS_LAYOUT and count != 6:
+            columns = MAIN_LAYOUT if count >= 3 else 0
+        placement = validate_placement(placement, count) if columns == FREE_LAYOUT else ()
         if columns == FREE_LAYOUT and not placement:
             columns = 0
         if self.active and parallel != (self._parallel is not None):
+            moved = set(self.moved_room_ids)
             self.restore(activate=parallel, keep_dialog=True)
+            matches = {str(room['room_id']): key for key, room in self._wall_candidates()
+                       if str(room['room_id']) in moved}
+            selection = [matches.get(key, key) for key in selection]
+            primary = matches.get(primary, primary)
+        if chat_slots is not None:
+            self.chat_slots = chats
         self.placement = placement
         if parallel:
+            if move_wall_streams is not None:
+                self.move_wall_streams = move_wall_streams
             self._start_parallel(selection, columns, primary, candidates)
             return True
         self.host._cancel_interactive_resize()
@@ -345,6 +415,8 @@ class PictureInPicture(QObject):
             self.floating.track_tiles(wall.tiles)
             self._minimums = {tile: tile.minimumSize() for tile in wall.tiles}
             content = self.host._content.layout()
+            # _apply_start shows the wall once the selected panes are in place.
+            wall.hide()
             content.removeWidget(wall)
             content.insertWidget(0, self.placeholder, 1)
             self.placeholder.show()
@@ -383,7 +455,9 @@ class PictureInPicture(QObject):
             self.floating.box.addWidget(self.display_wall, 1)
         pending = self._pending_start[1] if self._pending_start is not None else ()
         existing = set(self._parallel.tiles.values())
-        tiles = self._parallel.update(rooms, primary_id, self.floating)
+        wall_sources = {str(room['room_id']): self.host.wall.tiles[index]
+                        for index, room in self._wall_candidates()} if self.move_wall_streams else {}
+        tiles = self._parallel.update(rooms, primary_id, self.floating, wall_sources, self.move_wall_streams)
         starting = [tile for tile in tiles if tile not in existing or tile in pending]
         self.columns = columns
         self.parallel_preference = True
@@ -391,6 +465,7 @@ class PictureInPicture(QObject):
         self.floating.show()
         self.floating.audio_panel.hide()
         self.host.sidebar.picture_in_picture_button.setToolTip(f'管理画中画（{len(tiles)} 路）')
+        self.host._refresh_meta()
         self._queue_start(tiles, columns, aspects, list(rooms).index(primary_id), starting, False)
 
     def _queue_start(self, tiles, columns, aspects, composition_primary, starting, opened):
@@ -413,9 +488,15 @@ class PictureInPicture(QObject):
         wall = self.display_wall
         primary = (composition_primary if self._parallel is not None
                    else self.selection.index(self.primary))
-        wall.presentation_control.set_picture_in_picture(tiles, columns, aspects, primary, placement=self.placement)
-        self.floating.set_composition(aspects, columns, composition_primary, placement=self.placement)
+        previous_panels = bool(self.danmaku_panels)
+        chat_widgets = self.floating.set_danmaku_panes(self.chat_slots or (), wall)
+        wall.presentation_control.set_picture_in_picture(
+            tiles, columns, aspects, primary, placement=self.placement, chat_widgets=chat_widgets)
+        mixed, main = composition_inputs(aspects, chat_widgets, primary)
+        self.floating.set_composition(mixed, columns, main, placement=self.placement)
         wall.show()
+        if previous_panels or chat_widgets:
+            self.host.sync_danmaku()
         self.host._tray.sync_picture_in_picture()
         if pending[2]:
             QTimer.singleShot(0, self, self._minimize_host)
@@ -462,19 +543,24 @@ class PictureInPicture(QObject):
         self.geometry = str(floating.saveGeometry().toBase64(), 'ascii')
         floating.stop()
         self._aspect_timer.stop()
+        had_chat = bool(floating.danmaku_panels)
+        floating.set_danmaku_panes((), self.display_wall)
         self.floating = None
         if self._parallel is not None:
+            self._parallel.close(floating)
             self._choice_order = self.selected_choices()
             primary = self.primary_choice()
             self.selection = [key for key in self._choice_order if isinstance(key, int)]
             self.external_rooms = [key for key in self._choice_order if isinstance(key, str)]
             self.primary = primary if isinstance(primary, int) else None
             self.external_primary = primary if isinstance(primary, str) else ''
-            self._parallel.close(floating)
             self._parallel = None
+            if had_chat:
+                self.host.sync_danmaku()
             floating.hide()
             floating.deleteLater()
             self.host.sidebar.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
+            self.host._refresh_meta()
             self.host._save_timer.start()
             if activate:
                 self.host._tray.restore()
@@ -486,17 +572,35 @@ class PictureInPicture(QObject):
             self._remove_extra(rid)
         self.selection = [wall.tiles.index(tile) for tile in selected if tile in wall.tiles]
         self.primary = wall.tiles.index(primary_tile) if primary_tile in wall.tiles else None
+        # Restore the main window while it still contains only the placeholder.
+        # Showing a minimized host after mounting the wall exposes every native pane twice.
+        if activate and self.host.isMinimized():
+            self.host.setWindowState(self.host.windowState() & ~Qt.WindowMinimized)
+        wall.hide()
         floating.box.removeWidget(wall)
         content = self.host._content.layout()
+        target_geometry = self.placeholder.geometry()
         content.removeWidget(self.placeholder)
         self.placeholder.hide()
         content.insertWidget(0, wall, 1)
         for tile, minimum in self._minimums.items():
             tile.setMinimumSize(minimum)
-        wall.set_picture_in_picture(None)
-        floating.hide()
-        floating.deleteLater()
-        wall.show()
+        # Resize and show events would each lay out native video and controls.
+        # Apply their final geometry once, under the restored wall.
+        previous = {tile: getattr(tile, '_presentation_changing', False) for tile in wall.tiles}
+        for tile in previous:
+            tile._presentation_changing = True
+        try:
+            wall.setGeometry(target_geometry)
+            wall.set_picture_in_picture(None)
+            floating.hide()
+            floating.deleteLater()
+            wall.show()
+        finally:
+            for tile, changing in previous.items():
+                tile._presentation_changing = changing
+        for tile in wall.tiles:
+            tile._layout_areas()
         self.host._tray.sync_picture_in_picture()
         self._sync_overlays()
         self.host.sidebar.picture_in_picture_button.setToolTip('选择多路画面，组合为置顶小窗')
@@ -512,8 +616,14 @@ class PictureInPicture(QObject):
         selected_primary = self.primary_choice()
         primary = selected_primary if selected_primary in selection else None
         external = [key for key in choices if isinstance(key, str)]
-        return dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
+        state = dict(selection=selection, columns=self.columns, primary=primary, pinned=self.pinned,
                     geometry=geometry, external_rooms=external,
                     external_primary=selected_primary if selected_primary in external else '',
                     choice_order=choices, parallel=self.parallel_preference, placement=self.placement,
-                    picker_size=self.picker_size)
+                    picker_size=self.picker_size,
+                    move_wall_streams=self.move_wall_streams)
+        if self.chat_slots is not None:
+            state['chat_slots'] = self.chat_slots
+        elif self._legacy_chat:
+            state['show_danmaku'] = True
+        return state

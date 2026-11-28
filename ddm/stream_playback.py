@@ -318,6 +318,12 @@ class StreamPlayback:
                     and any(int(option["qn"]) == requested_quality for option in options or [])):
                 tile.quality_button.setToolTip(
                     f"请求 {tile._quality_name(requested_quality)}，平台实际返回 {tile._quality_name(quality)}")
+        if host._audio_devices is None:
+            from PySide6.QtMultimedia import QMediaDevices
+            host._audio_devices = QMediaDevices(host)
+            host._default_audio_output_id = bytes(host._audio_devices.defaultAudioOutput().id())
+            host._audio_devices.audioOutputsChanged.connect(self.check_audio_output_device)
+            host._audio_device_timer.start()
         player = host.players.get(tile)
         if player is None:
             player = TilePlayer(tile.video, host)
@@ -479,7 +485,7 @@ class StreamPlayback:
 
     def check_audio_output_device(self) -> None:
         host = self.host
-        if host._closing:
+        if host._closing or host._audio_devices is None:
             return
         device_id = bytes(host._audio_devices.defaultAudioOutput().id())
         if device_id == host._default_audio_output_id:
@@ -581,14 +587,34 @@ class StreamPlayback:
             return
         host._match_sync_active = bool(active)
         if active:
-            host._match_sync_saved = {}
+            saved = host._match_sync_saved = {}
             host._match_sync_resume_pause = {}
-            for tile in set(host.players) | set(host._resolvers) | set(host._retry_timers):
-                if host._match_sync_holds(tile):
-                    host._match_sync_saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
-                    host._stop_tile(tile)
-            for player in host.players.values():
+            pending = []
+            for tile, player in host.players.items():
                 player.set_muted(True)
+                if host._match_sync_holds(tile):
+                    pending.append((tile, player, str(tile.room.get("room_id") or "")))
+            # Invalidate in-flight requests before they can apply to the hidden wall.
+            for tile in set(host._resolvers) | set(host._retry_timers):
+                if host._match_sync_holds(tile):
+                    saved[tile] = (str(tile.room.get("room_id") or ""), tile.paused)
+                    host._stop_tile(tile)
+
+            def stop_next():
+                if host._closing or host._match_sync_saved is not saved:
+                    return
+                while pending:
+                    tile, player, room_id = pending.pop()
+                    if (host.players.get(tile) is player and host._match_sync_holds(tile)
+                            and room_id == str(tile.room.get("room_id") or "")):
+                        saved[tile] = (room_id, tile.paused)
+                        host._stop_tile(tile)
+                        break
+                if pending:
+                    QTimer.singleShot(0, host, stop_next)
+
+            if pending:
+                QTimer.singleShot(0, host, stop_next)
         else:
             saved, host._match_sync_saved = getattr(host, "_match_sync_saved", {}), {}
             if host._closing:
@@ -760,6 +786,9 @@ class StreamPlayback:
         host = self.host
         tile = host._sender_tile() or host._tile_of(str(room.get("room_id")))
         if tile is None:
+            return
+        if (view := getattr(tile, '_replay_view', None)) is not None and view.in_history:
+            view.toggle_pause()
             return
         paused = not tile.paused
         tile.set_paused(paused)

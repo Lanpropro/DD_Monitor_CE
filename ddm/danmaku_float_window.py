@@ -3,7 +3,7 @@ import ctypes
 from ctypes import wintypes
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSignalBlocker, QTimer, Qt, Signal
-from PySide6.QtGui import QCursor, QKeySequence, QLinearGradient, QPainter, QPen, QShortcut
+from PySide6.QtGui import QCursor, QKeySequence, QLinearGradient, QPainter, QPainterPath, QPen, QShortcut
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLineEdit, QMenu, QPlainTextEdit,
                                QSizeGrip, QStackedLayout, QTextEdit, QVBoxLayout, QWidget)
 from shiboken6 import isValid
@@ -13,7 +13,7 @@ from .corner_geometry import continuous_path
 from .danmaku_float_snap import snapped_position, touching_windows
 from .danmaku_float_tabs import DanmakuFloatTabs
 from .panel_resize import resize_edges, set_resize_cursor
-from .settings_backdrop import apply_blur, set_blur_clip
+from .settings_backdrop import apply_blur, apply_frame
 from .shortcut_actions import DEFAULT_SHORTCUTS
 from .sidebar_navigation import NavigationButton
 from .ui import ActionButton
@@ -32,6 +32,12 @@ class DanmakuFloatSlot(QFrame):
         button.clicked.connect(restore)
         layout.addWidget(button)
         self.hide()
+
+
+class _ResizeGrip(QSizeGrip):
+    def paintEvent(self, event):
+        # Keep the platform resize gesture without its square corner decoration.
+        pass
 
 
 class _MoveHandle(QWidget):
@@ -73,7 +79,7 @@ class DanmakuFloatWindow(QWidget):
         self._move_frame = QTimer(self, interval=16, singleShot=True, timerType=Qt.PreciseTimer)
         self._move_frame.timeout.connect(self._flush_move)
         self._native_glass = False
-        self._glass_clip = None
+        self._native_corners = False
         self._glass_opacity = 100
         self.setWindowTitle('弹幕 · DD监控室CE')
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -125,7 +131,7 @@ class DanmakuFloatWindow(QWidget):
             self.configure_shortcuts(getattr(owner, 'shortcuts', {}).get('close_tile', DEFAULT_SHORTCUTS['close_tile']))
         else:
             shortcut_control.refresh_floating_shortcuts(self)
-        self.grip = QSizeGrip(self)
+        self.grip = _ResizeGrip(self)
         self.grip.setToolTip('拖动调整大小')
         screen = QApplication.screenAt(area.center()) or owner.screen()
         available = screen.availableGeometry()
@@ -195,20 +201,10 @@ class DanmakuFloatWindow(QWidget):
         panel.update()
 
     def _sync_glass(self):
-        enabled = self.property('danmakuFloatGlass')
+        self._native_corners = apply_frame(self, theme.is_light())
+        # An accent blur on an unframed layered HWND bleeds past the Qt alpha.
+        enabled = self._native_corners and self.property('danmakuFloatGlass')
         self._native_glass = apply_blur(self, enabled) if enabled or self._native_glass else False
-        self._sync_glass_clip()
-
-    def _sync_glass_clip(self):
-        if self._native_glass:
-            geometry = (int(self.winId()), self.size(), self.devicePixelRatioF())
-            if geometry != self._glass_clip:
-                path = continuous_path(QRectF(self.rect()), self.CORNER_RADIUS)
-                if set_blur_clip(self, path):
-                    self._glass_clip = geometry
-        elif self._glass_clip is not None:
-            set_blur_clip(self, None)
-            self._glass_clip = None
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -490,16 +486,12 @@ class DanmakuFloatWindow(QWidget):
             if kind in (QEvent.UngrabMouse, QEvent.Hide, QEvent.WindowDeactivate):
                 self._finish_move()
         result = super().event(event)
-        if kind == QEvent.DevicePixelRatioChange and getattr(self, '_native_glass', False):
-            self._sync_glass_clip()
-        elif kind in (QEvent.Show, QEvent.WindowActivate) and self._fullscreen_owner is not None:
+        if kind in (QEvent.Show, QEvent.WindowActivate) and self._fullscreen_owner is not None:
             QTimer.singleShot(0, self, self._stack_behind_fullscreen)
         return result
 
     def resizeEvent(self, event):
         self.grip.move(self.width() - self.grip.width(), self.height() - self.grip.height())
-        if self._native_glass:
-            self._sync_glass_clip()
         super().resizeEvent(event)
 
     def paintEvent(self, _event):
@@ -508,7 +500,11 @@ class DanmakuFloatWindow(QWidget):
         color = theme.qcolor(theme.CONTENT)
         if self.property('danmakuFloatGlass'):
             color.setAlpha(max(1, round(255 * self._glass_opacity / 100)))
-        outline = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.CORNER_RADIUS)
+        if self._native_corners:
+            outline = QPainterPath()
+            outline.addRect(QRectF(self.rect()))
+        else:
+            outline = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.CORNER_RADIUS)
         painter.fillPath(outline, color)
         panel = self.stack.currentWidget()
         if self.property('danmakuFloatGlass') and panel is not None:
@@ -520,7 +516,8 @@ class DanmakuFloatWindow(QWidget):
             color.setAlpha(self.TEXT_MASK_ALPHA)
             scrim.setColorAt(1, color)
             painter.fillPath(outline, scrim)
-        painter.strokePath(outline, QPen(theme.qcolor(theme.BORDER_STRONG), 1))
+        if not self._native_corners:
+            painter.strokePath(outline, QPen(theme.qcolor(theme.BORDER_STRONG), 1))
         if self._snap_edges:
             painter.setPen(QPen(theme.qcolor(theme.ACCENT), 2, Qt.SolidLine, Qt.RoundCap))
             right, bottom = self.width()-2, self.height()-2

@@ -96,13 +96,13 @@ class NotificationSettingsPage(QWidget):
     ITEMS = [
         ('notifications_enabled', '显示应用内通知'),
         ('live_alert', '启用开播提醒（顶部提示与关注栏动效）'),
-        ('notice_hide_fullscreen', '全屏时不弹出通知'),
+        ('notice_hide_fullscreen', '全屏时隐藏弹窗'),
         ('notice_windows_recording', '使用 Windows 通知'),
         ('notice_persist_updates', '软件和插件更新'),
         ('notice_persist_pinned_live', '置顶主播开播'),
         ('notice_persist_live', '其他主播开播'),
         ('notice_persist_warning', '警告和失败提示'),
-        ('notice_persist_info', '普通操作结果'),
+        ('notice_persist_info', '操作结果'),
     ]
 
     def __init__(self, settings, parent=None):
@@ -112,7 +112,7 @@ class NotificationSettingsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head('通知', '决定哪些提醒及时出现，以及哪些提示需要你手动关闭。'))
+        layout.addLayout(_page_head('通知', ''))
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -176,8 +176,8 @@ class NotificationSettingsPage(QWidget):
             self._states[key] = state
         self.windows_recording_notice = self._checks['notice_windows_recording']
         for card, row, text in (
-                (reception, reception_count, '在「主播监控」为指定主播设置开播提醒方式和自动录制状态通知。'),
-                (persistence, 5, '选择自动收起后提示会自行消失；手动关闭会持续保留，两种方式均可在通知菜单查看记录。')):
+                (reception, reception_count, '在「主播监控」按主播设置开播和录制通知。'),
+                (persistence, 5, '两种方式都可在通知菜单查看记录。')):
             hint = QLabel(text)
             hint.setObjectName('SettingsHint')
             hint.setWordWrap(True)
@@ -194,26 +194,27 @@ class NotificationSettingsPage(QWidget):
         banner_row = QHBoxLayout()
         self.banner_enabled = ToggleSwitch('显示通知背景图')
         self.banner_enabled.setChecked(bool(settings.get('notice_banner_enabled', DEFAULT_SETTINGS['notice_banner_enabled'])))
+        self.banner_enabled.setToolTip('关闭后使用纯色通知背景。')
         banner_label = QLabel('显示通知背景图')
         banner_label.setBuddy(self.banner_enabled)
+        banner_label.setToolTip(self.banner_enabled.toolTip())
         banner_row.addWidget(banner_label, 1)
         banner_row.addWidget(self.banner_enabled)
         control_box.addLayout(banner_row)
-        control_box.addWidget(QLabel('背景模糊强度'))
+        blur_label = QLabel('背景模糊强度')
+        control_box.addWidget(blur_label)
         slider_row = QHBoxLayout()
         self.banner_blur = SettingsSlider()
         self.banner_blur.setRange(0, 40)
         self.banner_blur.setAccessibleName('通知背景模糊强度')
+        self.banner_blur.setToolTip('设为 0 时保留清晰背景图。')
+        blur_label.setToolTip(self.banner_blur.toolTip())
         self.banner_blur.setValue(int(settings.get('notice_banner_blur', DEFAULT_SETTINGS['notice_banner_blur'])))
         slider_row.addWidget(self.banner_blur)
         self.banner_blur_value = SettingsValueLabel()
         slider_row.addWidget(self.banner_blur_value)
         slider_row.addStretch(1)
         control_box.addLayout(slider_row)
-        hint = QLabel('关闭背景图后使用普通通知底色；模糊强度为0时保留清晰背景图。')
-        hint.setObjectName('SettingsHint')
-        hint.setWordWrap(True)
-        control_box.addWidget(hint)
         control_box.addStretch(1)
         self.banner_preview = NoticeBlurPreview()
         preview_box.addWidget(self.banner_preview, 0, Qt.AlignRight)

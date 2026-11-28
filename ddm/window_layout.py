@@ -122,10 +122,11 @@ class WindowLayout:
                     else:
                         layout_id = layouts.PORTRAIT_AUTO if portrait else layouts.DEFAULT_LAYOUT
             if layout_id != host.wall.layout_id:
-                if not first and not layouts.snap_grid_size(host.wall.layout_id):
-                    host._clear_expanded_slots(layout_id)
+                if hasattr(host, 'plugins'):
+                    self.clear_layout_overflow()
                 host.wall.set_layout(layout_id, relayout=False)
                 host.sidebar.set_layout_name(layout_id)
+            self.clear_layout_overflow()
             # 换了排布/换了布局，画面墙的尺寸和格子可见性都要重算一次
             if host._settling_resize:
                 host.wall.set_interactive_resize(True)
@@ -140,18 +141,27 @@ class WindowLayout:
         print(f"[方向] {'竖屏' if portrait else '横屏'}　布局={layout_id}",
               file=sys.stderr, flush=True)
 
-    def clear_expanded_slots(self, layout_id: str) -> None:
+    def clear_layout_overflow(self) -> None:
         host = self.host
-        current = host.wall._capacity() or len(host.wall.tiles)
-        target = (layouts.capacity(layout_id)
-                  - int(layouts.danmaku_cell(layout_id) is not None and
-                        layout_id not in host.wall.pane_danmaku.settings)) or len(host.wall.tiles)
-        if target <= current:
+        wall = host.wall
+        capacity = wall._capacity()
+        if not capacity or len(wall.tiles) <= capacity:
             return
-        # 扩大布局只补空位，先前隐藏的房间不能自动回到画面墙。
-        for tile in host.wall.tiles[current:]:
-            if tile.room.get("room_id"):
+        if host._fullscreen_tile in wall.tiles[capacity:]:
+            host._exit_fullscreen()
+        # 录制结束回调仍需要格子；从画面墙移出，等回调负责销毁。
+        playback_ready = hasattr(host, 'plugins')
+        for tile in wall.tiles[capacity:]:
+            if playback_ready and tile.room.get("room_id"):
                 host._clear_tile_room(tile)
+            if tile in host.recorder.sessions:
+                tile.hide()
+                wall.tiles.remove(tile)
+                host._preset_retired_tiles.add(tile)
+            else:
+                wall._drop_tile(tile)
+        if playback_ready:
+            host._save_timer.start()
 
     def prioritize_live_tiles(self, layout_id: str) -> None:
         """缩小布局时，用后面的开播格子填前面的未开播位置。"""
@@ -207,6 +217,7 @@ class WindowLayout:
         reshape = (want_portrait != (host.orientation == "portrait")
                    or want_portrait != (host._resize_orientation() == "portrait"))
         if layout_id == host.wall.layout_id and not reshape:
+            self.clear_layout_overflow()
             if preserve_rooms:
                 host.wall.relayout(force=True)
                 if layouts.snap_grid_size(layout_id):
@@ -220,9 +231,9 @@ class WindowLayout:
                 host._refresh_meta()
                 host._save_timer.start()
             return
+        self.clear_layout_overflow()
         if not preserve_rooms:
             host._prioritize_live_tiles(layout_id)
-            host._clear_expanded_slots(layout_id)
         # 换画面墙摆放方式；**选了另一个方向的布局就把窗口也改成那个形状** ——
         # 用户要的是「切成竖屏后，alt+tab 里的窗口预览也是竖的」，
         # 而不是把一个竖屏排布塞在横屏窗口里（那样 alt+tab 就是一张拉伸的横屏）。
@@ -242,7 +253,8 @@ class WindowLayout:
             host._apply_orientation("portrait" if want_portrait else "landscape")
             if previous_orientation:
                 host._layout_by_orientation[previous_orientation] = previous_layout
-        host.wall.set_layout(layout_id)
+        host.wall.set_layout(layout_id, relayout=False)
+        self.clear_layout_overflow()
         host.wall.relayout(force=True)
         host.sidebar.set_layout_name(host.wall.layout_id)
         # 记在**当前方向**名下：横屏选的布局不该被竖屏覆盖，反之亦然

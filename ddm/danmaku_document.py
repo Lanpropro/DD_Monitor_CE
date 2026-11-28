@@ -54,6 +54,8 @@ class DanmakuDocument:
         }
     def add_events(self, events) -> None:
         host = self.host
+        timeline = getattr(host, 'match_gui_timeline', None)
+        prepared = timeline.begin() if timeline is not None else None
         entries, fragments = [], []
         for event in events:
             entry = host._event_entry(event)
@@ -65,15 +67,21 @@ class DanmakuDocument:
             fragments.append(host._block_html(entry))
         if not entries:
             return
+        if timeline is not None:
+            timeline.end('chat.sidebar_prepare', prepared, len(entries))
         previous = len(host._blocks)
         removed = max(0, previous + len(entries) - host.max_blocks)
+        scroll = timeline.begin() if timeline is not None else None
         scroll_state = host._scroll_state(min(removed, previous))
+        if timeline is not None:
+            timeline.end('chat.sidebar_scroll_state', scroll)
         if previous and removed >= previous:
             scroll_state = (scroll_state[0], 0, scroll_state[2])
         host._blocks.extend(entries)
         if removed:
             del host._blocks[:removed]
         markup = ''.join(fragments[-host.max_blocks:])
+        insertion = timeline.begin() if timeline is not None else None
         if host._has_content:
             host.body.append(markup)
         else:
@@ -81,9 +89,14 @@ class DanmakuDocument:
             for key, image in host._images.items():
                 host._register_image(key, image)
             host._has_content = True
+        if timeline is not None:
+            timeline.end('chat.sidebar_insert', insertion, len(entries))
+            scroll = timeline.begin()
         host._received += len(entries)
         host._refresh_count()
         host._restore_scroll_state(scroll_state)
+        if timeline is not None:
+            timeline.end('chat.sidebar_scroll_restore', scroll)
 
     def apply_style(self, font_family: str, font_size: int) -> None:
         """设置里的字体和字号（字号也能在底部滑块上实时拖）。"""

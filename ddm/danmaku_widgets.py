@@ -361,7 +361,7 @@ class DanmakuPanel(QFrame):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        if self.window().property('floatingDanmaku'):
+        if not self.acceptDrops() or self.window().property('floatingDanmaku'):
             return super().mouseMoveEvent(event)
         if not (event.buttons() & Qt.LeftButton):
             return

@@ -2,6 +2,8 @@
 import re
 from copy import deepcopy
 
+from .recording_schedule import normalize_schedule
+
 UNCLASSIFIED = "__unclassified__"
 SORT_MODES = [("custom", "自定义顺序（拖动调整）"), ("live", "开播优先"),
               ("frequent", "常看优先"),
@@ -52,6 +54,8 @@ def normalize_folders(folders, default_sort="custom"):
         icon = normalize_icon(source.get("icon"))
         if icon is not None:
             folder["icon"] = icon
+        if kind != "smart" and (schedule := normalize_schedule(source.get("recording_schedule"))):
+            folder["recording_schedule"] = schedule
         if kind == "smart":
             rule = source.get("rule") or {}
             status = rule.get("status", "any")
@@ -79,6 +83,14 @@ def normalize_folders(folders, default_sort="custom"):
 def default_folder(folders):
     return next((folder for folder in folders or [] if folder.get("type") == "unclassified"),
                 {"id": UNCLASSIFIED, "name": "默认关注", "type": "unclassified"})
+
+
+def recording_folders(folders, room_ids):
+    """Use the original membership even when a smart folder displays a room."""
+    manual = {room_id: folder for folder in folders if folder['type'] != 'smart'
+              for room_id in folder['rooms']}
+    fallback = default_folder(folders)
+    return {room_id: manual.get(room_id, fallback) for room_id in room_ids}
 
 
 def room_platform(room):

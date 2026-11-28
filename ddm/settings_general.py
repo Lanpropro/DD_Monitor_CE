@@ -156,12 +156,10 @@ class GeneralSettingsPage(QWidget):
 
     ITEMS = [
         ("default_muted", "新建格子初始静音"),
-        ("audio_follows_room", "交换格子时声音跟随直播间"),
-        ("fullscreen_solo_audio", "全屏只播放该路声音"),
+        ("audio_follows_room", "交换时声音跟随"),
+        ("fullscreen_solo_audio", "全屏独享"),
         ("volume_normalization", "音量均衡（减小直播间音量差异）"),
-        ("fullscreen_auto_hide_controls", "全屏时自动收起底部控制条"),
-        ("windowed_transparent_controls", "普通直播格使用透明控制栏"),
-        ("windowed_auto_hide_controls", "闲置时自动隐藏普通直播格透明控制栏"),
+        ("fullscreen_auto_hide_controls", "全屏时自动收起控制栏"),
         ("sidebar_auto_compact", "自动切换紧凑列表"),
         ("sidebar_compact_background", "紧凑关注卡片显示背景图（Banner／封面）"),
         ("preview_on_hover", "关注栏直播预览"),
@@ -182,7 +180,7 @@ class GeneralSettingsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head("常规", "这里设置全局默认；单窗画质、声音和编解码可在窗口右键菜单中调整"))
+        layout.addLayout(_page_head("常规", ""))
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
@@ -248,14 +246,10 @@ class GeneralSettingsPage(QWidget):
                 box.toggled.connect(self.compact_threshold_stepper.setEnabled)
                 self.compact_threshold_stepper.setEnabled(box.isChecked())
                 row += 1
-        transparent_bar = self._checks['windowed_transparent_controls']
-        auto_hide_bar = self._checks['windowed_auto_hide_controls']
-        transparent_bar.toggled.connect(auto_hide_bar.setEnabled)
-        auto_hide_bar.setEnabled(transparent_bar.isChecked())
         from .settings_codec_editor import InlineCodecEditor
         self.codec_editor = InlineCodecEditor(settings)
         self.codec_editor.setAccessibleName("编解码设置")
-        grid.addWidget(QLabel("新建格子的初始音量"), row, 0)
+        grid.addWidget(QLabel("格子初始音量"), row, 0)
         volume_box = QHBoxLayout()
         volume_box.setSpacing(10)
         self.volume_slider = SettingsSlider()
@@ -275,9 +269,9 @@ class GeneralSettingsPage(QWidget):
         self.normalization_editor = AudioNormalizationEditor(settings.get('volume_normalization_curve'))
         grid.addWidget(self.normalization_editor, row, 0, 1, 2)
         self.sections = section_grid(grid, (
-            ('playback', '播放与声音', (1, 14, 2, 3, 5, 6, 7, 13), False),
-            ('following', '关注与预览', (0, 8, 9, 10, 11), False),
-            ('codecs', '编解码', (15,), False),
+            ('playback', '播放与声音', (1, 12, 2, 3, 5, 11), False),
+            ('following', '关注与预览', (0, 6, 7, 8, 9), False),
+            ('codecs', '编解码', (13,), False),
             ('normalization', '音量均衡', (4, row), True),
         ), anchor=self._checks['sidebar_platform_logos'])
         following = self.sections.section('following').grid
@@ -295,10 +289,12 @@ class GeneralSettingsPage(QWidget):
         collapse_row = following.rowCount()
         following.addWidget(collapse_label, collapse_row, 0)
         following.addWidget(self.folder_collapse_mode, collapse_row, 1, Qt.AlignRight)
-        collapse_hint = QLabel('恢复原状：仅收起本次全部展开前已收起的文件夹；无记录时收起全部。')
-        collapse_hint.setObjectName('SettingsHint')
-        collapse_hint.setWordWrap(True)
-        following.addWidget(collapse_hint, collapse_row + 1, 0, 1, 2)
+        self.folder_collapse_hint = QLabel('恢复原状：仅收起本次全部展开前已收起的文件夹；无记录时收起全部。')
+        self.folder_collapse_hint.setObjectName('SettingsHint')
+        self.folder_collapse_hint.setWordWrap(True)
+        following.addWidget(self.folder_collapse_hint, collapse_row + 1, 0, 1, 2)
+        self.folder_collapse_mode.valueChanged.connect(self._show_folder_collapse_hint)
+        self._show_folder_collapse_hint(self.folder_collapse_mode.value())
         for key in ('playback', 'following', 'codecs'):
             self.sections.section(key).setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections._arrange()
@@ -306,6 +302,9 @@ class GeneralSettingsPage(QWidget):
         layout.addStretch(1)
         from .settings_contributions import GeneralContributions
         self.contributions = GeneralContributions(self, grid)
+
+    def _show_folder_collapse_hint(self, mode):
+        self.folder_collapse_hint.setVisible(mode == 'previous')
 
     def plugin_controls(self):
         return self.contributions.checks()
@@ -348,7 +347,7 @@ class TraySettingsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
-        outer.addLayout(_page_head("托盘行为", "选择关闭窗口后的行为，定制画面右键菜单。"))
+        outer.addLayout(_page_head("托盘行为", ""))
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -370,24 +369,21 @@ class TraySettingsPage(QWidget):
         self.close_behavior_combo.setCurrentIndex(max(
             0, self.close_behavior_combo.findData(settings.get("close_behavior", "ask"))))
         behavior.grid.addWidget(self.close_behavior_combo, 0, 0, 1, 2)
-        close_hint = QLabel('右键托盘图标可查看布局、打开画中画或退出。双击图标恢复窗口。')
+        close_hint = QLabel('右键打开托盘菜单，双击显示或隐藏窗口。')
         close_hint.setObjectName('SettingsHint')
         close_hint.setWordWrap(True)
         behavior.grid.addWidget(close_hint, 1, 0, 1, 2)
         self.pause_playback = ToggleSwitch("隐藏到托盘后暂停播放")
         self.pause_playback.setChecked(bool(settings.get("tray_pause_playback", True)))
+        self.pause_playback.setToolTip('仅隐藏到托盘时暂停播放。恢复窗口后继续播放，录制不受影响。')
         pause_label = QLabel('隐藏后暂停播放')
         pause_label.setBuddy(self.pause_playback)
+        pause_label.setToolTip(self.pause_playback.toolTip())
         pause_label.setWordWrap(True)
         behavior.grid.setColumnStretch(0, 1)
         behavior.grid.setColumnStretch(1, 0)
         behavior.grid.addWidget(pause_label, 2, 0)
         behavior.grid.addWidget(self.pause_playback, 2, 1, Qt.AlignRight)
-        self.pause_playback.setToolTip('隐藏到托盘时停止观看取流，恢复窗口后重连；原本手动暂停的格子保持暂停。普通最小化和切换应用不受影响，录制继续。')
-        hint = QLabel('恢复窗口后继续播放；录制不受影响。仅在隐藏到托盘时生效。')
-        hint.setObjectName("SettingsHint")
-        hint.setWordWrap(True)
-        behavior.grid.addWidget(hint, 3, 0, 1, 2)
         self.sections.add_section('close', behavior, wide=True)
         menu = SettingsSection('画面右键菜单')
         menu.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
@@ -398,23 +394,43 @@ class TraySettingsPage(QWidget):
         tray = SettingsSection('托盘菜单')
         tray.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections.add_section('tray_menu', tray, wide=True)
-        self.tray_menu = TileMenuEditor(settings.get('tray_context_menu'), items=TRAY_MENU_ITEMS,
-                                       normalize=tray_menu_choices, preview_factory=TrayMenuPreview)
         menu.grid.addWidget(self.tile_menu, 0, 0, 1, 2)
+        audio_row = QWidget()
+        audio_layout = QHBoxLayout(audio_row)
+        audio_layout.setContentsMargins(40, 0, 8, 0)
+        preview_audio_label = QLabel('分路音量')
+        self.preview_audio = ToggleSwitch('在布局示意中控制分路音量')
+        self.preview_audio.setChecked(bool(settings.get('tray_preview_audio', False)))
+        self.preview_audio.setToolTip('点击直播格调节音量或静音。')
+        preview_audio_label.setBuddy(self.preview_audio)
+        audio_layout.addWidget(preview_audio_label, 1)
+        audio_layout.addWidget(self.preview_audio)
+        self.tray_menu = TileMenuEditor(settings.get('tray_context_menu'), items=TRAY_MENU_ITEMS,
+                                       normalize=tray_menu_choices, preview_factory=TrayMenuPreview,
+                                       row_detail=('layout_preview', audio_row))
+        self.tray_menu.checks['toggle'].setToolTip('在托盘菜单中提供显示和隐藏窗口的入口。')
+        QWidget.setTabOrder(self.tray_menu.checks['layout_preview'], self.preview_audio)
         tray.grid.addWidget(self.tray_menu, 0, 0, 1, 2)
         self.tile_menu.layoutChanged.connect(lambda: self.sections.refresh_section('menu'))
-        self.tray_menu.layoutChanged.connect(lambda: self.sections.refresh_section('tray_menu'))
+        self.tray_menu.layoutChanged.connect(self._refresh_tray_menu)
+        self.tray_menu.changed.connect(self._refresh_tray_menu)
         layout.addStretch(1)
+
+    def _refresh_tray_menu(self):
+        # Wait for the editor's new size hints before rebuilding the card's layout item.
+        QTimer.singleShot(0, self, lambda: self.sections.refresh_section('tray_menu'))
 
     def values(self):
         return {"close_behavior": self.close_behavior_combo.currentData(),
                 "tray_pause_playback": self.pause_playback.isChecked(),
+                "tray_preview_audio": self.preview_audio.isChecked(),
                 "tile_context_menu": self.tile_menu.values(),
                 "tray_context_menu": self.tray_menu.values()}
 
     def reset(self):
         from .config import DEFAULT_SETTINGS
         self.pause_playback.setChecked(DEFAULT_SETTINGS["tray_pause_playback"])
+        self.preview_audio.setChecked(DEFAULT_SETTINGS["tray_preview_audio"])
         self.tile_menu.set_choices(DEFAULT_SETTINGS['tile_context_menu'])
         self.tray_menu.set_choices(DEFAULT_SETTINGS['tray_context_menu'])
         self.close_behavior_combo.setCurrentIndex(

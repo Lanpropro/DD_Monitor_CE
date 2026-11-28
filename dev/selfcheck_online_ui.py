@@ -13,13 +13,52 @@ import zipfile
 os.environ['DDM_NO_SAVE'] = '1'
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QTimer, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QTimer, Qt
+from PySide6.QtGui import QHoverEvent
 from PySide6.QtWidgets import QApplication, QFrame, QLabel
 from ddm import app as app_module, config, online, theme, update_install
 from ddm.dialogs import PluginRemovePrompt, SettingsDialog
 from ddm.online_ui import OnlinePage, PluginStorePage
 from ddm.version import VERSION, VERSION_TAG
 from ddm.plugins import PluginManager, read_manifest
+from ddm.settings_plugins import PluginSettingsPage
+
+
+def check_plugin_tab_hover(app):
+    with patch.object(PluginStorePage, 'open_catalog'):
+        page = PluginSettingsPage()
+        assert page.empty.text() == '暂无已安装插件。'
+        page.resize(620, 440)
+        page.setAttribute(Qt.WA_ShowWithoutActivating)
+        page.move(-10000, -10000)
+        page.show()
+        bar = page.tabs.tabBar()
+        outside = QPointF(-1, -1)
+        try:
+            for mode in ('dark', 'light'):
+                theme.apply(mode)
+                app.setStyleSheet(theme.qss())
+                for index in (0, 1):
+                    page.tabs.setCurrentIndex(1 - index)
+                    app.processEvents()
+                    tab = bar.tabRect(index)
+                    center = QPointF(tab.center())
+                    before = bar.grab().toImage()
+                    app.sendEvent(bar, QHoverEvent(QEvent.HoverMove, center, center, outside))
+                    hovered = bar.grab().toImage()
+                    scale = hovered.devicePixelRatio()
+                    edge_x = tab.left() + 4 if index == 0 else tab.right() - 4
+                    corner = QPoint(round(edge_x * scale), round((tab.top() + 4) * scale))
+                    middle = QPoint(round(edge_x * scale), round(tab.center().y() * scale))
+                    assert hovered.pixelColor(corner) == before.pixelColor(corner), (mode, index)
+                    assert hovered.pixelColor(middle) != before.pixelColor(middle), (mode, index)
+                    assert bar.currentIndex() == 1 - index
+                    app.sendEvent(bar, QHoverEvent(QEvent.HoverLeave, outside, outside, center))
+                    assert bar.grab().toImage() == before, (mode, index)
+        finally:
+            page.close()
+            theme.apply('dark')
+            app.setStyleSheet(theme.qss())
 
 
 def check_store_scroll(app, root):
@@ -58,7 +97,7 @@ def check_store_scroll(app, root):
             store.jobs.append(task)
             store.busyChanged.emit(True)
         try:
-            with patch.object(store.downloads, 'start', start), patch('ddm.online_ui.show_result'):
+            with patch.object(store.downloads, 'start', start), patch('ddm.online_ui.show_result') as show_result:
                 QTest.mousePress(button, Qt.LeftButton)
                 app.processEvents()
                 before = bar.value()
@@ -76,7 +115,8 @@ def check_store_scroll(app, root):
                 store._installed((offers[1]['id'], False))
                 app.processEvents()
                 assert bar.value() == before, 'Install completion moved scroll'
-                assert '重启以应用' in store.status.text()
+                assert not store.status.text()
+                show_result.assert_called_once_with(dialog, '插件已安装')
             page = dialog.plugin_page
             plugin_id = entries[0]['id']
             card = page.cards.itemAt(0).widget()
@@ -184,6 +224,8 @@ def check_store_browser(app, root):
             page.show_offers(offers[:1])
             app.processEvents()
             assert page.count.text() == '1 / 1 个插件'
+            page._catalog_ready([dict(offers[0], cached=True)])
+            assert page.status.text() == '暂时无法刷新，正在显示缓存目录。'
             page.close()
             page.deleteLater()
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
@@ -201,7 +243,11 @@ def check_plugin_page_boundaries(app, root):
     with patch.object(PluginStorePage, 'open_catalog'):
         dialog = SettingsDialog({}, {}, plugin_manager=manager)
         dialog.nav.setCurrentRow(SettingsDialog.PAGE_INDEX['plugins'])
-        page = dialog.plugin_page.store_page
+        plugins = dialog.plugin_page
+        header = plugins.layout().itemAt(0).layout()
+        assert header.count() == 1 and header.itemAt(0).widget().text() == '插件'
+        assert plugins.install_button.toolTip() == '支持 ZIP 插件包及内含插件 ZIP 的 EXE，可拖入此页安装。'
+        page = plugins.store_page
         page.offers = [dict(entry, available=True) for entry in entries]
         page.show_offers(page.offers)
         dialog.plugin_page.tabs.setCurrentIndex(1)
@@ -279,7 +325,8 @@ def check_installed_browser(app, root):
             browser.filter.setCurrentIndex(2)
             assert browser.count.text() == '9 / 16 个插件'
             assert page.checks['installed_00'] is check and not check.isChecked()
-            assert '重启后生效' in page.card_details['installed_00'][1].text()
+            status = page.card_details['installed_00'][1]
+            assert status.text() == status.toolTip() == '加载失败 · 重启后禁用'
             check.setChecked(True)
             assert not page.needs_restart() and dialog.confirm_button.isHidden()
             browser.filter.setCurrentIndex(3)
@@ -308,6 +355,7 @@ def check_installed_browser(app, root):
             assert page.empty.isVisible() and browser.count.text() == '0 / 16 个插件'
             hidden_card = page._installed_cards['installed_00']
             page.checks['installed_01'].setChecked(True)
+            assert page.card_details['installed_01'][1].toolTip() == '未启用 · 重启后启用'
             page._store_installed('installed_02')
             QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
             import shiboken6
@@ -343,24 +391,45 @@ def check_installed_browser(app, root):
 def check_remove_prompt(app):
     for mode in ('dark', 'light'):
         theme.apply(mode)
+        app.setStyleSheet(theme.qss())
         for action, result in (('cancel', PluginRemovePrompt.Rejected),
                                ('escape', PluginRemovePrompt.Rejected),
                                ('close', PluginRemovePrompt.Rejected),
+                               ('title-close', PluginRemovePrompt.Rejected),
                                ('enter', PluginRemovePrompt.Rejected),
                                ('delete', PluginRemovePrompt.Accepted)):
-            prompt = PluginRemovePrompt('国内直播平台')
+            name = '<b>国内直播平台</b>'
+            prompt = PluginRemovePrompt(name)
             assert prompt.minimumWidth() == 440
             assert prompt.windowTitle() == '删除插件'
-            assert any('国内直播平台' in label.text() for label in prompt.findChildren(QLabel))
+            assert prompt.plugin_title.text() == name
+            assert prompt.plugin_title.textFormat() == Qt.PlainText
+            assert name not in prompt.detail.text()
             assert prompt.cancel_button.text() == '取消' and prompt.cancel_button.isDefault()
             assert prompt.delete_button.text() == '删除'
             assert prompt.cancel_button.objectName() == 'IconButton'
-            assert prompt.delete_button.objectName() == 'PrimaryButton'
+            assert prompt.delete_button.objectName() == 'DangerButton'
+            assert prompt.windowFlags() & Qt.FramelessWindowHint
+            if action == 'cancel':
+                prompt.setAttribute(Qt.WA_ShowWithoutActivating)
+                prompt.move(-10000, -10000)
+                prompt.show()
+                app.processEvents()
+                assert prompt.titlebar.close_button.isVisible()
+                assert prompt.plugin_title.font().bold()
+                assert prompt.plugin_title.fontMetrics().height() > prompt.detail.fontMetrics().height()
+                assert prompt.plugin_title.x() == 0
+                assert prompt.identity.geometry().bottom() < prompt.detail.geometry().top()
+                image = prompt.grab().toImage()
+                assert image.pixelColor(0, 0).alpha() == 0
+                assert image.pixelColor(image.width() // 2, 5) == theme.qcolor(theme.BG)
             if action in ('escape', 'enter'):
                 key = Qt.Key_Escape if action == 'escape' else Qt.Key_Return
                 QTimer.singleShot(0, lambda prompt=prompt, key=key: QTest.keyClick(prompt, key))
             elif action == 'close':
                 QTimer.singleShot(0, prompt.close)
+            elif action == 'title-close':
+                QTimer.singleShot(0, prompt.titlebar.close_button.click)
             else:
                 button = prompt.cancel_button if action == 'cancel' else prompt.delete_button
                 QTimer.singleShot(0, button.click)
@@ -368,6 +437,7 @@ def check_remove_prompt(app):
             prompt.deleteLater()
             app.processEvents()
     theme.apply('dark')
+    app.setStyleSheet(theme.qss())
 
 
 class Session:
@@ -492,6 +562,7 @@ def check_download_reopen(app, root):
 def main():
     app = QApplication([])
     app.setStyleSheet(theme.qss())
+    check_plugin_tab_hover(app)
     check_remove_prompt(app)
     ui_thread = threading.get_ident()
     with tempfile.TemporaryDirectory(prefix='ddm-online-ui-') as temporary, patch.object(config, 'REPO', temporary), \
@@ -532,6 +603,7 @@ def main():
             dialog.plugin_page.tabs.setCurrentIndex(1)
             settle(app, page)
             assert page.refresh.isVisible()
+            assert not page.status.text()
             assert page.browser.isAncestorOf(page.refresh)
             assert not page.search.geometry().intersects(page.refresh.geometry())
             bar = dialog.plugin_page.tabs.tabBar()
@@ -555,7 +627,7 @@ def main():
             settle(app, page)
             assert manager.enabled == {'global_live'} and saves == [ui_thread]
             assert dialog.plugin_page.checks['global_live'].isChecked()
-            assert dialog.confirm_button.text() == '重启以应用'
+            assert dialog.confirm_button.isVisible() and dialog.confirm_button.text() == '重启以应用'
             assert page.buttons['global_live'].text() == '已安装'
             assert not manager.plugins
             # 同 ID 更新暂存，原插件文件和禁用选择保留。
@@ -716,6 +788,7 @@ def main():
                 return self.result()
         with patch.object(app_module.MainWindow, 'refresh_status'), \
                 patch.object(app_module.MainWindow, 'refresh_stats'), \
+                patch.dict(os.environ, {'DDM_SETTINGS_PROCESS': '0'}), \
                 patch.object(app_module, 'SettingsDialog', InstallDialog), patch.object(config, 'save') as save:
             window = app_module.MainWindow([], [], state={'plugins_enabled': [], 'settings': {'close_behavior': 'exit'}})
             shutdown = window.recorder.shutdown

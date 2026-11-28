@@ -66,7 +66,7 @@ class DanmakuBlocking:
         host = self.host
         def allowed(event, room_id):
             return not event_blocked(event, room_id, host.settings)
-        for panel in host.wall.pane_danmaku.all_panels():
+        for panel in host.danmaku_lifecycle.panels():
             room_id = getattr(panel, '_linked_room_id', '')
             panel.filter_events(lambda event, rid=room_id: allowed(event, rid))
         for tile in host.wall.tiles:

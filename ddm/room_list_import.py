@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QDialog, QLabel
 
 
 class RoomListImport(QThread):
-    def __init__(self, host, resolve, room_id, *, folder_id, target_tile, on_complete):
+    def __init__(self, host, resolve, room_id, *, folder_id, target_tile, on_complete, attempt=None):
         super().__init__(host)
         self.host = host
         self.resolve = resolve
@@ -12,6 +12,7 @@ class RoomListImport(QThread):
         self.folder_id = folder_id
         self.target_tile = target_tile
         self.on_complete = on_complete
+        self.attempt = attempt
         self.result = None
         self.error = ''
         self.finished.connect(self._complete)
@@ -22,9 +23,12 @@ class RoomListImport(QThread):
 
     def run(self):
         try:
-            self.result = self.resolve(self.room_id, self.isInterruptionRequested)
+            self.result = self.resolve(self.room_id, self._cancelled)
         except Exception as error:
             self.error = str(getattr(error, 'user_message', '') or '无法读取频道列表，请检查来源后重试')[:600]
+
+    def _cancelled(self):
+        return self.isInterruptionRequested() or (self.attempt is not None and not self.attempt.active)
 
     def _choose(self, rooms, existing):
         from .room_dialogs import FollowImportDialog
@@ -54,11 +58,16 @@ class RoomListImport(QThread):
         try:
             if host._closing:
                 return
+            if self._cancelled():
+                self.on_complete(0, 0, '已取消解析')
+                return
             if self.result is None or not self.result.rooms:
                 self.on_complete(0, 0, self.error or '未找到可导入的频道')
                 return
             existing = {str(room['room_id']) for room in host.sidebar.rooms()}
             rooms = [room.as_dict() for room in self.result.rooms]
+            if self.result.choose and self.attempt is not None:
+                self.attempt.pause()
             chosen, folder_id = self._choose(rooms, existing) if self.result.choose else (rooms, self.folder_id)
             if host._closing:
                 return

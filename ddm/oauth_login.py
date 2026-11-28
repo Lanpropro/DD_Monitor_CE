@@ -28,6 +28,8 @@ class OAuthAccountDialog(QDialog):
         super().__init__(parent)
         if embedded:
             self.setWindowFlags(Qt.Widget)
+        else:
+            self.setWindowTitle('OAuth 授权')
         self.platform, self._owner, self.login_only = platform, owner or parent, login_only
         self.account, self.rooms, self._auth = {}, [], {}
         self._worker, self._pending_done = None, None

@@ -56,7 +56,7 @@ class ShortcutSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 6, 0)
         layout.setSpacing(14)
-        layout.addLayout(_page_head('快捷键', '启用、修改或恢复播放器快捷键。'))
+        layout.addLayout(_page_head('快捷键', ''))
 
         self.search = QLineEdit()
         self.search.setPlaceholderText('搜索功能、按键或拼音')
@@ -100,7 +100,8 @@ class ShortcutSettingsPage(QWidget):
             row.setSpacing(8)
             label = QLabel(_SHORTCUT_TITLES.get(key, key))
             label.setWordWrap(True)
-            label.setToolTip(description)
+            if description != label.text():
+                label.setToolTip(description)
             label.setObjectName('ShortcutRowTitle')
             row.addWidget(label, 1)
             self._rows[key] = widget
@@ -115,7 +116,8 @@ class ShortcutSettingsPage(QWidget):
                 if group == 'pip':
                     edit.setMaximumSequenceLength(1)
             edit.setFixedWidth(150)
-            edit.setToolTip(description + ('；输入鼠标组合，如 Shift+WheelUp' if special_mouse else '；点击后按下新的按键组合'))
+            edit.setToolTip('输入滚轮组合键，例如 Shift+WheelUp。' if special_mouse else
+                            '点击输入框，再按下新快捷键。')
             edit.setAccessibleName(label.text() + '快捷键')
             edit.setAccessibleDescription(description)
             label.setBuddy(edit)
@@ -167,7 +169,7 @@ class ShortcutSettingsPage(QWidget):
         self.wheel_step = self._add_wheel_step(
             grid, 0, '组合键滚动每格音量', wheel_volume_step(settings.get('wheel_volume_step')))
         self.wheel_step.setToolTip('适用于上方设置的滚轮组合键，默认使用 Shift')
-        hover = QLabel('悬停画面时直接用滚轮调节音量', options)
+        hover = QLabel('悬停画面时滚轮调音量', options)
         hover.setWordWrap(True)
         self.hover_wheel_volume = ToggleSwitch(hover.text(), options)
         self.hover_wheel_volume.setChecked(bool(settings.get('hover_wheel_volume', False)))

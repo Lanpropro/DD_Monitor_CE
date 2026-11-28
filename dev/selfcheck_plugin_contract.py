@@ -4,6 +4,7 @@ import json
 import re
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -33,6 +34,24 @@ plugin = Demo()
 
 
 class PluginContractTests(unittest.TestCase):
+    def test_settings_presentation_is_a_normalized_snapshot_of_display_preferences(self):
+        settings = dict(settings_glass_enabled=True, settings_glass_opacity=40,
+                        settings_no_shadows=True, settings_wheel_speed=4,
+                        settings_card_layout='horizontal', recording_dir='private')
+        manager = SimpleNamespace(window=SimpleNamespace(settings=settings), _unloaded=False, _contexts=set())
+        context = api.PluginContext(manager, 'smoke')
+        result = context.settings_presentation()
+        self.assertEqual(result['settings_glass_opacity'], 40)
+        self.assertEqual(result['settings_wheel_speed'], 4)
+        self.assertTrue(result['settings_glass_enabled'])
+        self.assertTrue(result['settings_no_shadows'])
+        self.assertNotIn('settings_card_layout', result)
+        self.assertNotIn('recording_dir', result)
+        result['settings_glass_opacity'] = 100
+        self.assertEqual(settings['settings_glass_opacity'], 40)
+        settings['settings_wheel_speed'] = 0
+        self.assertEqual(context.settings_presentation()['settings_wheel_speed'], 1)
+
     def test_documented_recording_example_preserves_all_headers(self):
         reference = (Path(__file__).resolve().parents[1] / 'docs/plugins.md').read_text(encoding='utf-8')
         example = next(block for block in re.findall(r'```python\n(.*?)```', reference, re.S)

@@ -733,11 +733,15 @@ class PaneDanmakuTests(unittest.TestCase):
             self.assertLess(pixel(image, scrim_top + QPoint(0, 2)).alpha(),
                             pixel(image, scrim_top + QPoint(0, 14)).alpha(),
                             'The text scrim should fade in below the header')
-            for x in (0, image.width() - 1):
-                for y in (0, image.height() - 1):
-                    self.assertEqual(image.pixelColor(x, y).alpha(), 0, (x, y))
-            self.assertTrue(any(0 < image.pixelColor(x, y).alpha() < 153
-                                for x in range(1, 14) for y in range(1, 14)))
+            if floating._native_corners:
+                # DWM clips the composed desktop. The backing store must fill its corners.
+                self.assertEqual(image.pixelColor(0, 0).alpha(), 153)
+            else:
+                for x in (0, image.width() - 1):
+                    for y in (0, image.height() - 1):
+                        self.assertEqual(image.pixelColor(x, y).alpha(), 0, (x, y))
+                self.assertTrue(any(0 < image.pixelColor(x, y).alpha() < 153
+                                    for x in range(1, 14) for y in range(1, 14)))
         self.assertFalse(panel.body.viewport().autoFillBackground())
         floating.set_material({**saved, 'danmaku_float_glass_opacity': 18})
         self.app.processEvents()
@@ -749,40 +753,40 @@ class PaneDanmakuTests(unittest.TestCase):
                             for x in range(80) for y in range(28)), 'Text should stay opaque')
         self.assertEqual(floating.windowOpacity(), 1.0)
         self.assertEqual(int(floating.winId()), handle)
-        from ddm.settings_backdrop import blur_available
-        if blur_available():
-            import ctypes
-            from ctypes import wintypes
-            user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
-            user32.GetWindowRgn.argtypes = (wintypes.HWND, wintypes.HRGN)
-            gdi32.CreateRectRgn.argtypes = (ctypes.c_int,) * 4
-            gdi32.CreateRectRgn.restype = wintypes.HRGN
-            gdi32.PtInRegion.argtypes = (wintypes.HRGN, ctypes.c_int, ctypes.c_int)
-            gdi32.GetRgnBox.argtypes = (wintypes.HRGN, ctypes.POINTER(wintypes.RECT))
-            gdi32.DeleteObject.argtypes = (wintypes.HANDLE,)
-            region = gdi32.CreateRectRgn(0, 0, 0, 0)
-            self.addCleanup(gdi32.DeleteObject, region)
-            self.assertTrue(floating._native_glass)
-            self.assertTrue(floating.mask().isEmpty(), 'Do not cut the antialiased Qt surface with a logical mask')
-            floating.resize(floating.width() + 17, floating.height() + 13)
-            self.app.processEvents()
-            scale = floating.devicePixelRatioF()
-            self.assertGreater(user32.GetWindowRgn(handle, region), 0)
-            self.assertFalse(gdi32.PtInRegion(region, 0, 0))
-            self.assertTrue(gdi32.PtInRegion(region, round(point.x() * scale), round(point.y() * scale)))
-            bounds = wintypes.RECT()
-            gdi32.GetRgnBox(region, ctypes.byref(bounds))
-            sized = floating.grab()
-            self.assertEqual((bounds.right, bounds.bottom),
-                             (sized.width(), sized.height()))
+        self.assertEqual(floating._native_glass, floating._native_corners)
+        self.assertTrue(floating.mask().isEmpty())
+        grip = floating.grip
+        self.assertIs(floating.childAt(grip.geometry().center()), grip)
+        grip.hide()
+        without = floating.grab(grip.geometry()).toImage()
+        grip.show()
+        self.assertEqual(floating.grab(grip.geometry()).toImage(), without)
         with patch.object(config, 'save'):
             page.reset()
             self.assertTrue(dialog.auto_save.flush())
         self.assertFalse(floating.property('danmakuFloatGlass'))
         self.assertEqual(page.float_glass_opacity.value(), 75)
         self.assertFalse(panel.property('customControlSurface'))
-        if blur_available():
-            self.assertEqual(user32.GetWindowRgn(handle, region), 0)
+        self.assertFalse(floating._native_glass)
+
+    def test_unpainted_float_grip_still_resizes(self):
+        host = self.wall_window()
+        panes = host.wall.pane_danmaku
+        with patch.object(DanmakuFloatWindow, 'show', show_float_offscreen):
+            panes.open_for_tile(host.wall.tiles[0])
+        floating, = panes.floating_windows()
+        floating.resize(360, 480)
+        self.app.processEvents()
+        grip = floating.grip
+        start = grip.mapToGlobal(grip.rect().center())
+        for kind, button, buttons, delta in (
+                (QEvent.MouseButtonPress, Qt.LeftButton, Qt.LeftButton, QPoint()),
+                (QEvent.MouseMove, Qt.NoButton, Qt.LeftButton, QPoint(32, 24)),
+                (QEvent.MouseButtonRelease, Qt.LeftButton, Qt.NoButton, QPoint(32, 24))):
+            point = start + delta
+            self.app.sendEvent(grip, QMouseEvent(kind, QPointF(grip.mapFromGlobal(point)),
+                                                 QPointF(point), button, buttons, Qt.NoModifier))
+        self.assertEqual(floating.size(), QSize(392, 504))
 
     def test_reuse_float_cell_only_reclaims_an_empty_video_slot(self):
         window = self.wall_window()
@@ -1182,7 +1186,7 @@ class PaneDanmakuTests(unittest.TestCase):
         self.assertIs(wall.pane_danmaku.target(panel), tiles[4])
         self.assertFalse(tiles[1].room.get('room_id'))
 
-    def test_hidden_video_overflow_remains_eligible_for_automatic_placement(self):
+    def test_hidden_video_overflow_is_not_eligible_for_automatic_placement(self):
         window = self.wall_window()
         window.wall.set_layout('corner')
         overflow = window.wall.tiles[4]
@@ -1193,8 +1197,9 @@ class PaneDanmakuTests(unittest.TestCase):
         room = dict(room_id='1005', uname='Overflow', live=False)
         with patch.object(window, 'start_tile') as start:
             window.add_to_wall(room)
-        self.assertIs(window._tile_of('1005'), overflow)
-        start.assert_called_once_with(overflow)
+        self.assertIsNone(window._tile_of('1005'))
+        self.assertFalse(overflow.room.get('room_id'))
+        start.assert_not_called()
 
     def test_default_pane_starts_with_empty_main_and_occupied_secondary(self):
         room = dict(room_id='1002', uname='Secondary fixture', live=False)
@@ -1796,10 +1801,12 @@ class PaneDanmakuTests(unittest.TestCase):
         other.move(floating.pos() + QPoint(40, 18))
         other.raise_()
         tile.set_controls_visible(False)
-        self.assertTrue(bar.isHidden())
+        self.assertTrue(bar.isHidden() or bar.windowOpacity() == 0,
+                        'An unfocused composited bar may stay mapped and transparent')
         tile.set_controls_visible(True)
         self.app.processEvents()
         self.assertTrue(bar.isVisible())
+        self.assertEqual(bar.windowOpacity(), 1)
         assert_bar_behind_float(floating)
         assert_bar_behind_float(other)
         self.assertTrue(bar.mask().contains(QPoint(bar.width() - 18, bar.height() // 2)))

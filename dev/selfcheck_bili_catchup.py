@@ -297,7 +297,8 @@ class BilibiliCatchupMenuTests(unittest.TestCase):
         parallel = ParallelPictureInPicture(self.window, self.window)
         pip_window = SimpleNamespace(track_tiles=lambda tiles: None, forget_tile=lambda tile: None)
         wall_tile = self.tile
-        self.tile, = parallel.update({"1001": wall_tile.room}, "1001", pip_window)
+        self.tile, = parallel.update(
+            {"1001": wall_tile.room}, "1001", pip_window, wall_sources={}, move_wall_streams=False)
         try:
             player = self.play()
             player._check_live_catchup()
@@ -309,6 +310,31 @@ class BilibiliCatchupMenuTests(unittest.TestCase):
             self.assertTrue(self.catchup_action().isChecked())
         finally:
             parallel.close(pip_window)
+
+    def test_moved_picture_in_picture_keeps_the_same_catchup_choice_on_return(self):
+        parallel = ParallelPictureInPicture(self.window, self.window)
+        pip_window = SimpleNamespace(track_tiles=lambda tiles: None, forget_tile=lambda tile: None)
+        wall_tile = self.tile
+        self.catchup_action().trigger()
+        self.tile, = parallel.update(
+            {"1001": wall_tile.room}, "1001", pip_window,
+            wall_sources={"1001": wall_tile}, move_wall_streams=True)
+        try:
+            self.assertIs(self.tile, wall_tile)
+            self.assertFalse(self.catchup_action().isChecked())
+            player = self.play()
+            self.assertFalse(player._catchup_watch.isActive())
+            self.catchup_action().trigger()
+            player._check_live_catchup()
+            self.assertEqual(player.player.speed, 1.3)
+        finally:
+            with patch("ddm.pip_parallel.QTimer.singleShot"):
+                parallel.close(pip_window)
+        self.assertIs(self.window.wall.tiles[0], wall_tile)
+        self.assertTrue(self.catchup_action().isChecked())
+        player = self.play()
+        player._check_live_catchup()
+        self.assertEqual(player.player.speed, 1.3)
 
 
 if __name__ == "__main__":

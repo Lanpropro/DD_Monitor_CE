@@ -135,6 +135,8 @@ def main():
         assert '本次识别失败' in page.list.item(1).text()
         assert '本次未取得房间号' in page.list.item(3).text()
         page.list.item(3).setCheckState(Qt.Checked)
+        app.processEvents()
+        assert page.import_button.text() == '添加 1 位 · 保存 1 位待识别'
         page._select_folder(next(action for action in page.folder_button.menu().actions()
                                 if action.data() == target_folder))
         with patch.dict(os.environ, DDM_NO_SAVE='0'):
@@ -148,18 +150,23 @@ def main():
         assert all(room.get('room_id') for room in dialog.rooms)
         dispose(app, dialog)
 
-        # 重启恢复完整列表及待导入选择；取消勾选后保存，不应下一次又默认勾选。
+        # 恢复已保存的待识别账号，用状态提示，新增选择不会覆盖原记录。
         owner._douyin_follow_cache = None
         with patch.dict(os.environ, DDM_NO_SAVE='0'):
             owner._restore_platform_accounts()
         assert len(owner._douyin_follow_cache['rooms']) == 11
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
-        assert dialog.page.selected()[0]['anchor_uid'] == '104'
-        assert dialog.page.import_button.text() == '应用选择' and '待识别 1' in dialog.page.header.text()
+        assert not dialog.page.selected() and not dialog.page.import_button.isEnabled()
+        saved = dialog.page.list.item(3)
+        assert saved.data(Qt.AccessibleDescriptionRole) == '已保存'
+        assert not saved.flags() & Qt.ItemIsUserCheckable
         assert '不会加入关注栏' in dialog.page.resolve_status.text()
         dialog.page.show_pending.setChecked(True)
-        dialog.page._check_all(False)
+        dialog.page.list.item(4).setCheckState(Qt.Checked)
         dialog.page.accept()
+        assert dialog.pending_count == 1
+        pending = {room['anchor_uid']: room for room in owner._douyin_follow_cache['pending']}
+        assert set(pending) == {'104', '105'} and pending['104']['pending_folder_id'] == target_folder
         dispose(app, dialog)
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
         assert not dialog.page.selected() and dialog._account_resolver is None
@@ -167,8 +174,12 @@ def main():
         # 待识别账号后来得到房间号：只导入真房间，保留原文件夹，不自动播放，也不重复添加。
         owner._cache_douyin_follows(accounts, pending=[dict(accounts[3], pending_folder_id=target_folder)])
         dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
-        dialog.page.update_account(dict(dialog.page.selected()[0], room_id='douyin:1004', live_known=True))
+        item = dialog.page.list.item(3)
+        dialog.page.update_account(dict(accounts[3], room_id='douyin:1004', live_known=True))
+        assert not dialog.page.selected() and item.flags() & Qt.ItemIsUserCheckable
+        item.setCheckState(Qt.Checked)
         dialog.page.accept()
+        assert not owner._douyin_follow_cache['pending']
         with patch.object(owner, 'load_avatars_for'), patch.object(owner, '_refresh_meta'), patch(
                 'ddm.online_ui.show_result'):
             owner._import_selected_follows(dialog.rooms)
@@ -207,7 +218,7 @@ def main():
 
 def check_account_reference_import(app):
     from ddm.config import build_rooms
-    from plugins_user.domestic_live import plugin as provider_module
+    from plugins_user.domestic_live.plugin import douyin_platform as provider_module
     provider = DouyinPlatform()
     with patch('ddm.app.QTimer.singleShot'):
         owner = MainWindow([], [], state={'plugins_enabled': []})
@@ -277,7 +288,9 @@ def check_account_reference_import(app):
     assert not any(tile.room.get('room_id') for tile in owner.wall.tiles)
     owner._cache_douyin_follows([dict(account, room_id='douyin:1005', live=True, live_known=True)])
     dialog = AccountPlatformDialog(owner, {'douyin': provider}, import_follows=True, platform_kind='douyin')
-    assert dialog.page.selected()[0]['room_id'] == reference
+    assert not dialog.page.selected()
+    assert dialog.page.list.item(0).data(Qt.UserRole)['room_id'] == reference
+    assert not dialog.page.list.item(0).flags() & Qt.ItemIsUserCheckable
     dialog.page.accept()
     with patch.object(owner, 'load_avatars_for'), patch.object(owner, '_refresh_meta'), patch('ddm.online_ui.show_result'):
         owner._import_selected_follows(dialog.rooms)

@@ -631,8 +631,9 @@ for before, component, after in (
                     previous.setAttribute(Qt.WA_UnderMouse, hovered)
                     image = tabs.grab().toImage()
                     ratio = image.devicePixelRatio()
-                    return tuple(image.pixelColor(round(x * ratio), round((start.top() + 6) * ratio))
-                                 for x in (start.left() + start.width() / 4, start.right() - start.width() / 4))
+                    # Sample the empty padding on either side of the label.
+                    return tuple(image.pixelColor(round(x * ratio), round(start.center().y() * ratio))
+                                 for x in (start.left() + 6, start.right() - 6))
 
                 normal, selected = samples(False)
                 hover, overlap = samples(True)

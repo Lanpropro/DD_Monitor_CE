@@ -4,8 +4,9 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 )
 from . import app_icon, theme
+from .config import DEFAULT_SETTINGS
 from .ui import page_header as _page_head
-from .ui import SegmentedControl
+from .ui import SegmentedControl, ToggleSwitch
 from .settings_layout import SettingsColumns, SettingsSection
 from .settings_performance import measure
 
@@ -29,7 +30,7 @@ class AppearanceSettingsPage(QWidget):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(18)
-        layout.addLayout(_page_head("外观", "设置主题、应用图标、背景与界面分区样式。"))
+        layout.addLayout(_page_head("外观", ""))
         self.sections = SettingsColumns(content)
         colors = SettingsSection('主题')
         colors.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
@@ -62,6 +63,23 @@ class AppearanceSettingsPage(QWidget):
         self.material_editor.changed.connect(self._emit_material)
         self.material_editor.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
         self.sections.add_section('material', self.material_editor)
+        controls = SettingsSection('控制栏')
+        controls.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Maximum)
+        self.windowed_transparent_controls = ToggleSwitch('使用透明控制栏', controls)
+        self.windowed_auto_hide_controls = ToggleSwitch('非全屏时自动收起控制栏', controls)
+        for row, (key, switch) in enumerate((
+            ('windowed_transparent_controls', self.windowed_transparent_controls),
+            ('windowed_auto_hide_controls', self.windowed_auto_hide_controls),
+        )):
+            label = QLabel(switch.accessibleName())
+            label.setWordWrap(True)
+            label.setBuddy(switch)
+            controls.grid.addWidget(label, row, 0)
+            controls.grid.addWidget(switch, row, 1, Qt.AlignRight)
+            switch.setChecked(bool(settings.get(key, DEFAULT_SETTINGS[key])))
+        self.windowed_transparent_controls.toggled.connect(self.windowed_auto_hide_controls.setEnabled)
+        self.windowed_auto_hide_controls.setEnabled(self.windowed_transparent_controls.isChecked())
+        self.sections.add_section('controls', controls)
         layout.addWidget(self.sections)
         from .skin_settings import PartSettings, SkinSettings
         self.parts_editor = None
@@ -91,6 +109,8 @@ class AppearanceSettingsPage(QWidget):
 
     def values(self):
         return {"appearance_mode": self._mode, "app_icon_style": self.app_icon_control.currentData(),
+                "windowed_transparent_controls": self.windowed_transparent_controls.isChecked(),
+                "windowed_auto_hide_controls": self.windowed_auto_hide_controls.isChecked(),
                 **self.material_editor.values(),
                 **self.theme_editor.values(), **self.skin_settings.values()}
 
@@ -115,6 +135,8 @@ class AppearanceSettingsPage(QWidget):
 
     def reset(self):
         self.app_icon_control.setCurrentIndex(self.app_icon_control.findData(app_icon.DEFAULT_STYLE))
+        self.windowed_transparent_controls.setChecked(DEFAULT_SETTINGS['windowed_transparent_controls'])
+        self.windowed_auto_hide_controls.setChecked(DEFAULT_SETTINGS['windowed_auto_hide_controls'])
         self.theme_editor.set_values({})
         self.material_editor.reset()
         self._preferences_changed()

@@ -34,7 +34,7 @@ class DiagnosticsPage(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(14)
-        outer.addLayout(page_header('诊断与反馈', '描述问题、导出记录，检查后手动发送给维护者。'))
+        outer.addLayout(page_header('诊断与反馈', ''))
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -80,26 +80,30 @@ class DiagnosticsPage(QWidget):
         attachments.grid.addLayout(row, 1, 0, 1, 2)
         self.add_images.clicked.connect(self._images)
         self.remove_image.clicked.connect(lambda: self.images.takeItem(self.images.currentRow()))
-        self._hint(attachments.grid, 2, '最多5张，每张20MB。导出会移除元数据，图片内容请自行检查。')
+        self._hint(attachments.grid, 2, '最多 5 张，每张不超过 20 MB。导出时移除元数据。')
         self.sections.add_section('attachments', attachments)
 
         collection = SettingsSection('收集范围')
-        self._hint(collection.grid, 0, '系统与版本、脱敏配置、插件版本、近期日志及已有崩溃记录。无需重新复现也可导出。')
-        self._hint(collection.grid, 1, '不读取账号文件，不自动截图或上传。')
+        self._hint(collection.grid, 0, '无需复现即可导出系统与版本信息、脱敏配置、插件版本、近期日志和已有崩溃记录，收集时不读取账号文件、不自动截图或上传。')
         self.dump_enabled = ToggleSwitch('记录增强崩溃转储')
         self.dump_enabled.setChecked(bool(settings.get('native_crash_dump', False)))
-        self._switch_row(collection.grid, 2, '记录增强崩溃转储', self.dump_enabled)
-        self.dump_enabled.setToolTip('保存设置后用于后续崩溃，无法补回过去的进程内存。')
+        self._switch_row(collection.grid, 1, '记录增强崩溃转储', self.dump_enabled)
+        self.dump_enabled.setToolTip('仅对保存设置后的崩溃生效。')
         self.include_dumps = ToggleSwitch('本次包含已有内存转储')
         self.include_dumps.setChecked(False)
-        self._switch_row(collection.grid, 3, '本次包含已有内存转储', self.include_dumps)
-        self._hint(collection.grid, 4, '内存转储可能含账号、播放地址或聊天，无法自动脱敏；仅主动勾选时打包。')
+        self._switch_row(collection.grid, 2, '本次包含已有内存转储', self.include_dumps)
+        dump_hint = self._hint(collection.grid, 3, '内存转储可能含账号、播放地址或聊天内容，无法自动脱敏。')
+        dump_hint.hide()
+        self.include_dumps.toggled.connect(dump_hint.setVisible)
         self.sections.add_section('collection', collection)
 
         live = SettingsSection('补充现场（可选）')
         self.folders = ActionButton('文件夹现场')
+        self.folders.setToolTip('问题仍在时，点击读取当前文件夹状态。')
         self.drag = ActionButton('拖放记录')
+        self.drag.setToolTip('点击后回到主窗口复现拖放，最长采集 60 秒。')
         self.dock_hover = ActionButton('功能栏高亮')
+        self.dock_hover.setToolTip('点击后回到主窗口，将鼠标移过左侧功能栏，最长采集 60 秒。')
         self.cancel = ActionButton('取消采集')
         self.cancel.setEnabled(False)
         self.live_buttons = (self.folders, self.drag, self.dock_hover, self.cancel)
@@ -107,7 +111,6 @@ class DiagnosticsPage(QWidget):
         for button in self.live_buttons:
             self.live_actions.addWidget(button)
         live.grid.addLayout(self.live_actions, 0, 0, 1, 2)
-        self._hint(live.grid, 1, '问题仍在时再采集。记录拖放或功能栏高亮时，返回主窗口操作，最长采集 60 秒。')
         self.folders.clicked.connect(lambda: self._capture('folders'))
         self.drag.clicked.connect(lambda: self._capture('drag'))
         self.dock_hover.clicked.connect(lambda: self._capture('dock-hover'))
@@ -147,7 +150,7 @@ class DiagnosticsPage(QWidget):
         self.summary = ActionButton('查看摘要')
         self.open_folder = ActionButton('打开保存位置')
         self.open_issue = ActionButton('打开 Issue')
-        self.open_issue.setToolTip('在浏览器中选择 GitHub 问题模板，可手动添加诊断包')
+        self.open_issue.setToolTip('打开 GitHub 问题模板，可手动附上诊断包。')
         self.open_issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUE_URL)))
         self.generate = ActionButton('导出诊断包')
         self.generate.setObjectName('PrimaryButton')
@@ -174,6 +177,7 @@ class DiagnosticsPage(QWidget):
         label.setWordWrap(True)
         label.setObjectName('SettingsHint')
         grid.addWidget(label, row, 0, 1, 2)
+        return label
 
     @staticmethod
     def _switch_row(grid, row, text, switch):
@@ -261,7 +265,7 @@ class DiagnosticsPage(QWidget):
     def _completed(self, path):
         self.zip_path = path
         self.progress.setValue(100)
-        self.status.setText('诊断包已生成。请检查内容后手动发送，软件不会自动上传。')
+        self.status.setText('诊断包已生成，请检查后手动发送。')
         self.summary.setEnabled(True)
         self.open_folder.setEnabled(True)
 

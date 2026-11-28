@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QTimer, Qt, Signal
-from PySide6.QtWidgets import QApplication, QDialog, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QDialog, QLabel, QSystemTrayIcon
 from ddm import config, system_tray
 from ddm.app import MainWindow
 from ddm.dialogs import GeneralSettingsPage, SettingsDialog, TraySettingsPage
@@ -133,14 +133,48 @@ class SystemTrayTests(unittest.TestCase):
         self.assertEqual(page.values()['close_behavior'], 'ask')
         page.deleteLater()
 
+    def test_close_question_is_the_window_heading(self):
+        from ddm import theme
+        from ddm.window_chrome import WindowTitleBar
+
+        self.addCleanup(theme.apply, theme.mode())
+        for mode in ('dark', 'light'):
+            theme.apply(mode)
+            dialog = system_tray.CloseWindowDialog()
+            dialog.show()
+            self.app.processEvents()
+            bar = dialog.findChild(WindowTitleBar)
+            question = '关闭窗口后，你希望程序如何运行？'
+            self.assertEqual([label for label in dialog.findChildren(QLabel) if label.text() == question],
+                             [bar.breadcrumb])
+            detail = dialog.findChild(QLabel, 'NavSub')
+            self.assertGreater(bar.breadcrumb.fontMetrics().height(), detail.fontMetrics().height())
+            self.assertGreaterEqual(bar.breadcrumb.width(), bar.breadcrumb.fontMetrics().horizontalAdvance(question))
+            self.assertEqual(bar.breadcrumb.x(), detail.x())
+            self.assertLessEqual(detail.y() - bar.geometry().bottom(), 8)
+            bar.close_button.click()
+            self.assertEqual(dialog.choice, '')
+            self.assertEqual(dialog.result(), QDialog.Rejected)
+            dialog.deleteLater()
+
     def test_tray_settings_save_cancel_and_reset(self):
         self.assertTrue(config.DEFAULT_SETTINGS['tray_pause_playback'])
         page = TraySettingsPage({})
         self.assertTrue(page.values()['tray_pause_playback'])
+        self.assertFalse(page.values()['tray_preview_audio'])
+        page.preview_audio.setChecked(True)
+        page.tray_menu.checks['layout_pip'].setChecked(True)
+        saved = page.values()
+        reopened = TraySettingsPage(saved)
+        self.assertTrue(reopened.preview_audio.isChecked())
+        self.assertTrue(reopened.tray_menu.checks['layout_pip'].isChecked())
+        reopened.deleteLater()
         page.pause_playback.setChecked(False)
         self.assertFalse(page.values()['tray_pause_playback'])
         page.reset()
         self.assertTrue(page.values()['tray_pause_playback'])
+        self.assertFalse(page.preview_audio.isChecked())
+        self.assertFalse(page.tray_menu.checks['layout_pip'].isChecked())
         page.deleteLater()
         original = {'tray_pause_playback': False}
         dialog = SettingsDialog(original, {}, preview=True)
@@ -265,6 +299,106 @@ class SystemTrayTests(unittest.TestCase):
             tray.restore()
             self.assertEqual({call.args[0] for call in start.call_args_list}, {first, other})
             self.assertTrue(manually_paused.paused)
+
+    def test_preview_audio_selects_an_exact_pane_even_for_duplicate_rooms(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QStyle, QStyleOptionSlider
+        window = self.window('tray', layout_id='2x2')
+        first, second, *_ = window.wall.tiles
+        for tile in (first, second):
+            tile.set_room({'room_id': '123', 'uname': '同一个房间', 'live': False, 'muted': False})
+        first.set_volume(21)
+        second.set_volume(47)
+        players = {tile: Mock() for tile in (first, second)}
+        window.players.update(players)
+        tray = window._tray
+        tray.update_menu()
+        self.assertFalse(tray.audio_action.isVisible())
+        window.settings['tray_preview_audio'] = True
+        tray.menu.popup(QPoint(-10000, -10000))
+        self.app.processEvents()
+        self.assertTrue(tray.menu.isVisible())
+        self.assertTrue(tray.audio_action.isVisible())
+        preview = tray.layout_preview
+        audio = tray.preview_audio
+        self.assertEqual(audio.slider.value(), 21)
+        self.assertLess(tray.menu.actions().index(tray.preview_action), tray.menu.actions().index(tray.audio_action))
+        point = preview._pane_rect(preview._diagram(), preview.snapshot['panes'][1]).center().toPoint()
+        QTest.mouseClick(preview, Qt.LeftButton, pos=point)
+        self.assertTrue(tray.menu.isVisible())
+        self.assertEqual(audio.slider.value(), 47)
+        option = QStyleOptionSlider()
+        audio.slider.initStyleOption(option)
+        handle = audio.slider.style().subControlRect(QStyle.CC_Slider, option, QStyle.SC_SliderHandle,
+                                                     audio.slider).center()
+        end = QPoint(audio.slider.width() - 2, handle.y())
+        QTest.mousePress(audio.slider, Qt.LeftButton, pos=handle)
+        QTest.mouseMove(audio.slider, end)
+        QTest.mouseRelease(audio.slider, Qt.LeftButton, pos=end)
+        self.assertGreater(audio.slider.value(), 47)
+        self.assertTrue(tray.menu.isVisible())
+        players[second].set_volume.reset_mock()
+        audio.slider.setValue(76)
+        QTest.mouseClick(audio.mute, Qt.LeftButton)
+        self.assertTrue(tray.menu.isVisible())
+        self.assertEqual((first.volume, second.volume), (21, 76))
+        players[second].set_volume.assert_called_once_with(76)
+        players[second].set_muted.assert_called_once_with(True)
+        players[first].set_volume.assert_not_called()
+        players[first].set_muted.assert_not_called()
+        self.assertEqual(audio.value.text(), '76%')
+        self.assertTrue(audio.mute.muted)
+        second.set_room({'room_id': '456', 'uname': '之后更换的房间', 'live': False, 'volume': 19})
+        replacement_volume = second.volume
+        audio.slider.setValue(90)
+        self.assertEqual(second.volume, replacement_volume)
+        self.assertEqual(first.volume, 21)
+        self.assertFalse(audio.isEnabled())
+        tray.menu.hide()
+        window.settings.update(tray_pause_playback=False,
+                               tray_context_menu=[dict(id='layout_preview', enabled=False)])
+        tray.hide()
+        tray.update_menu()
+        self.assertFalse(tray.audio_action.isVisible())
+        self.assertEqual(preview.audio_panes, ())
+        self.assertFalse(window.isVisible())
+
+    def test_layout_pip_action_keeps_wall_geometry_and_skips_empty_panes(self):
+        from ddm.pip_composition import FREE_LAYOUT
+        window = self.window('tray', layout_id='corner')
+        wall, tray, pip = window.wall, window._tray, window.picture_in_picture
+        first, second = wall.tiles[:2]
+        for index, tile in enumerate((first, second)):
+            tile.set_room({'room_id': str(123 + index), 'uname': f'主播 {index + 1}', 'live': True})
+        window.settings['tray_context_menu'] = [
+            dict(id='layout_pip', enabled=True), dict(id='layout_preview', enabled=False)]
+        tray.hide()
+        tray._layout_snapshot['panes'].append(dict(
+            rect=(.5, .5, .25, .25), kind='danmaku', title='弹幕', occupied=True, room_id='123'))
+        tray.update_menu()
+        self.assertTrue(tray.layout_pip_action.isVisible())
+        self.assertTrue(tray.layout_pip_action.isEnabled())
+        self.assertFalse(tray.preview_action.isVisible())
+        self.assertTrue(any(pane['kind'] == 'danmaku' for pane in tray._layout_snapshot['panes']))
+        with patch.object(window, 'start_tile') as start, patch.object(pip, 'manage') as manage:
+            tray.layout_pip_action.trigger()
+            self.app.processEvents()
+            manage.assert_not_called()
+            self.assertTrue(pip.active)
+            self.assertEqual(wall.picture_in_picture_tiles, [first, second])
+            self.assertEqual(pip.columns, FREE_LAYOUT)
+            main, side = pip.placement
+            self.assertGreater(main[2], side[2])
+            self.assertEqual(main[1], side[1])
+            self.assertGreater(side[0], main[0] + main[2])
+            self.assertEqual({call.args[0] for call in start.call_args_list}, {first, second})
+            tray.update_menu()
+            self.assertFalse(tray.layout_pip_action.isEnabled())
+            pip.restore(activate=False)
+            QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        self.assertEqual(wall.layout_id, 'corner')
+        self.assertTrue(tray.playback_suspended)
 
     def test_manual_pause_and_changed_room_are_not_resumed(self):
         window = self.window('tray')
@@ -453,14 +587,16 @@ class TrayMenuChoicesTests(unittest.TestCase):
 
     def test_choices_clean_restore_defaults_and_keep_explicit_all_off(self):
         from ddm.tray_menu import TRAY_MENU_ITEMS, tray_menu_choices
-        defaults = [{'id': key, 'enabled': key != 'streamer_monitor'} for key, _label in TRAY_MENU_ITEMS]
+        defaults = [{'id': key, 'enabled': key not in ('streamer_monitor', 'layout_pip')}
+                    for key, _label in TRAY_MENU_ITEMS]
         self.assertIsNone(config.DEFAULT_SETTINGS['tray_context_menu'])
         for value in (None, [], 'invalid'):
             self.assertEqual(tray_menu_choices(value), defaults)
         result = tray_menu_choices([
             {'id': 'pip', 'enabled': False}, {'id': 'unknown'}, None,
             {'id': 'pip', 'enabled': True}, {'id': 'exit'}, {'id': 'toggle', 'enabled': 0}])
-        self.assertEqual(result, [dict(id='pip', enabled=False), dict(id='exit', enabled=True),
+        self.assertEqual(result, [dict(id='layout_pip', enabled=False), dict(id='pip', enabled=False),
+                                  dict(id='exit', enabled=True),
                                   dict(id='toggle', enabled=False), dict(id='layout_preview', enabled=True),
                                   dict(id='streamer_monitor', enabled=False)])
         self.assertFalse(tray_menu_choices([{'id': 'streamer_monitor'}])[0]['enabled'])
@@ -541,6 +677,80 @@ class TrayMenuChoicesTests(unittest.TestCase):
             self.assertTrue(tray.exit_requested)
             close.assert_called_once()
 
+    def test_preview_audio_follows_layout_preview_and_keeps_its_value(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+
+        settings = {'tray_context_menu': [{'id': 'layout_preview', 'enabled': False}],
+                    'tray_preview_audio': True}
+        page = TraySettingsPage(settings)
+        self.addCleanup(page.deleteLater)
+        page.resize(950, 700)
+        page.show()
+        self.app.processEvents()
+        editor = page.tray_menu
+        layout_switch = editor.checks['layout_preview']
+        audio = page.preview_audio
+        audio_row = audio.parentWidget()
+        self.assertTrue(audio_row.isHidden())
+        self.assertTrue(page.values()['tray_preview_audio'])
+
+        layout_switch.click()
+        self.app.processEvents()
+        self.assertFalse(audio_row.isHidden())
+        self.assertTrue(audio.isChecked())
+        self.assertGreater(audio_row.y(), layout_switch.geometry().bottom())
+        self.assertEqual(audio_row.geometry().right(), editor.items.rect().right())
+        self.assertLess(audio_row.geometry().bottom(), editor.checks['streamer_monitor'].y())
+
+        order = editor.items
+        page.scroll.ensureWidgetVisible(order, 0, 0)
+        start = QPoint(10, layout_switch.geometry().center().y())
+        end = QPoint(10, order.height() - 2)
+        QTest.mousePress(order, Qt.LeftButton, pos=start)
+        QTest.mouseMove(order, end)
+        QTest.mouseRelease(order, Qt.LeftButton, pos=end)
+        self.app.processEvents()
+        self.assertEqual(editor.values()[-1]['id'], 'layout_preview')
+        self.assertGreater(audio_row.y(), layout_switch.geometry().bottom())
+        self.assertEqual(audio_row.geometry().bottom(), editor.items.height() - 1)
+        self.assertNotIn('tray_preview_audio', [row['id'] for row in editor.values()])
+
+        audio.click()
+        layout_switch.click()
+        self.assertTrue(audio_row.isHidden())
+        self.assertFalse(page.values()['tray_preview_audio'])
+        layout_switch.click()
+        self.assertFalse(audio_row.isHidden())
+        self.assertFalse(audio.isChecked())
+
+    def test_preview_audio_does_not_overlap_menu_when_the_window_narrows(self):
+        from PySide6.QtWidgets import QBoxLayout
+        from PySide6.QtTest import QTest
+
+        dialog = SettingsDialog({'tray_context_menu': [{'id': 'streamer_monitor', 'enabled': True}]},
+                                {}, preview=True)
+        self.addCleanup(dialog.deleteLater)
+        index = dialog.PAGE_INDEX['tray']
+        dialog.nav.setCurrentRow(index)
+        dialog.resize(1200, 800)
+        dialog.show()
+        QTest.qWait(30)
+        page = dialog._loaded_pages[index]
+        editor = page.tray_menu
+        layout_switch = editor.checks['layout_preview']
+        layout_switch.setChecked(False)
+        QTest.qWait(30)
+        dialog.resize(690, 850)
+        layout_switch.setChecked(True)
+        QTest.qWait(30)
+
+        self.assertEqual(editor.columns.direction(), QBoxLayout.TopToBottom)
+        self.assertLess(editor.preview.geometry().bottom(), editor.items.geometry().top())
+        self.assertGreaterEqual(editor.height(), editor.minimumSizeHint().height())
+        self.assertTrue(page.preview_audio.isVisible())
+        dialog.reject()
+
     def test_choices_roundtrip_uses_only_temporary_configuration(self):
         from ddm.tray_menu import tray_menu_choices
         choices = tray_menu_choices([dict(id='exit', enabled=False), dict(id='streamer_monitor', enabled=True),
@@ -550,6 +760,41 @@ class TrayMenuChoicesTests(unittest.TestCase):
                   patch.dict(os.environ, {'DDM_NO_SAVE': ''})):
                 config.save({'version': 1, 'settings': {'tray_context_menu': choices}}, raise_errors=True)
                 self.assertEqual(config.load()['settings']['tray_context_menu'], choices)
+
+    def test_open_tray_regroups_when_a_room_changes_live_state(self):
+        from dataclasses import replace
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QSignalSpy
+        from ddm.capture_control import MonitorEntry
+
+        window, tray = self.tray()
+        window.settings['tray_context_menu'] = [dict(id='streamer_monitor', enabled=True)]
+        provider = window.capture_control.monitor_rows
+        first = MonitorEntry('first', '甲', 'monitoring', profile_group=('same',), live=False)
+        second = replace(first, room_id='second', name='乙')
+        unknown = replace(first, room_id='unknown', name='丙', live=None)
+        provider.return_value = (first, second, unknown)
+        tray.menu.popup(QPoint(30, 30))
+        self.app.processEvents()
+        panel = tray.monitor_panel
+        self.assertTrue(panel.isVisible())
+        self.assertEqual(set(panel._stack_avatars), {'first', 'second'})
+        self.assertEqual(panel._room_rows['unknown'].status.text(), '监控中')
+
+        provider.return_value = (replace(first, live=True), second, unknown)
+        self.assertTrue(QSignalSpy(panel._timer.timeout).wait(1500))
+        self.assertEqual(panel._room_rows['first'].status.text(), '直播中')
+        self.assertIn('#48549a', panel._room_rows['first'].status.styleSheet())
+        self.assertEqual(panel._room_rows['second'].status.text(), '监控中')
+
+        provider.return_value = (replace(first, live=True), replace(second, live=True), unknown)
+        self.assertTrue(QSignalSpy(panel._timer.timeout).wait(1500))
+        stack = panel.rows.itemAt(2).widget()
+        self.assertEqual(stack.status.text(), '直播中')
+        self.assertIn('#48549a', stack.status.styleSheet())
+        self.assertEqual(set(stack.avatars), {'first', 'second'})
+        self.assertTrue(tray.menu.isVisible())
+        tray.menu.hide()
 
     def test_streamer_monitor_opens_inline_with_read_only_groups(self):
         from PySide6.QtCore import QPoint
@@ -579,7 +824,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
                                  MonitorEntry('1003', '同组录制乙', 'recording', started_at=150, profile_group=group),
                                  MonitorEntry('failed', '启动失败示例', 'failed', profile_group=group),
                                  *(MonitorEntry(f'fixture:{index}', f'监控示例 {index}', 'monitoring', 'douyin',
-                                                profile_group=group, live=index == 0) for index in range(8)),
+                                                profile_group=group, live=index < 2) for index in range(8)),
                                  MonitorEntry('other', '其他分类', 'monitoring', profile_group=another_group))
         with patch('ddm.streamer_monitor_panel.time.monotonic', return_value=161):
             tray.menu.popup(QPoint(30, 30))
@@ -599,7 +844,7 @@ class TrayMenuChoicesTests(unittest.TestCase):
         row = panel.rows.itemAt(1).widget()
         self.assertEqual(row.identifier.text(), 'ID 9090')
         self.assertEqual(row.platform_badge.accessibleName(), '哔哩哔哩')
-        self.assertEqual(row.status.text(), '正在录制')
+        self.assertEqual(row.status.text(), '录制中')
         self.assertEqual(row.elapsed.text(), '00:01:01')
         recording_group = panel.rows.itemAt(2).widget()
         self.assertEqual(list(recording_group.avatars), ['1002', '1003'])
@@ -613,16 +858,20 @@ class TrayMenuChoicesTests(unittest.TestCase):
         self.assertIn('同组录制乙 · 房间号 1003 · 00:00:11', QToolTip.text())
         QToolTip.hideText()
         self.assertEqual(panel.rows.itemAt(4).widget().status.text(), '录制启动失败')
-        monitored_group = panel.rows.itemAt(5).widget()
-        self.assertIn('监控示例 0 · 房间号 fixture:0 · 直播中', monitored_group.toolTip())
-        self.assertIn('监控示例 1 · 房间号 fixture:1 · 未开播', monitored_group.toolTip())
-        stack = monitored_group.findChild(QWidget, 'TrayMonitorAvatars')
+        live_group = panel.rows.itemAt(5).widget()
+        self.assertEqual(live_group.status.text(), '直播中')
+        self.assertEqual(list(live_group.avatars), ['fixture:0', 'fixture:1'])
+        self.assertIn('监控示例 0 · 房间号 fixture:0 · 直播中', live_group.toolTip())
+        offline_group = panel.rows.itemAt(6).widget()
+        self.assertEqual(offline_group.status.text(), '监控中')
+        self.assertIn('监控示例 2 · 房间号 fixture:2 · 未开播', offline_group.toolTip())
+        stack = offline_group.findChild(QWidget, 'TrayMonitorAvatars')
         rims = stack.findChildren(QWidget, 'TrayMonitorAvatarRim')
         self.assertEqual(len(rims), 5)
         self.assertTrue(rims[0].geometry().intersects(rims[1].geometry()))
-        self.assertEqual(stack.findChild(QLabel, 'BadgeOff').text(), '+3')
-        self.assertEqual(panel.rows.itemAt(6).widget().name.accessibleName(), '其他分类')
-        self.assertEqual(panel.rows.itemAt(6).widget().avatar.width(), 24)
+        self.assertEqual(stack.findChild(QLabel, 'BadgeOff').text(), '+1')
+        self.assertEqual(panel.rows.itemAt(7).widget().name.accessibleName(), '其他分类')
+        self.assertEqual(panel.rows.itemAt(7).widget().avatar.width(), 24)
         picture = QPixmap(28, 28)
         picture.fill(QColor('red'))
         panel.set_room_avatar('fixture:0', picture)
@@ -730,7 +979,7 @@ class TrayLayoutPreviewTests(unittest.TestCase):
         container = QWidget(wall)
         container.setGeometry(40, 20, 320, 160)
         container.show()
-        pane((-60, 10, 180, 90), {'room_id': '1', 'uname': '主播甲'}, parent=container)
+        video = pane((-60, 10, 180, 90), {'room_id': '1', 'uname': '主播甲'}, parent=container)
         empty = pane((180, 0, 220, 70))
         pane((0, 100, 80, 100), {'room_id': 'hidden'}).hide()
         pane((500, 0, 60, 60))
@@ -740,7 +989,8 @@ class TrayLayoutPreviewTests(unittest.TestCase):
         self.assertEqual(snapshot['aspect'], 2)
         self.assertEqual(len(snapshot['panes']), 3)
         self.assertEqual(snapshot['panes'][0], dict(
-            rect=(0, .15, .4, .45), kind='video', title='主播甲', occupied=True))
+            rect=(0, .15, .4, .45), kind='video', title='主播甲', occupied=True,
+            room_id='1', tile_key=id(video)))
         self.assertEqual(snapshot['panes'][1]['title'], '空视频格')
         self.assertFalse(snapshot['panes'][1]['occupied'])
         self.assertEqual(snapshot['panes'][2]['rect'], (.45, .35, .55, .65))
@@ -826,6 +1076,26 @@ class TrayLayoutPreviewTests(unittest.TestCase):
                     self.assertNotIn('private-media', encoded)
                     save.assert_not_called()
                     self.assertEqual(list(Path(temporary).iterdir()), [])
+
+    def test_preview_uses_cached_avatar_in_a_narrow_video_pane(self):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QColor, QPixmap
+        from ddm.tray_preview import TrayLayoutPreview
+        preview = TrayLayoutPreview()
+        self.addCleanup(preview.deleteLater)
+        preview.resize(preview.sizeHint())
+        snapshot = dict(aspect=1.5, panes=[
+            dict(rect=(.7, 0, .25, .25), kind='video', title='主播头像', occupied=True, room_id='1')])
+        preview.set_snapshot(snapshot)
+        pixmap = QPixmap(48, 32)
+        pixmap.fill(QColor('#ff9911'))
+        preview.avatars = {'1': pixmap}
+        image = preview.grab().toImage()
+        pane = preview._pane_rect(preview._diagram(), snapshot['panes'][0])
+        center = pane.center().toPoint()
+        self.assertEqual(image.pixelColor(center * image.devicePixelRatio()), QColor('#ff9911'))
+        self.assertNotEqual(image.pixelColor((center - QPoint(8, 8)) * image.devicePixelRatio()),
+                            QColor('#ff9911'), 'Avatar corners should be clipped')
 
 
 def native_contract():

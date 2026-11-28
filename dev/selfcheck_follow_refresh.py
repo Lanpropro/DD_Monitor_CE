@@ -53,6 +53,7 @@ class Window(QObject):
         self._closing = False
         self._poller = None
         self._refresh_queued = False
+        self.settings = {}
         self.plugins = SimpleNamespace(platforms={})
         self.room_status = RoomStatus(self)
 

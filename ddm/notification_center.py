@@ -558,7 +558,7 @@ class NotificationCenter(QFrame):
             painter.setRenderHint(QPainter.Antialiasing)
             path = continuous_path(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), self.RADIUS)
             if self.property('settings_glass_enabled'):
-                # The native blur can extend beyond this popup's rounded mask.
+                # The native blur can extend beyond this popup's painted contour.
                 painter.fillPath(path, glass_tint(self, window_background_tint(self)))
                 painter.fillPath(path, glass_tint(self, card=True))
                 paint_glass_border(painter, path)
@@ -566,13 +566,6 @@ class NotificationCenter(QFrame):
                 painter.setBrush(theme.qcolor(theme.BG))
                 painter.setPen(QPen(theme.qcolor(theme.BORDER), 1))
                 painter.drawPath(path)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        path = QPainterPath()
-        path.addPath(continuous_path(QRectF(self.rect()), self.RADIUS))
-        from PySide6.QtGui import QRegion
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:

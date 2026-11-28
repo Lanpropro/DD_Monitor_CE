@@ -74,10 +74,12 @@ class _Comment:
         return max(self.speed, self.separation_speed)
 
 
-class VideoDanmaku(QWidget):
+class VideoDanmaku(BadgeSurface):
+    _layered_direct_copy = True
     actionsRequested = Signal(object, QPoint)
     superChatDismissed = Signal(str)
     superChatSettingsChanged = Signal(dict)
+    nativeAlphaFailed = Signal()
     MAX_COMMENTS = 80
     GAP = 24
     COLOR_KEY = QColor(1, 2, 3)
@@ -97,6 +99,7 @@ class VideoDanmaku(QWidget):
         self.sc_in_panel = False
         self.active = False
         self.native_video = True
+        self.native_alpha = False
         self.paused = False
         self.settings = {}
         self._comment_width = self.width()
@@ -117,6 +120,7 @@ class VideoDanmaku(QWidget):
         self.timer.setTimerType(Qt.PreciseTimer)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self._tick)
+        self._raster_frame_interval = None
         self._timer_resolution = _TimerResolution()
         self._quick_requested = (os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
                                  and self._native_layered())
@@ -204,8 +208,15 @@ class VideoDanmaku(QWidget):
                     and QApplication.activePopupWidget() is None
                     and QApplication.activeModalWidget() is None and not QApplication.mouseButtons())
         if eligible and tile is not None:
-            for name in ('controls', 'stream_badge', 'title_badge', 'bottom'):
-                widget = getattr(tile, name, None)
+            widgets = tuple(getattr(tile, name, None)
+                            for name in ('controls', 'stream_badge', 'title_badge'))
+            bottom = getattr(tile, 'bottom', None)
+            if bottom is not None and bottom.isVisible() and bottom.windowOpacity() > 0:
+                widgets += (bottom,)
+            occluders = self.surface_control.windowed_occluders
+            if occluders is not None:
+                widgets += tuple(occluders())
+            for widget in widgets:
                 if widget is not None and widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(point)):
                     eligible = False
                     break
@@ -276,16 +287,20 @@ class VideoDanmaku(QWidget):
                     int(values.get("super_chat_video_opacity") or values.get("super_chat_opacity") or 80) / 100)
             if self.isVisible():
                 self._apply_layered()
+                if self.surface_control.windowed_occluders is not None:
+                    self.parentWidget()._update_quick_danmaku_mask()
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
         self._sync_visible()
 
-    def set_native_video(self, native: bool) -> None:
+    def set_native_video(self, native: bool, *, allow_quick: bool = True, per_pixel: bool = False) -> None:
         """Select the backing surface before the overlay is first shown."""
         was_quick = self._quick_requested
         self.native_video = bool(native)
-        self._quick_requested = (os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
+        self.native_alpha = per_pixel and self._native_layered()
+        self._quick_requested = (allow_quick and not self.native_alpha
+                                 and os.environ.get("DDM_QTQUICK_DANMAKU") == "1"
                                  and self._native_layered())
         if was_quick and not self._quick_requested:
             self._stop_timer()
@@ -295,6 +310,14 @@ class VideoDanmaku(QWidget):
             self._quick_mask_signature = None
             super().setMask(self._quick_video_mask)
         self.setAttribute(Qt.WA_NoSystemBackground, self.native_video)
+        if self._raster_frame_interval is not None and self.timer.isActive():
+            self.timer.setInterval(self._motion_interval())
+
+    def set_raster_frame_interval(self, interval_ms: int) -> None:
+        """Pace scroll updates when the overlay shares a QWidget video canvas."""
+        self._raster_frame_interval = interval_ms
+        if self.timer.isActive():
+            self.timer.setInterval(self._motion_interval())
 
     def set_active(self, active: bool) -> None:
         self.active = bool(active)
@@ -377,8 +400,12 @@ class VideoDanmaku(QWidget):
         lanes = self.lane_count()
         if (not text and not event.get("emoticon")) or not lanes:
             return False
-        self._tick()
-        if sum(self._lane_available(lane, 0) for lane in range(lanes)) <= len(self._pending_comments):
+        if self.raster_control.motion_flush_timer is not None:
+            elapsed = self._rolling_elapsed()
+        else:
+            self._tick()
+            elapsed = 0.
+        if sum(self._lane_available(lane, 0, elapsed=elapsed) for lane in range(lanes)) <= len(self._pending_comments):
             return False
         color = self._comment_color(event)
         runs = content_runs(dict(event, text=text))
@@ -402,8 +429,9 @@ class VideoDanmaku(QWidget):
         width = image.width() / image.devicePixelRatioF()
         speed = (self.width() + width) / 8 * int(
             self.settings.get("video_danmaku_speed") or 100) / 100
+        elapsed = self._rolling_elapsed() if self.raster_control.motion_flush_timer is not None else 0.
         lane = next((lane for lane in range(self.lane_count())
-                     if self._lane_available(lane, speed)), None)
+                     if self._lane_available(lane, speed, elapsed=elapsed)), None)
         if lane is None:
             return False  # 满轨道时丢弃，不积压过时的弹幕。
         if self._quick_requested and self._quick_layer is None:
@@ -534,12 +562,13 @@ class VideoDanmaku(QWidget):
         kept = {id(comment) for comment in self.comments}
         self.comments = [comment for comment in comments if id(comment) in kept]
 
-    def _lane_available(self, lane: int, speed: float, x: float | None = None) -> bool:
+    def _lane_available(self, lane: int, speed: float, x: float | None = None, *, elapsed=0.) -> bool:
+        start = self.width() if x is None else x
         for comment in self.comments:
             if comment.lane != lane or comment.held:
                 continue
-            right = comment.right
-            gap = (self.width() if x is None else x) - right
+            right = comment.right - elapsed * comment.motion_speed if elapsed else comment.right
+            gap = start - right
             if gap < self.GAP:
                 return False
             # 后发的长弹幕更快；必须在前一条离开画面之前追不上它。
@@ -549,14 +578,23 @@ class VideoDanmaku(QWidget):
 
     def _start_timer(self) -> None:
         if not self.timer.isActive():
-            screen = self.screen()
-            rate = max(60, screen.refreshRate() if screen else 60)
-            self.timer.setInterval(50 if self._quick_animated() else
-                                   max(4, min(16, round(1000 / rate))))
+            self.timer.setInterval(self._motion_interval())
             self._last_tick = perf_counter()
             if not self._quick_animated():
                 self._timer_resolution.acquire()
             self.timer.start()
+
+    def _motion_interval(self) -> int:
+        if self._quick_animated():
+            return 50
+        if self._raster_frame_interval is not None:
+            return self._raster_frame_interval
+        screen = self.screen()
+        rate = max(60, screen.refreshRate() if screen else 60)
+        return max(4, min(16, round(1000 / rate)))
+
+    def _rolling_elapsed(self):
+        return max(0., perf_counter() - self._last_tick) if self.timer.isActive() and not self.paused else 0.
 
     def _quick_animated(self) -> bool:
         return self._quick_layer is not None and self._quick_layer.render_thread_animation
@@ -600,7 +638,7 @@ class VideoDanmaku(QWidget):
         self._poll_hover()
         self._set_quick_active()
         if bottom and self._quick_layer is None:
-            self.update(QRect(0, 0, self.width(), min(self.height(), bottom)))
+            self.raster_control.queue_motion_update(QRect(0, 0, self.width(), min(self.height(), bottom)))
         if not self.comments:
             self._stop_timer()
 
@@ -622,20 +660,43 @@ class VideoDanmaku(QWidget):
     def paintEvent(self, event) -> None:
         if self._quick_requested:
             return  # The shared Quick window is the only canvas in this mode.
+        if self.native_alpha:
+            self._schedule_layered_paint()
+            return
+        rect = event.rect()
         painter = QPainter(self)
         if self._native_layered():
-            painter.fillRect(event.rect(), self.COLOR_KEY)
+            painter.fillRect(rect, self.COLOR_KEY)
         else:
             painter.setOpacity(int(self.settings.get("video_danmaku_opacity") or 80) / 100)
         if self._quick_layer is not None and self._quick_group is not None:
             return
+        self._draw_comments(painter, rect)
+
+    def _render_layered(self, painter):
+        painter.setOpacity(int(self.settings.get("video_danmaku_opacity") or 80) / 100)
+        self._draw_comments(painter, self.rect())
+
+    def _paint_layered(self):
+        self._alpha_uploaded = False
+        trace = self._layered_paint_trace
+        capture = trace.begin() if trace is not None else None
+        super()._paint_layered(capture)
+        fallback = not self._alpha_uploaded and self.isVisible() and not self.rect().isEmpty()
+        if capture is not None:
+            capture.finish(self._alpha_uploaded, fallback, len(self.comments))
+        if fallback:
+            self.hide()
+            self.nativeAlphaFailed.emit()
+
+    def _draw_comments(self, painter, rect):
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         height = self.lane_height()
         # Sample at paint time as queued QWidget updates may follow the timer.
-        elapsed = max(0, perf_counter() - self._last_tick) if self.timer.isActive() and not self.paused else 0
+        elapsed = self._rolling_elapsed()
         for comment in self._paint_order():
             y = comment.lane * height
-            if y < event.rect().bottom() + 1 and y + height > event.rect().top():
+            if y < rect.bottom() + 1 and y + height > rect.top():
                 painter.drawPixmap(QPointF(comment.x - (0 if comment.held else elapsed * comment.motion_speed), y), comment.image)
 
     _paint_super_chat = staticmethod(_paint_super_chat)
@@ -668,6 +729,9 @@ class VideoDanmaku(QWidget):
     def attach_quick_layer(self, layer) -> None:
         return self.surface_control.attach_quick_layer(layer)
 
+    def set_windowed_quick_layer(self, layer, occluders=None) -> None:
+        self.surface_control.set_windowed_quick_layer(layer, occluders)
+
     def schedule_quick_geometry(self) -> None:
         # QWidget move/resize events run before its native child windows settle.
         # Coalesce updates after that move, rather than submitting Quick geometry inside it.
@@ -699,13 +763,13 @@ class VideoDanmaku(QWidget):
             else:
                 self.super_chat_overlay.raise_()
         if self._native_layered():
-            self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested)
+            self.setAttribute(Qt.WA_OpaquePaintEvent, not self._quick_requested and not self.native_alpha)
             self.setAttribute(Qt.WA_NativeWindow, True)
             self._apply_layered()
-            self._sync_quick_geometry()
-            if self._quick_layer is not None and self._quick_group is not None:
-                self._quick_layer.set_group_visible(self._quick_group, True)
-            self._set_quick_active()
+        self._sync_quick_geometry()
+        if self._quick_layer is not None and self._quick_group is not None:
+            self._quick_layer.set_group_visible(self._quick_group, True)
+        self._set_quick_active()
         if self.comments and not self.paused:
             self._last_tick = perf_counter()
             self._tick()

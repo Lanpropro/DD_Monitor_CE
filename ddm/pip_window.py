@@ -3,8 +3,9 @@ import math
 import sys
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, QTimer, Qt
 from PySide6.QtGui import QColor, QCursor, QKeySequence, QPainter, QPainterPath, QPen, QRegion
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QPushButton, QWidget
 from . import theme
+from .danmaku_widgets import DanmakuPanel
 from .pip_geometry import composition_ratio
 from .shortcut_actions import DEFAULT_SHORTCUTS
 from .window_fullscreen import set_window_topmost
@@ -112,6 +113,7 @@ class PictureInPictureTools(QWidget):
 
 
 class PictureInPictureWindow(QWidget):
+
     def __init__(self, controller):
         flags = Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
         if controller.pinned:
@@ -121,16 +123,19 @@ class PictureInPictureWindow(QWidget):
         self.setWindowTitle('画中画 · DD监控室CE')
         self.setObjectName('PictureInPicture')
         self.setAttribute(Qt.WA_StyledBackground)
-        self.setStyleSheet('#PictureInPicture { background: #000; }')
         self.setFocusPolicy(Qt.StrongFocus)
         self.aspect = 16 / 9
         self._native_rounding = False
         self._rounding_hwnd = None
         self._fitting = False
+        self._pane_rectangles = ()
+        self._pane_region = QRegion()
+        self._has_pane_gaps = False
         self.resize(640, 360)
-        self.box = QVBoxLayout(self)
+        self.box = QHBoxLayout(self)
         self.box.setContentsMargins(0, 0, 0, 0)
         self.box.setSpacing(0)
+        self.danmaku_panels = {}
         self.tools = PictureInPictureTools(self)
         self.pin = self.tools.pin
         self._gesture = None
@@ -170,7 +175,17 @@ class PictureInPictureWindow(QWidget):
                     widget.setMouseTracking(True)
 
     def forget_tile(self, tile):
-        self._surface_state = [entry for entry in self._surface_state if entry[0] not in (tile, tile.video)]
+        remaining = []
+        for widget, tracking, cursor in self._surface_state:
+            if widget not in (tile, tile.video):
+                remaining.append((widget, tracking, cursor))
+                continue
+            widget.setMouseTracking(tracking)
+            if cursor is None:
+                widget.unsetCursor()
+            else:
+                widget.setCursor(cursor)
+        self._surface_state = remaining
 
     def _poll_tools(self):
         if self._live_move is not None:
@@ -192,7 +207,7 @@ class PictureInPictureWindow(QWidget):
                       for button in (*self.tools.findChildren(PictureInPictureButton), self.audio_button))
         visible = (self.isVisible() and not self.isMinimized()
                    and self.controller.dialog is None and (hovered or focused or self.audio_panel.isVisible()))
-        position = self.mapToGlobal(QPoint(self.width() - self.tools.width() - 8, 8))
+        position = self.mapToGlobal(self._tool_position(self.tools.size()))
         moved = self.tools.pos() != position
         was_visible = self.tools.isVisible()
         if moved:
@@ -201,7 +216,7 @@ class PictureInPictureWindow(QWidget):
             self.tools.setVisible(visible)
         if visible and (not was_visible or moved):
             self.tools.raise_()
-        audio_position = self.mapToGlobal(QPoint(8 if self.height() < 64 else self.width() - 32, self.height() - 32))
+        audio_position = self.mapToGlobal(self._tool_position(self.audio_tools.size(), bottom=True))
         audio_moved = self.audio_tools.pos() != audio_position
         audio_visible = self.audio_tools.isVisible()
         if audio_moved:
@@ -211,6 +226,22 @@ class PictureInPictureWindow(QWidget):
             self.audio_tools.raise_()
         if self.controller.dialog is not None:
             self.audio_panel.hide()
+
+    def _tool_position(self, size, *, bottom=False):
+        preferred = QPoint(8 if bottom and self.height() < 64 else self.width() - size.width() - 8,
+                           self.height() - size.height() - 8 if bottom else 8)
+        if not self._has_pane_gaps or QRegion(QRect(preferred, size)).subtracted(self._pane_region).isEmpty():
+            return preferred
+        panes = sorted(self._pane_rectangles,
+                       key=lambda rect: (-rect.bottom() if bottom else rect.top(), -rect.right()))
+        # The toolbar can also span adjoining panes if they occupy the whole row.
+        for pane in panes:
+            position = QPoint(max(0, pane.right() + 1 - size.width() - 8),
+                              pane.bottom() + 1 - size.height() - 8 if bottom else pane.top() + 8)
+            if QRegion(QRect(position, size)).subtracted(self._pane_region).isEmpty():
+                return position
+        return QPoint(min(max(0, self.width() - size.width()), panes[0].x()),
+                      max(0, min(panes[0].y(), self.height() - size.height())))
 
     def _pointer_over(self):
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
@@ -261,6 +292,21 @@ class PictureInPictureWindow(QWidget):
             return self._live_resize.preview.saveGeometry()
         return super().saveGeometry()
 
+    def set_danmaku_panes(self, slots, wall):
+        keys = {chat.key for _, chat in slots}
+        for key in self.danmaku_panels.keys() - keys:
+            panel = self.danmaku_panels.pop(key)
+            panel.hide()
+            panel.deleteLater()
+        for _, chat in slots:
+            if chat.key not in self.danmaku_panels:
+                panel = DanmakuPanel(wall)
+                panel.setAcceptDrops(False)
+                panel.setCursor(Qt.ArrowCursor)
+                self.controller.host._connect_danmaku_panel(panel)
+                self.danmaku_panels[chat.key] = panel
+        return tuple((index, self.danmaku_panels[chat.key]) for index, chat in slots)
+
     def set_composition(self, aspects, columns, primary=0, *, placement=()):
         self.aspect = composition_ratio(aspects, columns, primary, placement=placement)
         minimum_height = max(48, math.ceil((self.tools.width() + 48) / self.aspect))
@@ -274,13 +320,27 @@ class PictureInPictureWindow(QWidget):
         self.resize(width, round(width / self.aspect))
         self._fitting = False
 
+    def set_pane_rectangles(self, rectangles):
+        rectangles = tuple(rectangles)
+        if rectangles == self._pane_rectangles:
+            return
+        self._pane_rectangles = rectangles
+        self._pane_region = QRegion()
+        for rect in rectangles:
+            self._pane_region |= QRegion(rect)
+        self._apply_rounding()
+
     def _apply_rounding(self):
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()), 8, 8)
         region = QRegion(path.toFillPolygon().toPolygon())
-        # Keep comment clipping separate: a hard native region disables DWM's
-        # antialiased window corners, especially visible at fractional DPI.
-        self.setProperty('presentationMask', region)
+        # Allow for the one-pixel remainder when fitting a rectangular layout.
+        self._has_pane_gaps = bool(self._pane_rectangles) and not QRegion(
+            self.rect().adjusted(1, 1, -1, -1)).subtracted(self._pane_region).isEmpty()
+        if self._has_pane_gaps:
+            region &= self._pane_region
+        if self.property('presentationMask') != region:
+            self.setProperty('presentationMask', region)
         if sys.platform == 'win32' and QApplication.platformName() == 'windows':
             from .window_fullscreen import _dwm_set
             hwnd = int(self.winId())
@@ -288,10 +348,11 @@ class PictureInPictureWindow(QWidget):
                 self._rounding_hwnd = hwnd
                 self._native_rounding = _dwm_set(hwnd, 33, 2) == 0
                 _dwm_set(hwnd, 34, 0xFFFFFFFE)
+        # DWM smooths the outer corners even with rectangular holes. Including a
+        # polygonal corner in the window region cuts its antialiased pixels off.
         if self._native_rounding:
-            if not self.mask().isEmpty():
-                self.clearMask()
-        else:
+            region = self._pane_region if self._has_pane_gaps else QRegion()
+        if self.mask() != region:
             self.setMask(region)
 
     def showEvent(self, event):
@@ -324,20 +385,26 @@ class PictureInPictureWindow(QWidget):
         self.audio_feedback.hide()
 
     def _resize_edges(self, point):
-        edges = Qt.Edges()
-        # Larger corner targets, narrow edge targets: no visible resize frame.
-        corner = ((point.x() < 18 or point.x() >= self.width() - 18)
-                  and (point.y() < 18 or point.y() >= self.height() - 18))
-        margin = 18 if corner else 6
-        if point.x() < margin:
-            edges |= Qt.LeftEdge
-        elif point.x() >= self.width() - margin:
-            edges |= Qt.RightEdge
-        if point.y() < margin:
-            edges |= Qt.TopEdge
-        elif point.y() >= self.height() - margin:
-            edges |= Qt.BottomEdge
-        return edges
+        surface = self._pane_region if self._has_pane_gaps else self.rect()
+
+        def edges_at(margin):
+            horizontal = Qt.Edges()
+            vertical = Qt.Edges()
+            if not surface.contains(point - QPoint(margin, 0)):
+                horizontal = Qt.LeftEdge
+            elif not surface.contains(point + QPoint(margin, 0)):
+                horizontal = Qt.RightEdge
+            if not surface.contains(point - QPoint(0, margin)):
+                vertical = Qt.TopEdge
+            elif not surface.contains(point + QPoint(0, margin)):
+                vertical = Qt.BottomEdge
+            return horizontal, vertical
+
+        # Larger corner targets, narrow edge targets, including exposed pane edges.
+        horizontal, vertical = edges_at(18)
+        if not (horizontal and vertical):
+            horizontal, vertical = edges_at(6)
+        return horizontal | vertical
 
     def _resize_geometry(self, bounds, edges, delta):
         rect = QRect(bounds)
@@ -434,7 +501,7 @@ class PictureInPictureWindow(QWidget):
         if not isinstance(watched, QWidget) or watched.window() not in (self, preview):
             return False
         wall = self.controller.display_wall
-        surfaces = (self, preview, wall, *(surface for tile in wall.visible_tiles()
+        surfaces = (self, preview, wall, *self.danmaku_panels.values(), *(surface for tile in wall.visible_tiles()
                                  for surface in (tile, tile.video, tile.cover, tile.video_danmaku, tile.spinner, tile.pause_overlay)))
         if watched not in surfaces:
             return False

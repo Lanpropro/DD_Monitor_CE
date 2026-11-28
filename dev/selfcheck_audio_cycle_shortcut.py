@@ -383,7 +383,7 @@ def main():
                     restored.close()
             cursor = stack.enter_context(patch.object(window, '_tile_under_cursor', return_value=second))
             assert window.shortcuts['audio_cycle'] == 'E', 'old config must inherit the new default'
-            assert ('audio_cycle', '声音轮询按键', 'E') in SHORTCUT_ACTIONS
+            assert ('audio_cycle', '轮换声道与静音', 'E') in SHORTCUT_ACTIONS
             expected = [(False, 0), (False, VolumeButton.CHANNEL_LEFT),
                         (False, VolumeButton.CHANNEL_RIGHT), (True, VolumeButton.CHANNEL_RIGHT)]
             for _ in range(2):
