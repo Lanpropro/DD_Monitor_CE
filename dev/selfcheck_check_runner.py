@@ -24,11 +24,11 @@ class CheckRunnerTests(unittest.TestCase):
     def test_native_pip_lifecycle_checks_run_with_verified_ffmpeg(self):
         suites = runner.load_suites()
         workflow = (runner.ROOT / '.github/workflows/repository-checks.yml').read_text(encoding='utf-8')
-        for name in ('selfcheck_picture_in_picture', 'selfcheck_pip_picker'):
+        for name, timeout in (('selfcheck_picture_in_picture', 180), ('selfcheck_pip_picker', 240)):
             self.assertIn(name, suites['native']['scripts'])
             self.assertNotIn(name, suites['smoke']['scripts'])
             self.assertNotIn(name, suites['offline']['scripts'])
-            self.assertIn('--script '+name+' --timeout 180', workflow)
+            self.assertIn(f'--script {name} --timeout {timeout}', workflow)
         install_step = workflow.split('- name: Install verified FFmpeg for native checks', 1)[1]
         install_step, pip_step = install_step.split('- name: Check native picture-in-picture lifecycle and picker', 1)
         self.assertIn('Get-FileHash -LiteralPath $archive -Algorithm SHA256', install_step)
