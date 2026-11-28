@@ -8,8 +8,8 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [RELEASE-v1.0](RELEASE-v1.0.md) | 1.0 桌面发布候选说明，等待正式版验收 |
-| [RELEASE-v0.9.1](RELEASE-v0.9.1.md) | 当前正式版，含自定义布局、弹幕浮窗、主播监控与醒目留言更新 |
+| [RELEASE-v1.0](RELEASE-v1.0.md) | 当前正式版，含单格回放、自动追帧、录制计划和性能优化 |
+| [RELEASE-v0.9.1](RELEASE-v0.9.1.md) | 自定义布局、弹幕浮窗、主播监控与醒目留言更新 |
 | [RELEASE-v0.9](RELEASE-v0.9.md) | 主播监控、自定义布局与 B 站直播互动 |
 | [RELEASE-v0.8](RELEASE-v0.8.md) | v0.8 正文，含 Hotfix 1 和 Hotfix 2 |
 | [RELEASE-v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 早期独立稿，修订 1 正文已并入 0.8 |
@@ -34,6 +34,7 @@
 
 | 版本 | 说明 |
 | --- | --- |
+| [v1.0](RELEASE-v1.0.md) | 单格回放、自动追帧、录制计划、组合画中画和本体 MCP |
 | [v0.9.1](RELEASE-v0.9.1.md) | 自定义布局、弹幕浮窗、独立开播监控与醒目留言 |
 | [v0.9](RELEASE-v0.9.md) | 主播监控、自定义布局与 B 站直播互动 |
 | [v0.8-hotfix.1](RELEASE-v0.8-hotfix.1.md) | 修订 1 的独立方案草稿归档 |
