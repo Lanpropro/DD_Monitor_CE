@@ -705,7 +705,8 @@ def check_host_save_validation():
                              _apply_settings_dialog=lambda adapter, before: applied.append((adapter, before)))
     order = []
     session = SimpleNamespace(dialog=dialog, client=client, window=window, before='before',
-                              values=lambda: {'auto_update': True}, sync=Mock(), pending_apply=None)
+                              values=lambda: {'auto_update': True}, sync=Mock(), pending_apply=None,
+                              recording_settings_entry=None)
     changes = {'settings': {'default_volume': 17}, 'shortcuts': {'edit': 'E'}}
     SettingsHost.save(session, changes)
     assert not applied, 'Must wait for the worker to detach and close'
@@ -713,6 +714,8 @@ def check_host_save_validation():
     SettingsHost.save(session, changes)
     client._send.assert_called_once_with({'kind': 'host-saved'})
     SettingsHost.handle(session, {'kind': 'result'})
+    assert not applied and session.pending_apply is not None
+    SettingsHost.handle(session, {'kind': 'result', 'host_saved': True})
     assert order == ['closed']
     adapter, before = applied.pop()
     assert adapter.settings() == {'default_volume': 17, 'auto_update': True}

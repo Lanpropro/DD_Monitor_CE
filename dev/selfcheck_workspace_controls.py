@@ -525,11 +525,11 @@ class WorkspaceControlTests(unittest.TestCase):
         self.sidebar.rooms()[1]['uid'] = 1024
         host.auto_recording.room_details['off-wall'] = {'anchor_uid': '117', 'platform': 'douyin'}
         capture = CaptureControl(host)
-        active = SimpleNamespace(room_id='1', name='示例主播1', recording=True, stopping=False,
+        active = SimpleNamespace(tile=SimpleNamespace(), room_id='1', name='示例主播1', recording=True, stopping=False,
                                  started_at=11, recording_started_at=1, retry_at=0, refreshing=False, room={})
-        reconnecting = SimpleNamespace(room_id='manual', name='手动录制主播', recording=True,
+        reconnecting = SimpleNamespace(tile=SimpleNamespace(), room_id='manual', name='手动录制主播', recording=True,
                                        stopping=False, started_at=1, retry_at=1, refreshing=False, room={})
-        duplicate = SimpleNamespace(room_id='1', name='同一主播旧会话', recording=True,
+        duplicate = SimpleNamespace(tile=SimpleNamespace(), room_id='1', name='同一主播旧会话', recording=True,
                                     stopping=True, started_at=1, retry_at=0, refreshing=False, room={})
         cache = SimpleNamespace(room_id='3', recording=False)
         host.recorder.sessions = dict(active=active, reconnecting=reconnecting, duplicate=duplicate, cache=cache)

@@ -29,7 +29,7 @@ class Tile:
 
 tiles = [Tile(str(i), paused=i == 1, muted=i == 4) for i in range(5)]
 players = {tile: Mock() for tile in tiles}
-host = SimpleNamespace(players=players.copy(), _resolvers={}, _retry_timers={},
+host = SimpleNamespace(players=players.copy(), _audio_devices=Mock(), _resolvers={}, _retry_timers={},
                        _pending_capture={tiles[4]: object()}, recorder=SimpleNamespace(sessions={tiles[3]: object()}),
                        _closing=False, start_tile=Mock())
 host._stop_tile = Mock(side_effect=host.players.pop)
