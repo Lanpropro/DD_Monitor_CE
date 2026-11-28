@@ -1,10 +1,10 @@
 ﻿# 打出 DD 监控室 的发布包（Windows / PowerShell 5.1+）
 #
-#   powershell -File dev\build_release.ps1                 # 默认输出到仓库里的 results\
+#   powershell -File dev\build_release.ps1                 # 在 work\release-builds\ 暂存
 #   powershell -File dev\build_release.ps1 -OutDir D:\xx   # 换输出目录
 #   powershell -File dev\build_release.ps1 -SourceOnly     # 只要源码包，不冻 exe
 #
-# 默认产出（都落在 <OutDir>，默认就是仓库里的 results\）：
+# 默认产出（都落在 <OutDir>，默认是仓库里的 work\release-builds\）：
 #   DD监控室-v<版本>-exe\   **免装 Python 的 exe 便携版**（双击 exe 即用）
 #   DD监控室-v<版本>\       源码便携包（要 Python；-SourceOnly 时只出这个）
 #   DD监控室-v<版本>.zip    源码包的压缩包
@@ -28,14 +28,19 @@ $ErrorActionPreference = "Stop"
 Import-Module (Join-Path $PSHOME "Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1") -Force
 $env:PYTHONIOENCODING = "utf-8"
 $repo = Split-Path -Parent $PSScriptRoot
+if (-not $OutDir) { $OutDir = Join-Path $repo "work\release-builds" }
+$OutDir = [IO.Path]::GetFullPath($OutDir)
+$resultsRoot = Join-Path $repo "results"
+if ($OutDir.Equals($resultsRoot, [StringComparison]::OrdinalIgnoreCase) -or
+    $OutDir.StartsWith($resultsRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "暂存构建不能写入 results。请选用 work\release-builds 或其他暂存目录。"
+}
+
 $py = Join-Path $repo ".venv\Scripts\python.exe"
 if (-not (Test-Path $py)) {
     $py = "F:\CodexAppManager\Code\DD_Monitor-venv\Scripts\python.exe"
 }
 if (-not (Test-Path $py)) { throw "没找到 Python 解释器（.venv 或 DD_Monitor-venv）" }
-
-if (-not $OutDir) { $OutDir = Join-Path $repo "results" }
-$OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
 $sourceIdentity = (& $py -c "import json,sys; sys.path.insert(0,sys.argv[1]); from ddm import version; print(json.dumps(dict(tag=version.VERSION_TAG, revision=version.UPDATE_REVISION)))" $repo) | ConvertFrom-Json
 $version = $sourceIdentity.tag

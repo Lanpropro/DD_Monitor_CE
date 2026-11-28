@@ -73,6 +73,13 @@
 - 版本、标签、源码 commit 和构建产物必须对应；具体命令与验证见[贡献指南](../../CONTRIBUTING.md)
   和[Windows 安装包](../development/windows-installer.md)。
 
+### 版本与交付物对齐
+
+- **发布前**：在准备发布批次时，将 `ddm/version.py` 的 `VERSION` 和 `UPDATE_REVISION` 随已验收的源码一起提交。构建记录须写明源码 SHA、版本、修订号和附件 SHA-256。将实际发布源码集成到 `develop` 与 `main`，并核对两条远端分支上的版本字段。初发用正式标签对应的提交。同版本热修复保留原标签，以本轮更新清单和包内 `ddm-build.json` 指向的实际构建提交核对。
+- **发布后**：执行 `git fetch origin main develop --tags`，核对 `origin/develop`、`origin/main`、发布附件和日常 `run.cmd` 所在工作区。对日常工作区记录路径、分支、提交和实际版本。干净且可快进时同步正式基线，有未提交改动或历史分叉时保留原工作区，记录尚未同步的版本和路径，必要时另建干净的验收工作树。从日常 `run.cmd` 的「关于」确认版本后，才能将该工作区记为已同步。版本变更与对应源码一起同步，避免仅改版本字段。
+- **独立插件**：以插件仓库中该 ID 的 `plugin.json` 为准。本体发版时只核对涉及的插件是否兼容。插件发版后分别核对它在 `origin/develop`、`origin/main`、公开 ZIP 和本机明确指定的开发或验收入口中的版本与来源。[插件发布规范](https://github.com/Lanpropro/DD_Monitor_Plugins/blob/develop/CONTRIBUTING.md#版本打包与网站发布)
+- **产物验收**：候选构建与包检查在 `work/release-builds/` 执行，实际使用自定义暂存路径时，两条命令使用同一路径。发布后由同一发布执行者核对线上附件 SHA-256，再将正式产物转入 `results/` 并核对目录清单。交付记录同时写明版本同步结果、正式产物位置和测试包的原路径与现路径。[本机工作区维护](../development/workspace-maintenance.md#results-写入与发布收尾)
+
 ### 独立诊断工具发布
 
 1. 发布新的独立诊断工具版本时，将上一版 GitHub Release 的标题、正文、标签及源码提交、全部上传附件和 SHA-256 归档到 `results/archive/diagnostics-v<旧版本>/`，并核对归档文件的 SHA-256。

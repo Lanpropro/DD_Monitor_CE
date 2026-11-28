@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import tempfile
 import textwrap
 import unittest
@@ -115,6 +117,41 @@ class ProjectWorkflowTests(unittest.TestCase):
                      '每个插件 ID 最新正式版本的 ZIP', '宣传片最终成片',
                      '除此之外', 'ZIP 外的运行配置和日志', 'results/archive/'):
             self.assertIn(text, source)
+
+    def test_release_build_rejects_results_as_staging_output(self):
+        build = ROOT / 'dev/build_release.ps1'
+        self.assertIn('Join-Path $repo "work\\release-builds"', build.read_text(encoding='utf-8-sig'))
+        package_check = (ROOT / 'dev/check_release_package.py').read_text(encoding='utf-8')
+        self.assertIn('default=repo / "work" / "release-builds"', package_check)
+
+        shell = shutil.which('powershell.exe') or shutil.which('pwsh')
+        if os.name != 'nt' or not shell:
+            self.skipTest('PowerShell on Windows is needed for the staging guard')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = root / 'dev' / build.name
+            script.parent.mkdir()
+            shutil.copyfile(build, script)
+            for output in (root / 'results', root / 'RESULTS' / 'candidate'):
+                with self.subTest(output=output):
+                    result = subprocess.run(
+                        [shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script),
+                         '-OutDir', str(output), '-SourceOnly'],
+                        cwd=root, capture_output=True, timeout=40,
+                    )
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(b'work\\release-builds', result.stdout + result.stderr)
+            self.assertFalse((root / 'results').exists())
+
+    def test_release_completion_documents_version_and_artifact_checks(self):
+        release = (ROOT / 'docs/releases/README.md').read_text(encoding='utf-8')
+        maintenance = (ROOT / 'docs/development/workspace-maintenance.md').read_text(encoding='utf-8')
+        for field in ('`VERSION`', '`UPDATE_REVISION`', '`origin/develop`', '`origin/main`',
+                      '`ddm-build.json`', '`run.cmd`', '尚未同步'):
+            self.assertIn(field, release)
+        for location in ('`work/release-builds/`', '`results/release-v<版本>/attachments/`',
+                         '`results/plugins/`', '原路径、现路径及校验结果'):
+            self.assertIn(location, maintenance)
 
     def test_release_requires_human_review_of_changes_and_notes(self):
         release = (ROOT / 'docs/releases/README.md').read_text(encoding='utf-8')

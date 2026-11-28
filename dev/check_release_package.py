@@ -12,7 +12,7 @@ from pathlib import Path
 
 repo = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
-parser.add_argument("--out-dir", type=Path, default=repo / "results")
+parser.add_argument("--out-dir", type=Path, default=repo / "work" / "release-builds")
 parser.add_argument("--old-zip", type=Path)
 args = parser.parse_args()
 results = args.out_dir.resolve()
