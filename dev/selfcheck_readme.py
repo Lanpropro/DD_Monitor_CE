@@ -1,4 +1,4 @@
-"""验证功能版 README 的下载版本、链接、展示图与贡献者入口。"""
+"""验证 README 的下载版本、导航、品牌图、截图与贡献者链接。"""
 import ast
 from pathlib import Path
 import re
@@ -22,6 +22,7 @@ def check():
     download_version = published.group(1) if published else version
     assert all(value == download_version for value in archives + executables), "stale README download version"
     links = re.findall(r"\]\(([^)]+)\)", readme)
+    links += re.findall(r'<a\s+href="([^"]+)"', readme)
     release_download = f"https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v{download_version}/"
     for filename in ("DDMonitorSetup.exe", f"DDMonitorCE-v{download_version}-exe.zip"):
         assert release_download + filename in links, f"download must point to the published release: {filename}"
@@ -34,18 +35,22 @@ def check():
             assert target[1:] in anchors, f"missing section: {target}"
         elif "://" not in target:
             assert (ROOT / target.split("#", 1)[0]).is_file(), f"missing local file: {target}"
-    assert {"功能特性", "插件扩展", "下载", "文档", "贡献者", "致谢与许可"} <= anchors
-    images = [Path(target) for target in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', readme)
+    assert {"下载", "快速开始", "主要功能", "插件扩展", "使用帮助与反馈", "致谢与许可"} <= anchors
+    images = [target for target in re.findall(r'!\[[^\]]*\]\(([^)]+)\)', readme)
               if '://' not in target]
-    assert [path.as_posix() for path in images] == [
-        'docs/assets/screenshots/overview4_Landscape_mode.png', 'docs/assets/screenshots/overview5_Landscape_mode.png',
-        'docs/assets/screenshots/overview2_Portrait_Mode.png'], 'README must use the selected current screenshots'
+    assert images == [
+        'docs/assets/screenshots/v1.0-landscape.png',
+        'docs/assets/screenshots/v1.0-portrait.png',
+        'docs/assets/screenshots/v1.0-danmaku.png',
+    ], 'README must use the selected current screenshots'
+    logos = re.findall(r'<img\s+src="([^"]+)"', readme)
+    assert logos == ['design/icon-concepts/app-icon-badge.png'], 'README must use the selected brand logo'
     tracked = set(subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode('utf-8').split('\0'))
-    for path in images:
-        assert path.as_posix() in tracked, f'screenshot must be included in the repository: {path}'
-    assert 'https://contrib.rocks/image?repo=Lanpropro/DD_Monitor_CE' in readme
-    assert 'https://github.com/Lanpropro/DD_Monitor_CE/graphs/contributors' in readme
-    print("PASS: feature README downloads, local links/anchors, selected tracked screenshots and contributor wall")
+    for image in logos + images:
+        assert image in tracked and (ROOT / image).is_file(), f'README image must be included in the repository: {image}'
+    assert f'docs/releases/RELEASE-v{download_version}.md' in links
+    assert 'https://github.com/Lanpropro/DD_Monitor_CE/graphs/contributors' in links
+    print("PASS: README downloads, local links/anchors, selected tracked images and contributor link")
 
 
 if __name__ == "__main__":

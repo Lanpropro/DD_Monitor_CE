@@ -1,107 +1,84 @@
-<div align="center">
+<p align="center">
+  <img src="design/icon-concepts/app-icon-badge.png" alt="DD监控室CE Logo" width="320" height="320">
+</p>
 
-# DD监控室CE
+<h1 align="center">DD监控室CE</h1>
 
-把喜欢的直播，摆成你的样子。
+<h3 align="center">把喜欢的直播，摆成你的样子</h3>
 
-免费、开源的 Windows 多窗口直播观看与监控工具。
+<p align="center">DD监控室CE 是一款免费、开源的 Windows 多路直播观看工具。把常看的直播间放进同一面画面墙，每一路的画质、音量和弹幕都能单独调节。</p>
 
-![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?logo=windows&logoColor=white)
-[![版本](https://img.shields.io/badge/版本-1.0-5cd6ff)](https://github.com/Lanpropro/DD_Monitor_CE/releases/tag/v1.0)
-[![许可](https://img.shields.io/badge/License-LGPL--2.1-blue.svg)](LICENSE)
+<p align="center">
+  <a href="#下载">下载软件</a> · <a href="#快速开始">快速开始</a> · <a href="#插件扩展">插件扩展</a> · <a href="#使用帮助与反馈">反馈问题</a>
+</p>
 
-[下载软件](#下载) · [移动端项目](https://github.com/Lanpropro/DD_Monitor_Mobile) · [快速开始](#快速开始) · [功能特性](#功能特性) · [插件扩展](#插件扩展) · [文档](#文档) · [反馈问题](https://github.com/Lanpropro/DD_Monitor_CE/issues)
+![DD监控室CE 横屏画面墙](docs/assets/screenshots/v1.0-landscape.png)
 
-</div>
-
-## 一块屏幕，多路直播
-
-将多个直播间集中放进同一面画面墙，自由安排布局，逐路控制画质、声音和弹幕。
-
-本体支持 B 站播放、弹幕发送、表情和礼物，可通过独立插件接入其他直播平台、导入 IPTV 频道，或扩展比赛二路。软件免费使用，无付费解锁功能。
-
-![DD监控室CE 横屏画面墙](docs/assets/screenshots/overview4_Landscape_mode.png)
+画面使用公开直播间封面，折叠区里的弹幕为示例。
 
 <details>
-<summary>查看弹幕布局与竖屏布局</summary>
+<summary>查看竖屏布局和弹幕布局</summary>
 
-![弹幕布局](docs/assets/screenshots/overview5_Landscape_mode.png)
-
-![竖屏布局](docs/assets/screenshots/overview2_Portrait_Mode.png)
+![竖屏画面墙](docs/assets/screenshots/v1.0-portrait.png)
+![带独立弹幕格的画面墙](docs/assets/screenshots/v1.0-danmaku.png)
 
 </details>
-
-## 功能特性
-
-| 功能 | 支持内容 |
-| --- | --- |
-| 多路同屏 | 最多 16 路直播，逐路播放、暂停、关闭和全屏 |
-| 布局预设 | 横竖屏预设、跨行跨列布局、方向自动切换，保存与恢复直播间组合 |
-| 关注管理 | 导入账号关注，按主播名或直播间标题搜索，支持拼音、置顶、拖动排序、常看优先及普通与智能文件夹 |
-| 直播监控 | 开播提醒、直播状态刷新、关注悬停预览、断流重连与画面卡死检测 |
-| 逐路控制 | 独立画质、音量与静音，左右声道路由，全局与单窗口编解码设置 |
-| 画中画 | 可与主画面墙同时播放，独立调整小窗布局和音量 |
-| 弹幕观看 | 独立弹幕格与滚动画面弹幕，可调字体、字号、颜色及缩放曲线，支持屏蔽词过滤 |
-| B 站直播互动 | 弹幕发送、表情选择与礼物互动 |
-| 录制回放 | 每路独立录制、保存最近数分钟的即时回放，原始流直存与显卡重编码 |
-| 外观主题 | 深浅主题、自定义图片或静音视频背景、皮肤与美化插件 |
-| 软件更新 | 本体与插件独立更新，软件内置更新入口 |
-| 后台常驻 | 关闭时选择隐藏到托盘或退出，可记住选择；托盘支持恢复窗口和退出 |
-
-首次关闭窗口时可选择“隐藏到托盘”或“退出程序”。勾选“记住我的选择”后按所选方式关闭；
-未勾选则下次继续询问。可在“设置 → 常规 → 关闭窗口时”更改。
-双击托盘图标可恢复窗口，右键菜单可显示、隐藏或退出。可在常规设置中选择隐藏到托盘时暂停观看，录制继续运行。
-
-## 插件扩展
-
-按需扩展平台与互动功能，插件版本独立于本体。
-
-| 插件 | 功能 |
-| --- | --- |
-| 国内直播平台 | 按需安装虎牙、斗鱼、抖音和企鹅体育扩展 |
-| 海外直播平台 | 按需安装 Twitch、YouTube 和 CHZZK 扩展 |
-| IPTV Play | 导入本地 M3U 文件或在线频道列表，在画面墙观看频道 |
-| 比赛二路同步 | 多路比赛画面对齐、声音与弹幕合并 |
-| B 站稍后再看 | 在侧栏浏览和播放账号的稍后再看列表 |
-
-可在软件内的插件商店获取上表所列扩展。具体能力及兼容要求以插件说明为准。
-
-抖音关注读取完成后会进入软件内的勾选菜单，可搜索并选择文件夹导入。未开播、暂时取不到房间号的账号也可直接勾选导入，无需寻找直播间链接；导入后随状态刷新自动查找直播间。补充识别支持进度显示与停止后继续，不会自动播放。
-
-[查看插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins) · [插件说明](docs/plugins.md)
 
 ## 下载
 
 当前已发布版本 **1.0**，支持 **Windows 10 / 11 64 位**。
 
-[查看本次更新说明](docs/releases/RELEASE-v1.0.md)。
+- **安装版**：下载并运行安装程序。[下载 1.0 安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v1.0/DDMonitorSetup.exe)
+- **便携版**：完整解压 ZIP 后运行 `DD监控室CE.exe`。[下载 1.0 便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v1.0/DDMonitorCE-v1.0-exe.zip)
+- **已有用户**：打开「设置 → 软件更新」检查新版。
 
-[安装版](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v1.0/DDMonitorSetup.exe) · [便携版 ZIP](https://github.com/Lanpropro/DD_Monitor_CE/releases/download/v1.0/DDMonitorCE-v1.0-exe.zip) · [全部版本与更新说明](https://github.com/Lanpropro/DD_Monitor_CE/releases)
-
-安装版与便携版均无需安装 Python。已安装 0.8 的用户可打开「设置 → 软件更新」检查更新，也可下载新安装包覆盖升级。
+[查看 1.0 更新说明](docs/releases/RELEASE-v1.0.md) · [查看所有版本](https://github.com/Lanpropro/DD_Monitor_CE/releases)
 
 ## 快速开始
 
-1. 运行安装程序，或解压便携版后打开软件。
-2. 在主窗口打开「添加直播间」，可一次粘贴多个房间号或分享链接。点击空白播放格的添加按钮，从关注列表选取直播间上墙。
-3. 从「布局预设」选择画面排列，或保存当前直播间组合。需要其他平台时，到「设置 → 插件 → 插件商店」安装对应扩展。
+1. 点击「添加直播间」，输入 B 站直播间链接或房间号。
+2. 点击画面墙上空白播放格里的「＋」。
+3. 在关注列表中选中刚添加的直播间，即可开始播放。
 
-## 文档
+- **导入关注**：点击「导入关注」，从已登录的 B 站账号或支持关注导入的平台账号中选择主播。
+- **调整布局**：从「布局预设」选择横屏或竖屏布局。要保留当前排布，在「布局预设 → 直播间组合」里点击「保存当前组合…」。
+- **观看其他平台**：到「设置 → 插件 → 插件商店」安装对应插件。
 
-[文档目录](docs/README.md) · [插件说明](docs/plugins.md) · [外观与皮肤](docs/features/skins.md) · [直播间组合](docs/features/room-presets-design.md) · [更新机制](docs/online-updates.md) · [开发与贡献](CONTRIBUTING.md)
+## 主要功能
 
-可离线试用界面交互样例，并查看 Qt 外观对照。 [界面控件图鉴与设计参考](docs/references/ui-control-library-draft.md)
+- **多路同屏**：画面墙最多放 16 路直播。可单独调节每一路的画质、音量和静音状态。
+- **布局与组合**：提供横屏、竖屏和带独立弹幕格的布局。可保存当前直播间和格子排布，下次直接恢复。
+- **关注与开播提醒**：可搜索、置顶和分组管理主播。开播提醒和自动录制可以分别设置。
+- **弹幕与互动**：弹幕可叠在画面上，也可放到独立弹幕格或浮窗。B 站直播原生支持发送弹幕、表情和礼物互动。
+- **录制与即时回放**：可逐路录制，开启即时回放缓存后可在单格回看直播，也可保存最近一段直播。
+- **外观与托盘**：可切换深浅主题、更换背景或应用图标。关闭窗口时可选择隐藏到系统托盘，也可直接退出。
 
-## 贡献者
+## 插件扩展
 
-感谢所有为 DD监控室CE 贡献代码、修复问题和完善文档的朋友。
+本体内置 B 站直播支持，也可以按需安装插件扩展其他平台和功能。
 
-[![DD监控室CE 贡献者](https://contrib.rocks/image?repo=Lanpropro/DD_Monitor_CE)](https://github.com/Lanpropro/DD_Monitor_CE/graphs/contributors)
+| 用途 | 插件示例 |
+| --- | --- |
+| 国内直播平台 | 虎牙、斗鱼、抖音、企鹅体育 |
+| 海外直播平台 | Twitch、YouTube、CHZZK |
+| 导入电视频道 | IPTV Play，支持导入 M3U 频道列表 |
+| 同时看比赛主路和二路 | 比赛二路同步，支持多路画面对齐 |
+| 管理 B 站待看内容 | B 站稍后再看 |
 
-欢迎通过 [Issue](https://github.com/Lanpropro/DD_Monitor_CE/issues) 反馈问题，或提交 Pull Request 参与改进。
+插件独立发布，具体功能、登录要求和兼容版本以插件说明为准。[查看插件仓库](https://github.com/Lanpropro/DD_Monitor_Plugins)
+
+手机端有独立仓库，仍然在开发中。[查看独立移动端项目](https://github.com/Lanpropro/DD_Monitor_Mobile)
+
+## 使用帮助与反馈
+
+提交问题时，请附上软件版本、复现步骤、预期结果和实际结果。有截图也可以一并附上。
+
+如需提供运行记录，可在「设置 → 诊断与反馈」中导出诊断包，检查内容后手动附到 Issue。
+
+[文档中心](docs/README.md) · [提交问题或建议](https://github.com/Lanpropro/DD_Monitor_CE/issues/new/choose) · [开发与贡献](CONTRIBUTING.md)
 
 ## 致谢与许可
 
-本项目是 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 的二次开发版本，原作者为 [执明神君](https://space.bilibili.com/637783)。感谢 [blivedm](https://github.com/xfgryujk/blivedm) 的弹幕协议实现，以及 [BewlyCat](https://github.com/keleus/BewlyCat) 的界面设计参考。
+本项目基于执明神君的 [DD监控室](https://gitee.com/zhimingshenjun/DD_Monitor_latest) 二次开发。感谢 blivedm 提供弹幕协议实现，也感谢 BewlyCat 提供界面设计参考，以及所有参与贡献与测试的朋友。[blivedm](https://github.com/xfgryujk/blivedm) · [BewlyCat](https://github.com/keleus/BewlyCat) · [贡献者名单](https://github.com/Lanpropro/DD_Monitor_CE/graphs/contributors)
 
-项目采用 [GNU LGPL v2.1](LICENSE) 许可，第三方来源与声明见 [NOTICE](docs/NOTICE.md)。本项目为个人维护的第三方工具，与哔哩哔哩官方无关。
+DD监控室CE 是个人维护的第三方工具，与哔哩哔哩官方无关。项目采用 GNU LGPL v2.1 许可。[许可证](LICENSE) · [第三方声明](docs/NOTICE.md)
