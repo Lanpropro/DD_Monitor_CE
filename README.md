@@ -12,15 +12,13 @@
   <a href="#下载">下载软件</a> · <a href="#快速开始">快速开始</a> · <a href="#插件扩展">插件扩展</a> · <a href="#使用帮助与反馈">反馈问题</a>
 </p>
 
-![DD监控室CE 横屏画面墙](docs/assets/screenshots/v1.0-landscape.png)
-
-画面使用公开直播间封面，折叠区里的弹幕为示例。
+![DD监控室CE 横屏画面墙](docs/assets/screenshots/overview4_Landscape_mode.png)
 
 <details>
 <summary>查看竖屏布局和弹幕布局</summary>
 
-![竖屏画面墙](docs/assets/screenshots/v1.0-portrait.png)
-![带独立弹幕格的画面墙](docs/assets/screenshots/v1.0-danmaku.png)
+![竖屏画面墙](docs/assets/screenshots/overview2_Portrait_Mode.png)
+![带独立弹幕格的画面墙](docs/assets/screenshots/overview5_Landscape_mode.png)
 
 </details>
 

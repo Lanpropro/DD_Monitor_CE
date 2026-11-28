@@ -629,9 +629,6 @@
 - `docs/assets/screenshots/overview2_Portrait_Mode.png`
 - `docs/assets/screenshots/overview4_Landscape_mode.png`
 - `docs/assets/screenshots/overview5_Landscape_mode.png`
-- `docs/assets/screenshots/v1.0-danmaku.png`
-- `docs/assets/screenshots/v1.0-landscape.png`
-- `docs/assets/screenshots/v1.0-portrait.png`
 - `docs/plugins.md`
 - `docs/repository-map.md`
 - `docs/features/resize-performance.md`
